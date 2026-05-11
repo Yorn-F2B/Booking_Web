@@ -19,18 +19,24 @@
                     <div class="settings-section text-center">
                         <!-- Avatar upload -->
                         <div class="avatar-upload-wrap mb-3 mx-auto" style="width:fit-content">
-                            <img id="avatarPreview" src="https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg"
-                                alt="avatar" class="avatar-lg" />
+                            <img id="avatarPreview" src="{{ Auth::user()->avatar
+        ? asset('storage/' . Auth::user()->avatar)
+        : 'https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg'
+                                        }}" alt="avatar" class="avatar-lg" />
                             <label for="avatarInput" class="avatar-upload-overlay" title="Đổi ảnh đại diện">
                                 <i class="bx bx-camera"></i>
                             </label>
-                            <input type="file" id="avatarInput" accept="image/*" class="d-none" />
+                            <input type="file" id="avatarInput" form="userSettingsForm" name="avatar" accept="image/*"
+                                class="d-none" />
                         </div>
-                        <h2 class="h6 fw-bold mb-1" style="font-family:'DM Serif Display',serif">Nguyễn Văn A</h2>
-                        <p class="text-muted small mb-1">nguyenvana@email.com</p>
+                        <h2 class="h6 fw-bold mb-1" style="font-family:'DM Serif Display',serif">{{ Auth::user()->name }}
+                        </h2>
+                        <p class="text-muted small mb-1">{{ Auth::user()->email }}</p>
                         <hr class="my-3" />
                         <ul class="list-unstyled text-start small text-muted mb-0" style="line-height:2">
-                            <li><i class="bx bx-calendar-check me-2 text-gold"></i>Thành viên từ: 01/2024</li>
+                            <li><i class="bx bx-calendar-check me-2 text-gold"></i>Thành viên từ:
+                                {{ Auth::user()->created_at }}
+                            </li>
                             <li><i class="bx bx-hotel me-2 text-gold"></i>Đã đặt: 7 lần</li>
                         </ul>
                     </div>
@@ -69,51 +75,135 @@
                         <!-- Tab 1: Thông tin cá nhân -->
                         <div class="tab-pane fade show active" id="profile" role="tabpanel">
                             <div class="settings-section">
+
                                 <h3 class="settings-section-title">
-                                    <i class="bx bx-user"></i> Thông tin cá nhân
+                                    <i class="bx bx-user"></i>
+                                    Thông tin cá nhân
                                 </h3>
-                                <form id="settingsForm">
+
+                                @if(session('success'))
+                                    <div class="alert alert-success">
+                                        {{ session('success') }}
+                                    </div>
+                                @endif
+
+                                <form id="userSettingsForm" method="POST" action="{{ route('user.settings.update') }}"
+                                    enctype="multipart/form-data">
+
+                                    @csrf
+
                                     <div class="row g-3">
+
+                                        {{-- HỌ --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">Họ và tên</label>
-                                            <input type="text" class="form-control" value="Nguyễn Văn A" />
+                                            <label class="form-label small fw-semibold">
+                                                Họ
+                                            </label>
+
+                                            <input type="text" name="first_name" class="form-control"
+                                                value="{{ $customer->first_name }}" />
                                         </div>
+
+                                        {{-- TÊN --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">Số CCCD</label>
-                                            <input type="text" class="form-control" value="079203001234" />
+                                            <label class="form-label small fw-semibold">
+                                                Tên
+                                            </label>
+
+                                            <input type="text" name="last_name" class="form-control"
+                                                value="{{ $customer->last_name }}" />
                                         </div>
+
+                                        {{-- CCCD --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">Số điện thoại</label>
-                                            <input type="tel" class="form-control" value="0988 666 999" />
+                                            <label class="form-label small fw-semibold">
+                                                Số CCCD
+                                            </label>
+
+                                            <input type="text" name="cccd" class="form-control"
+                                                value="{{ $customer->cccd }}" />
                                         </div>
+
+                                        {{-- PHONE --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">Email</label>
-                                            <input type="email" class="form-control" value="nguyenvana@email.com" />
+                                            <label class="form-label small fw-semibold">
+                                                Số điện thoại
+                                            </label>
+
+                                            <input type="tel" name="phone" class="form-control"
+                                                value="{{ $customer->phone }}" />
                                         </div>
+
+                                        {{-- EMAIL --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">Ngày sinh</label>
-                                            <input type="date" class="form-control" value="1995-09-15" />
+                                            <label class="form-label small fw-semibold">
+                                                Email
+                                            </label>
+
+                                            <input type="email" name="email" class="form-control"
+                                                value="{{ $customer->email }}" />
                                         </div>
+
+                                        {{-- BIRTHDAY --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">Giới tính</label>
-                                            <select class="form-select">
-                                                <option selected>Nam</option>
-                                                <option>Nữ</option>
-                                                <option>Khác</option>
+                                            <label class="form-label small fw-semibold">
+                                                Ngày sinh
+                                            </label>
+
+                                            <input type="date" name="birthday" class="form-control"
+                                                value="{{ $customer->birthday }}" />
+                                        </div>
+
+                                        {{-- GENDER --}}
+                                        <div class="col-md-6">
+                                            <label class="form-label small fw-semibold">
+                                                Giới tính
+                                            </label>
+
+                                            <select name="gender" class="form-select">
+
+                                                <option value="male" {{ $customer->gender == 'male' ? 'selected' : '' }}>
+                                                    Nam
+                                                </option>
+
+                                                <option value="female" {{ $customer->gender == 'female' ? 'selected' : '' }}>
+                                                    Nữ
+                                                </option>
+
+                                                <option value="other" {{ $customer->gender == 'other' ? 'selected' : '' }}>
+                                                    Khác
+                                                </option>
+
                                             </select>
                                         </div>
+
+                                        {{-- ADDRESS --}}
                                         <div class="col-12">
-                                            <label class="form-label small fw-semibold">Địa chỉ liên hệ</label>
-                                            <textarea class="form-control" rows="2">Sơn Trà, Đà Nẵng</textarea>
+                                            <label class="form-label small fw-semibold">
+                                                Địa chỉ liên hệ
+                                            </label>
+
+                                            <textarea name="address" class="form-control"
+                                                rows="2">{{ $customer->address }}</textarea>
                                         </div>
+
                                     </div>
+
                                     <div class="mt-3 d-flex gap-2">
+
                                         <button type="submit" class="btn btn-primary px-4">
-                                            <i class="bx bx-save me-1"></i>Lưu thay đổi
+                                            <i class="bx bx-save me-1"></i>
+                                            Lưu thay đổi
                                         </button>
-                                        <button type="reset" class="btn btn-outline-secondary px-4">Hủy</button>
+
+                                        <button type="reset" class="btn btn-outline-secondary px-4">
+                                            Hủy
+                                        </button>
+
                                     </div>
+
                                 </form>
+
                             </div>
                         </div>
 
@@ -125,12 +215,18 @@
                                 </h3>
                                 <p class="small text-muted mb-3">Để bảo mật tài khoản, hãy sử dụng mật khẩu mạnh gồm chữ
                                     hoa, chữ thường, số và ký tự đặc biệt.</p>
-                                <form id="passwordForm">
+                                @if(session('success'))
+                                    <div class="alert alert-success">
+                                        {{ session('success') }}
+                                    </div>
+                                @endif
+                                <form id="passwordForm" method="post" action="{{ route('user.password.update') }}">
+                                    @csrf
                                     <div class="row g-3">
                                         <div class="col-md-12">
                                             <label class="form-label small fw-semibold">Mật khẩu hiện tại</label>
                                             <div class="input-group">
-                                                <input type="password" class="form-control" id="currentPwd"
+                                                <input name="pass_old" type="password" class="form-control" id="currentPwd"
                                                     placeholder="Nhập mật khẩu hiện tại" />
                                                 <button class="btn btn-outline-secondary" type="button"
                                                     onclick="togglePwd('currentPwd',this)">
@@ -141,7 +237,7 @@
                                         <div class="col-md-6">
                                             <label class="form-label small fw-semibold">Mật khẩu mới</label>
                                             <div class="input-group">
-                                                <input type="password" class="form-control" id="newPwd"
+                                                <input name="pass_new" type="password" class="form-control" id="newPwd"
                                                     placeholder="Tối thiểu 8 ký tự"
                                                     oninput="checkPwdStrength(this.value)" />
                                                 <button class="btn btn-outline-secondary" type="button"
@@ -157,7 +253,7 @@
                                         <div class="col-md-6">
                                             <label class="form-label small fw-semibold">Xác nhận mật khẩu mới</label>
                                             <div class="input-group">
-                                                <input type="password" class="form-control" id="confirmPwd"
+                                                <input name="pass_re" type="password" class="form-control" id="confirmPwd"
                                                     placeholder="Nhập lại mật khẩu mới" />
                                                 <button class="btn btn-outline-secondary" type="button"
                                                     onclick="togglePwd('confirmPwd',this)">

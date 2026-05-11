@@ -38,21 +38,89 @@
 
                 <!-- Right group -->
                 <ul class="navbar-nav mb-2 mb-lg-0 align-items-lg-center gap-lg-2">
-                    <li class="nav-item"><a class="nav-link {{ request()->is('login') ? 'active' : '' }}"  href="/login"><i class="bx bx-log-in me-1"></i>Đăng
-                            nhập</a></li>
-                    <li class="nav-item"><a class="nav-link {{ request()->is('register') ? 'active' : '' }}" href="/register">Đăng ký</a></li>
+
+                    @guest
+
+                        {{-- LOGIN --}}
+                        <li class="nav-item">
+
+                            <a class="nav-link {{ request()->is('login') ? 'active' : '' }}" href="{{ route('login') }}">
+
+                                <i class="bx bx-log-in me-1"></i>
+                                Đăng nhập
+
+                            </a>
+
+                        </li>
+
+                        {{-- REGISTER --}}
+                        <li class="nav-item">
+
+                            <a class="nav-link {{ request()->is('register') ? 'active' : '' }}"
+                                href="{{ route('register') }}">
+
+                                Đăng ký
+
+                            </a>
+
+                        </li>
+
+                    @endguest
+
+
+                    @auth
+
+                        {{-- USER --}}
+                        <li class="nav-item">
+
+                            <a class="nav-link {{ request()->is('user-settings') ? 'active' : '' }}" href="/user-settings"
+                                title="Tài khoản">
+
+                                <i class="bx bx-user-circle" style="font-size:1.25rem;vertical-align:middle"></i>
+
+                                {{ Auth::user()->name }}
+
+                            </a>
+
+                        </li>
+
+                        {{-- LOGOUT --}}
+                        <li class="nav-item">
+
+                            <form method="POST" action="{{ route('logout') }}">
+
+                                @csrf
+
+                                <button type="submit" class="btn nav-link border-0 bg-transparent">
+
+                                    <i class="bx bx-log-out me-1"></i>
+                                    Đăng xuất
+
+                                </button>
+
+                            </form>
+
+                        </li>
+
+                    @endauth
+
+                    {{-- DIVIDER --}}
                     <li class="d-none d-lg-block nav-divider"></li>
+
+                    {{-- BOOKING HISTORY --}}
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('user-settings') ? 'active' : '' }}" href="/user-settings" title="Tài khoản">
-                            <i class="bx bx-user-circle" style="font-size:1.25rem;vertical-align:middle"></i>
-                        </a>
-                    </li>
-                    <li class="nav-item">
+
                         <a class="btn-nav-cta" href="/booking-history">
-                            <i class="bx bx-calendar-check"></i> Lịch sử đặt phòng
+
+                            <i class="bx bx-calendar-check"></i>
+                            Lịch sử đặt phòng
+
                         </a>
+
                     </li>
+
                 </ul>
+
             </div>
         </div>
     </nav>
