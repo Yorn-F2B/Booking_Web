@@ -1,0 +1,129 @@
+@extends('layouts.user')
+
+@section('title', 'Login')
+
+@section('content')
+
+    <section class="page-header">
+
+        <div class="container">
+
+            <h1 class="display-6 fw-bold mb-1">
+                Đăng nhập tài khoản
+            </h1>
+
+            <p class="text-muted mb-0">
+                Quản lý lịch sử đặt phòng và
+                thông tin cá nhân của bạn.
+            </p>
+
+        </div>
+
+    </section>
+
+    <main class="py-5">
+
+        <div class="container">
+
+            <div class="row justify-content-center">
+
+                <div class="col-lg-5">
+
+                    <div class="card border-0 shadow-sm">
+
+                        <div class="card-body p-4">
+
+                            <h2 class="h5 fw-bold mb-3">
+                                Thông tin đăng nhập
+                            </h2>
+
+                            @if ($errors->has('email') || $errors->has('password'))
+                                <div class="alert alert-danger">
+                                    Email hoặc mật khẩu không đúng
+                                </div>
+                            @endif
+
+                            <form method="POST" action="{{ route('login') }}" id="loginForm">
+
+                                @csrf
+
+                                {{-- EMAIL --}}
+                                <div class="mb-3">
+
+                                    <label class="form-label">
+                                        Email
+                                    </label>
+
+                                    <input name="email" type="email" class="form-control" placeholder="email@domain.com"
+                                        required />
+
+                                </div>
+
+                                {{-- PASSWORD --}}
+                                <div class="mb-3">
+
+                                    <label class="form-label">
+                                        Mật khẩu
+                                    </label>
+
+                                    <input name="password" type="password" class="form-control" placeholder="Nhập mật khẩu"
+                                        required />
+
+                                </div>
+
+                                {{-- REMEMBER --}}
+                                <div class="form-check mb-3">
+
+                                    <input class="form-check-input" type="checkbox" name="remember" id="remember" />
+
+                                    <label class="form-check-label" for="remember">
+
+                                        Ghi nhớ đăng nhập
+
+                                    </label>
+
+                                </div>
+
+                                {{-- LINKS --}}
+                                <div class="d-flex justify-content-between small mb-3">
+
+                                    @if (Route::has('password.request'))
+
+                                        <a href="{{ route('password.request') }}" class="text-primary">
+
+                                            Quên mật khẩu?
+
+                                        </a>
+
+                                    @endif
+
+                                    <a href="{{ route('register') }}" class="text-primary">
+
+                                        Chưa có tài khoản?
+
+                                    </a>
+
+                                </div>
+
+                                {{-- BUTTON --}}
+                                <button type="submit" class="btn btn-primary w-100">
+
+                                    Đăng nhập
+
+                                </button>
+
+                            </form>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+@endsection
