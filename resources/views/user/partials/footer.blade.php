@@ -28,28 +28,29 @@
       <div class="col-lg-2 col-md-3 col-6">
         <p class="footer-heading">Khám phá</p>
         <ul class="list-unstyled small mb-0" style="line-height:2">
-          <li><a href="/index">Trang chủ</a></li>
-          <li><a href="/rooms">Hạng phòng</a></li>
-          <li><a href="/about">Giới thiệu</a></li>
-          <li><a href="/contact">Liên hệ</a></li>
+          <li><a href="{{ url('/') }}">Trang chủ</a></li>
+          <li><a href="{{ url('rooms') }}">Hạng phòng</a></li>
+          <li><a href="{{ url('about') }}">Giới thiệu</a></li>
+          <li><a href="{{ url('contact') }}">Liên hệ</a></li>
         </ul>
       </div>
       <div class="col-lg-2 col-md-3 col-6">
         <p class="footer-heading">Tài khoản</p>
         <ul class="list-unstyled small mb-0" style="line-height:2">
-          <li><a href="/login">Đăng nhập</a></li>
-          <li><a href="/register">Đăng ký</a></li>
-          <li><a href="/user-settings">Cài đặt</a></li>
-          <li><a href="/booking-history">Lịch sử đặt phòng</a></li>
+          <li><a href="{{ route('login') }}">Đăng nhập</a></li>
+          <li><a href="{{ route('register') }}">Đăng ký</a></li>
+          <li><a href="{{ url('user-settings') }}">Cài đặt</a></li>
+          <li><a href="{{ url('booking-history') }}">Lịch sử đặt phòng</a></li>
         </ul>
       </div>
       <div class="col-lg-4 col-md-6">
         <p class="footer-heading">Thời gian &amp; chính sách</p>
         <ul class="list-unstyled small mb-0" style="line-height:2;color:rgba(255,255,255,.55)">
-          <li><i class="bx bx-time me-1 text-gold"></i> Nhận phòng: 14:00 — Trả phòng: 12:00</li>
+          <li><i class="bx bx-time me-1 text-gold"></i> Thời gian nhận phòng: 14:00 - 16:00</li>
+          <li><i class="bx bx-time me-1 text-gold"></i> Thời gian trả phòng: 10:00 - 12:00</li>
           <li><i class="bx bx-headphone me-1 text-gold"></i> Lễ tân &amp; hỗ trợ 24/7</li>
           <li><i class="bx bx-refresh me-1 text-gold"></i> Miễn phí hủy trước 3 ngày</li>
-          <li><i class="bx bx-car me-1 text-gold"></i> Đưa đón sân bay theo yêu cầu</li>
+          <li><i class="bx bx-car me-1 text-gold"></i> Đưa đón theo yêu cầu</li>
         </ul>
       </div>
     </div>

@@ -122,7 +122,7 @@
         <div class="container">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div>
-                    <h2 class="h4 fw-bold mb-1">Ưu đãi hôm nay tại MCuong</h2>
+                    <h2 class="h4 fw-bold mb-1">Ưu đãi hôm nay tại MCuong Hotel</h2>
                     <p class="text-muted mb-0">
                         Phong cách đặt phòng hiện đại: rõ giá gốc, giá ưu đãi, quyền lợi đi kèm.
                     </p>
