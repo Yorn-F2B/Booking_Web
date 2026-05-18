@@ -187,14 +187,14 @@
             <div class="swiper roomsSwiper" data-aos="fade-up">
                 <div class="swiper-wrapper">
                     @forelse($featuredRooms ?? [] as $room)
-                    <div class="swiper-slide">
-                        <article class="card room-card h-100 border-0 shadow-sm">
+                    <div class="swiper-slide h-auto">
+                        <article class="card room-card h-100 border-0 shadow-sm d-flex flex-column">
                             <div class="ratio ratio-4x3">
                                 <img src="{{ $room->thumbnail ?? 'https://images.pexels.com/photos/1579253/pexels-photo-1579253.jpeg' }}"
                                     class="card-img-top" alt="{{ $room->name }}" style="object-fit: cover;" />
                             </div>
-                            <div class="card-body">
-                                <span class="badge bg-primary-soft text-primary mb-2">{{ $room->name }}</span>
+                            <div class="card-body d-flex flex-column flex-grow-1">
+                                <span class="badge bg-primary-soft text-primary mb-2 align-self-start">{{ $room->name }}</span>
                                 <h3 class="h5">{{ $room->name }}</h3>
                                 <p class="small text-muted mb-2">
                                     {{ Str::limit($room->description ?? $room->area . 'm², tối đa ' . $room->max_people . ' người.', 80) }}
@@ -205,7 +205,7 @@
                                     <li class="amenity-pill">Buffet sáng</li>
                                     <li class="amenity-pill">Smart TV 55"</li>
                                 </ul>
-                                <div class="d-flex justify-content-between align-items-center">
+                                <div class="mt-auto d-flex justify-content-between align-items-center pt-3 border-top">
                                     <div>
                                         <span class="fw-bold text-primary fs-5">{{ number_format($room->price, 0, ',', '.') }}đ</span>
                                         <span class="text-muted small">/đêm</span>
