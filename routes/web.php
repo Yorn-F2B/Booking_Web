@@ -110,3 +110,13 @@ Route::middleware('auth')->group(function () {
         [UserSettingController::class, 'updatePassword']
     )->name('user.password.update');
 });
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN ROUTES
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('admin')->name('admin.')->middleware(['auth'])->group(function () {
+    Route::resource('room-categories', \App\Http\Controllers\Admin\RoomCategoryController::class);
+});
