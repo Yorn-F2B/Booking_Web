@@ -186,101 +186,42 @@
 
             <div class="swiper roomsSwiper" data-aos="fade-up">
                 <div class="swiper-wrapper">
-                    <!-- Room 1 -->
-                    <div class="swiper-slide">
-                        <article class="card room-card h-100 border-0 shadow-sm">
+                    @forelse($featuredRooms ?? [] as $room)
+                    <div class="swiper-slide h-auto">
+                        <article class="card room-card h-100 border-0 shadow-sm d-flex flex-column">
                             <div class="ratio ratio-4x3">
-                                <img src="https://images.pexels.com/photos/1579253/pexels-photo-1579253.jpeg"
-                                    class="card-img-top" alt="Deluxe Sea View" />
+                                <img src="{{ $room->thumbnail ?? 'https://images.pexels.com/photos/1579253/pexels-photo-1579253.jpeg' }}"
+                                    class="card-img-top" alt="{{ $room->name }}" style="object-fit: cover;" />
                             </div>
-                            <div class="card-body">
-                                <span class="badge bg-primary-soft text-primary mb-2">Deluxe Sea View</span>
-                                <h3 class="h5">Phòng Deluxe view biển</h3>
+                            <div class="card-body d-flex flex-column flex-grow-1">
+                                <span class="badge bg-primary-soft text-primary mb-2 align-self-start">{{ $room->name }}</span>
+                                <h3 class="h5">{{ $room->name }}</h3>
                                 <p class="small text-muted mb-2">
-                                    32m² • Ban công riêng • Hướng thẳng ra biển Mỹ Khê.
+                                    {{ Str::limit($room->description ?? $room->area . 'm², tối đa ' . $room->max_people . ' người.', 80) }}
                                 </p>
-                                <p class="small mb-2"><strong>Tối đa 2 người lớn</strong></p>
+                                <p class="small mb-2"><strong>Tối đa {{ $room->max_people }} người lớn</strong></p>
                                 <ul class="amenity-list mb-3">
                                     <li class="amenity-pill">WiFi tốc độ cao</li>
                                     <li class="amenity-pill">Buffet sáng</li>
                                     <li class="amenity-pill">Smart TV 55"</li>
                                 </ul>
-                                <div class="d-flex justify-content-between align-items-center">
+                                <div class="mt-auto d-flex justify-content-between align-items-center pt-3 border-top">
                                     <div>
-                                        <span class="fw-bold text-primary fs-5">1.800.000đ</span>
+                                        <span class="fw-bold text-primary fs-5">{{ number_format($room->price, 0, ',', '.') }}đ</span>
                                         <span class="text-muted small">/đêm</span>
                                     </div>
-                                    <a href="/room-deluxe-sea" class="btn btn-outline-primary btn-sm">
+                                    <a href="/room-{{ $room->id }}" class="btn btn-outline-primary btn-sm">
                                         Xem chi tiết
                                     </a>
                                 </div>
                             </div>
                         </article>
                     </div>
-
-                    <!-- Room 2 -->
+                    @empty
                     <div class="swiper-slide">
-                        <article class="card room-card h-100 border-0 shadow-sm">
-                            <div class="ratio ratio-4x3">
-                                <img src="https://images.pexels.com/photos/271639/pexels-photo-271639.jpeg"
-                                    class="card-img-top" alt="Family Suite" />
-                            </div>
-                            <div class="card-body">
-                                <span class="badge bg-success-soft text-success mb-2">Family Suite</span>
-                                <h3 class="h5">Suite gia đình 2 phòng ngủ</h3>
-                                <p class="small text-muted mb-2">
-                                    60m² • 2 phòng ngủ • Phòng khách riêng, phù hợp gia đình.
-                                </p>
-                                <p class="small mb-2"><strong>Tối đa 4 người lớn, 2 trẻ em</strong></p>
-                                <ul class="amenity-list mb-3">
-                                    <li class="amenity-pill">Bồn tắm nằm &amp; đứng</li>
-                                    <li class="amenity-pill">Minibar &amp; pantry</li>
-                                    <li class="amenity-pill">2 phòng ngủ</li>
-                                </ul>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <span class="fw-bold text-primary fs-5">3.200.000đ</span>
-                                        <span class="text-muted small">/đêm</span>
-                                    </div>
-                                    <a href="/room-family-suite" class="btn btn-outline-primary btn-sm">
-                                        Xem chi tiết
-                                    </a>
-                                </div>
-                            </div>
-                        </article>
+                        <p class="text-center text-muted py-5 w-100">Đang chờ dữ liệu phòng nổi bật từ Backend...</p>
                     </div>
-
-                    <!-- Room 3 -->
-                    <div class="swiper-slide">
-                        <article class="card room-card h-100 border-0 shadow-sm">
-                            <div class="ratio ratio-4x3">
-                                <img src="https://images.pexels.com/photos/1571450/pexels-photo-1571450.jpeg"
-                                    class="card-img-top" alt="Premier City View" />
-                            </div>
-                            <div class="card-body">
-                                <span class="badge bg-warning-soft text-warning mb-2">Premier City View</span>
-                                <h3 class="h5">Phòng Premier view thành phố</h3>
-                                <p class="small text-muted mb-2">
-                                    28m² • Cửa sổ rộng toàn cảnh thành phố Đà Nẵng.
-                                </p>
-                                <p class="small mb-2"><strong>Tối đa 2 người lớn</strong></p>
-                                <ul class="amenity-list mb-3">
-                                    <li class="amenity-pill">Miễn phí đậu xe</li>
-                                    <li class="amenity-pill">Smart TV 55"</li>
-                                    <li class="amenity-pill">View thành phố</li>
-                                </ul>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <span class="fw-bold text-primary fs-5">1.400.000đ</span>
-                                        <span class="text-muted small">/đêm</span>
-                                    </div>
-                                    <a href="/room-premier-city" class="btn btn-outline-primary btn-sm">
-                                        Xem chi tiết
-                                    </a>
-                                </div>
-                            </div>
-                        </article>
-                    </div>
+                    @endforelse
                 </div>
 
                 <!-- Swiper navigation -->
