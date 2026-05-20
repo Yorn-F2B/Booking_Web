@@ -10,9 +10,7 @@ use App\Http\Controllers\UserSettingController;
 |--------------------------------------------------------------------------
 */
 
-Route::get('/', function () {
-    return view('user.pages.home');
-});
+Route::get('/', [App\Http\Controllers\RoomController::class, 'home']);
 
 /*
 |--------------------------------------------------------------------------
@@ -48,9 +46,7 @@ Route::get('/room-presidential', function () {
     return view('user.pages.room-presidential');
 });
 
-Route::get('/rooms', function () {
-    return view('user.pages.rooms');
-});
+Route::get('/rooms', [App\Http\Controllers\RoomController::class, 'index']);
 
 Route::get('/user-settings', function () {
     return view('user.pages.user-settings');
@@ -65,6 +61,18 @@ Route::get('/user-settings', function () {
 Route::get('/dashboard', function () {
     return view('dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN ROUTES
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('admin')->name('admin.')->group(function () {
+    Route::get('/dashboard', function () {
+        return view('admin.dashboard');
+    })->name('dashboard');
+});
 
 /*
 |--------------------------------------------------------------------------
