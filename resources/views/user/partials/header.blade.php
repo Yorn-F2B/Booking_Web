@@ -84,6 +84,18 @@
 
                         </li>
 
+                        {{-- ADMIN --}}
+                        <li class="nav-item">
+
+                            <a class="nav-link" href="{{ route('staffs.index') }}">
+
+                                <i class="bx bx-shield-quarter me-1"></i>
+                                Admin
+
+                            </a>
+
+                        </li>
+
                         {{-- LOGOUT --}}
                         <li class="nav-item">
 
