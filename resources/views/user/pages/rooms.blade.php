@@ -6,7 +6,7 @@
     <!-- Page header -->
     <section class="page-header">
         <div class="container">
-            <h1 class="display-6 fw-bold mb-2">Hạng phòng tại MCuong Hotel</h1>
+            <h1 class="display-6 fw-bold mb-2">Danh sach tat ca phòng tại MCuong Hotel</h1>
             <p class="text-muted mb-0">
                 Lựa chọn đa dạng từ phòng tiêu chuẩn đến suite cao cấp, phù hợp cho
                 cặp đôi, gia đình và khách công tác tại cùng một khách sạn.

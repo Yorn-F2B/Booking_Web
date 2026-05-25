@@ -173,7 +173,7 @@
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div>
                     <h2 class="h3 fw-bold mb-1" data-aos="fade-right">
-                        Hạng phòng nổi bật
+                        Hang phing noi bat
                     </h2>
                     <p class="text-muted mb-0" data-aos="fade-right" data-aos-delay="100">
                         Lựa chọn phòng phù hợp cho chuyến đi của bạn.

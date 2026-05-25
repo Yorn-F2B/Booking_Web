@@ -212,9 +212,6 @@ CREATE TABLE room_categories (
     -- Số giường
     bed_count INT DEFAULT 1,
 
-    -- Loại giường
-    bed_type VARCHAR(50),
-
     -- Mô tả
     description TEXT,
 
@@ -288,7 +285,7 @@ CREATE TABLE rooms (
     room_number VARCHAR(20) UNIQUE NOT NULL,
 
     -- Loại phòng
-    category_id BIGINT UNSIGNED NOT NULL,
+    room_category_id BIGINT UNSIGNED NOT NULL,
 
     -- Tầng
     floor_number INT,

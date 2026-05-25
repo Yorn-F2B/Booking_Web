@@ -1,8 +1,8 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserSettingController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -12,8 +12,7 @@ use App\Http\Controllers\UserSettingController;
 
 Route::get('/', function () {
     return view('user.pages.home');
-});
-
+})->name('home');
 /*
 |--------------------------------------------------------------------------
 | USER PAGES
@@ -24,6 +23,10 @@ Route::get('/about', function () {
     return view('user.pages.about');
 });
 
+Route::get('/rooms', function () {
+    return view('user.pages.rooms');
+})->name('rooms');
+
 Route::get('/booking-history', function () {
     return view('user.pages.booking-history');
 });
@@ -31,6 +34,7 @@ Route::get('/booking-history', function () {
 Route::get('/contact', function () {
     return view('user.pages.contact');
 });
+
 
 Route::get('/room-deluxe-sea', function () {
     return view('user.pages.room-deluxe-sea');
@@ -48,12 +52,21 @@ Route::get('/room-presidential', function () {
     return view('user.pages.room-presidential');
 });
 
-Route::get('/rooms', function () {
-    return view('user.pages.rooms');
-});
+/*
+|--------------------------------------------------------------------------
+| USER SETTINGS
+|--------------------------------------------------------------------------
+*/
 
-Route::get('/user-settings', function () {
-    return view('user.pages.user-settings');
+Route::middleware('auth')->group(function () {
+    Route::get('/user-settings', [UserSettingController::class, 'index'])
+        ->name('user.settings');
+
+    Route::post('/user-settings', [UserSettingController::class, 'update'])
+        ->name('user.settings.update');
+
+    Route::post('/user-password', [UserSettingController::class, 'updatePassword'])
+        ->name('user.password.update');
 });
 
 /*
@@ -63,7 +76,6 @@ Route::get('/user-settings', function () {
 */
 
 Route::middleware('auth')->group(function () {
-
     Route::get('/profile', [ProfileController::class, 'edit'])
         ->name('profile.edit');
 
@@ -72,7 +84,6 @@ Route::middleware('auth')->group(function () {
 
     Route::delete('/profile', [ProfileController::class, 'destroy'])
         ->name('profile.destroy');
-
 });
 
 /*
@@ -82,21 +93,3 @@ Route::middleware('auth')->group(function () {
 */
 
 require __DIR__ . '/auth.php';
-
-Route::middleware('auth')->group(function () {
-
-    Route::get(
-        '/user-settings',
-        [UserSettingController::class, 'index']
-    )->name('user.settings');
-
-    Route::post(
-        '/user-settings',
-        [UserSettingController::class, 'update']
-    )->name('user.settings.update');
-
-    Route::post(
-        '/user-password',
-        [UserSettingController::class, 'updatePassword']
-    )->name('user.password.update');
-});

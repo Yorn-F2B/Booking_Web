@@ -12,15 +12,22 @@ class UserSettingController extends Controller
 {
     public function index()
     {
-        $customer = Customer::where(
-            'user_id',
-            Auth::id()
-        )->first();
+        $user = auth()->user();
 
-        return view(
-            'user.pages.user-settings',
-            compact('customer')
+        $customer = Customer::firstOrCreate(
+            [
+                'user_id' => $user->id,
+            ],
+            [
+                'first_name' => '',
+                'last_name' => '',
+                'phone' => '',
+                'gender' => null,
+                'address' => '',
+            ]
         );
+
+        return view('user.pages.user-settings', compact('user', 'customer'));
     }
 
     public function update(Request $request)
@@ -66,7 +73,7 @@ class UserSettingController extends Controller
             'pass_new' => 'required|min:8',
             'pass_re' => 'required|same:pass_new',
         ]);
-        
+
         /** @var \App\Models\User $user */
         $user = Auth::user();
 

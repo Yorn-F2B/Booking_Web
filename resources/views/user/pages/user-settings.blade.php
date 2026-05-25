@@ -101,7 +101,7 @@
                                             </label>
 
                                             <input type="text" name="first_name" class="form-control"
-                                                value="{{ $customer->first_name }}" />
+                                                value="{{ $customer->first_name ?? ''}}" />
                                         </div>
 
                                         {{-- TÊN --}}
@@ -111,7 +111,7 @@
                                             </label>
 
                                             <input type="text" name="last_name" class="form-control"
-                                                value="{{ $customer->last_name }}" />
+                                                value="{{ $customer->last_name ?? ''}}" />
                                         </div>
 
                                         {{-- CCCD --}}
@@ -121,7 +121,7 @@
                                             </label>
 
                                             <input type="text" name="cccd" class="form-control"
-                                                value="{{ $customer->cccd }}" />
+                                                value="{{ $customer->cccd ?? ''}}" />
                                         </div>
 
                                         {{-- PHONE --}}
@@ -131,7 +131,7 @@
                                             </label>
 
                                             <input type="tel" name="phone" class="form-control"
-                                                value="{{ $customer->phone }}" />
+                                                value="{{ $customer->phone ?? ''}}" />
                                         </div>
 
                                         {{-- EMAIL --}}
@@ -141,7 +141,7 @@
                                             </label>
 
                                             <input type="email" name="email" class="form-control"
-                                                value="{{ $customer->email }}" />
+                                                value="{{ $customer->email ?? ''}}" />
                                         </div>
 
                                         {{-- BIRTHDAY --}}
@@ -151,7 +151,7 @@
                                             </label>
 
                                             <input type="date" name="birthday" class="form-control"
-                                                value="{{ $customer->birthday }}" />
+                                                value="{{ $customer->birthday ?? ''}}" />
                                         </div>
 
                                         {{-- GENDER --}}
@@ -184,7 +184,7 @@
                                             </label>
 
                                             <textarea name="address" class="form-control"
-                                                rows="2">{{ $customer->address }}</textarea>
+                                                rows="2">{{ $customer->address ?? ''}}</textarea>
                                         </div>
 
                                     </div>

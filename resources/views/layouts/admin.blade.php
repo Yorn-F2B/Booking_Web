@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    @include('admin.partials.head')
+    @include('admin.layouts.partials.head')
 
 </head>
 
@@ -13,7 +13,7 @@
     <div class="admin-sidebar-overlay" id="adminSidebarOverlay"></div>
 
     {{-- Header --}}
-    @include('admin.partials.header')
+    @include('admin.layouts.partials.header')
 
     {{-- Nội dung --}}
     <main>
@@ -21,7 +21,7 @@
     </main>
 
     {{-- Footer --}}
-    @include('admin.partials.scripts')
+    @include('admin.layouts.partials.scripts')
 
 </body>
 

@@ -15,13 +15,35 @@
         <a href="#" class="admin-nav-link disabled"><i class="bx bx-grid-alt"></i> Dashboard</a>
 
         <div class="admin-nav-label">Quản lý</div>
-        <a href="index.html" class="admin-nav-link active"><i class="bx bx-group"></i> Nhân viên</a>
-        <a href="#" class="admin-nav-link disabled"><i class="bx bx-user"></i> Khách hàng</a>
-        <a href="#" class="admin-nav-link disabled"><i class="bx bx-bed"></i> Phòng</a>
-        <a href="#" class="admin-nav-link disabled"><i class="bx bx-calendar-check"></i> Đặt phòng</a>
+        <a href="{{ route('staffs.index') }}"
+            class="admin-nav-link {{ request()->routeIs('staffs.*') ? 'active' : '' }}">
+            <i class="bx bx-group"></i>
+            Nhân viên
+        </a>
+
+        <a href="{{ route('room-categories.index') }}"
+            class="admin-nav-link {{ request()->routeIs('room-categories.*') ? 'active' : '' }}">
+            <i class="bx bx-bed"></i>
+            Hạng phòng
+        </a>
+
+        <a href="#" class="admin-nav-link disabled">
+            <i class="bx bx-user"></i>
+            Khách hàng
+        </a>
+
+        <a href="#" class="admin-nav-link disabled">
+            <i class="bx bx-bed"></i>
+            Phòng
+        </a>
+
+        <a href="#" class="admin-nav-link disabled">
+            <i class="bx bx-calendar-check"></i>
+            Đặt phòng
+        </a>
 
         <div class="admin-nav-label">Khác</div>
-        <a href="../" class="admin-nav-link"><i class="bx bx-home-alt"></i> Về trang chủ</a>
+        <a href="{{ route('home') }}" class="admin-nav-link"><i class="bx bx-home-alt"></i> Về trang chủ</a>
     </nav>
 
     <div class="admin-sidebar-user">
