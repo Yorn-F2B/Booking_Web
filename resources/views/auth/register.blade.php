@@ -35,6 +35,17 @@
 
                                 @csrf
 
+                                @if ($errors->any())
+                                    <div class="alert alert-danger mb-3">
+                                        <strong>Có lỗi xảy ra:</strong>
+                                        <ul class="mb-0">
+                                            @foreach ($errors->all() as $error)
+                                                <li>{{ $error }}</li>
+                                            @endforeach
+                                        </ul>
+                                    </div>
+                                @endif
+
                                 <div class="row g-3">
 
                                     {{-- HỌ --}}

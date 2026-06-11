@@ -1,267 +1,279 @@
 /* Admin layout — sidebar trái, nội dung phải */
 .admin-body {
-  margin: 0;
-  min-height: 100vh;
-  background: var(--surface, #f8fafc);
-  display: flex;
+    margin: 0;
+    min-height: 100vh;
+    background: var(--surface, #f8fafc);
+    display: flex;
 }
 
 .admin-sidebar {
-  width: 260px;
-  flex-shrink: 0;
-  background: var(--navy, #0a1931);
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  z-index: 1040;
-  transition: transform 0.28s ease;
+    width: 260px;
+    flex-shrink: 0;
+    background: var(--navy, #0a1931);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 1040;
+    transition: transform 0.28s ease;
 }
 
 .admin-sidebar-brand {
-  padding: 1.25rem 1.25rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 1.25rem 1.25rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .admin-sidebar-brand a {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  color: #fff;
-  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
-  font-weight: 600;
-  font-size: 1.05rem;
-  text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: #fff;
+    font-family: "Be Vietnam Pro", system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 1.05rem;
+    text-decoration: none;
 }
 
 .admin-sidebar-brand small {
-  display: block;
-  font-size: 0.7rem;
-  font-weight: 400;
-  color: rgba(255, 255, 255, 0.55);
-  margin-top: 0.1rem;
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.55);
+    margin-top: 0.1rem;
 }
 
 .admin-nav {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1rem 0.75rem;
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem 0.75rem;
+
+    scrollbar-width: none;
+}
+
+.admin-nav::-webkit-scrollbar {
+    display: none;
 }
 
 .admin-nav-label {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.4);
-  padding: 0.75rem 0.75rem 0.35rem;
-  font-weight: 600;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.4);
+    padding: 0.75rem 0.75rem 0.35rem;
+    font-weight: 600;
 }
 
 .admin-nav-link {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: var(--radius-sm, 0.6rem);
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 0.875rem;
-  text-decoration: none;
-  margin-bottom: 0.15rem;
-  transition: background 0.2s, color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: var(--radius-sm, 0.6rem);
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 0.875rem;
+    text-decoration: none;
+    margin-bottom: 0.15rem;
+    transition:
+        background 0.2s,
+        color 0.2s;
 }
 
 .admin-nav-link i {
-  font-size: 1.15rem;
-  width: 1.25rem;
-  text-align: center;
+    font-size: 1.15rem;
+    width: 1.25rem;
+    text-align: center;
 }
 
 .admin-nav-link:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
 }
 
 .admin-nav-link.active {
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.25), rgba(212, 175, 55, 0.12));
-  color: var(--gold-light, #f4d03f);
-  font-weight: 500;
+    background: linear-gradient(
+        135deg,
+        rgba(212, 175, 55, 0.25),
+        rgba(212, 175, 55, 0.12)
+    );
+    color: var(--gold-light, #f4d03f);
+    font-weight: 500;
 }
 
 .admin-nav-link.disabled {
-  opacity: 0.45;
-  pointer-events: none;
+    opacity: 0.45;
+    pointer-events: none;
 }
 
 .admin-sidebar-user {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.85rem 1rem;
-  margin: 0 0.75rem 0.5rem;
-  border-radius: var(--radius-sm, 0.6rem);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.85rem 1rem;
+    margin: 0 0.75rem 0.5rem;
+    border-radius: var(--radius-sm, 0.6rem);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .admin-sidebar-user img {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid rgba(212, 175, 55, 0.4);
-  flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid rgba(212, 175, 55, 0.4);
+    flex-shrink: 0;
 }
 
 .admin-sidebar-user-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
 }
 
 .admin-sidebar-user-name {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .admin-sidebar-user-role {
-  font-size: 0.72rem;
-  color: rgba(255, 255, 255, 0.5);
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.5);
 }
 
 .admin-sidebar-user-action {
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 1.1rem;
-  text-decoration: none;
-  padding: 0.25rem;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 1.1rem;
+    text-decoration: none;
+    padding: 0.25rem;
 }
 
 .admin-sidebar-user-action:hover {
-  color: var(--gold-light, #f4d03f);
+    color: var(--gold-light, #f4d03f);
 }
 
 .admin-sidebar-footer {
-  padding: 0.75rem 1.25rem 1rem;
-  font-size: 0.72rem;
-  color: rgba(255, 255, 255, 0.4);
-  text-align: center;
+    padding: 0.75rem 1.25rem 1rem;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.4);
+    text-align: center;
 }
 
 .admin-wrapper {
-  flex: 1;
-  margin-left: 260px;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+    flex: 1;
+    margin-left: 260px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
 }
 
 .admin-content {
-  flex: 1;
-  padding: 1.5rem;
+    flex: 1;
+    padding: 1.5rem;
 }
 
 .admin-breadcrumb {
-  font-size: 0.78rem;
-  color: var(--muted, #64748b);
+    font-size: 0.78rem;
+    color: var(--muted, #64748b);
 }
 
 .admin-breadcrumb a {
-  color: var(--muted, #64748b);
-  text-decoration: none;
+    color: var(--muted, #64748b);
+    text-decoration: none;
 }
 
 .admin-breadcrumb a:hover {
-  color: var(--navy, #0a1931);
+    color: var(--navy, #0a1931);
 }
 
 .admin-page-head {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
 }
 
 .admin-page-head h2 {
-  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
-  font-size: 1.35rem;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text, #1e293b);
+    font-family: "Be Vietnam Pro", system-ui, sans-serif;
+    font-size: 1.35rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text, #1e293b);
 }
 
 .admin-page-head p {
-  margin: 0.15rem 0 0;
-  font-size: 0.85rem;
-  color: var(--muted, #64748b);
+    margin: 0.15rem 0 0;
+    font-size: 0.85rem;
+    color: var(--muted, #64748b);
 }
 
 .admin-footer {
-  padding: 0.85rem 1.5rem;
-  border-top: 1px solid var(--border, #e2e8f0);
-  background: #fff;
-  font-size: 0.78rem;
-  color: var(--muted, #64748b);
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0.5rem;
+    padding: 0.85rem 1.5rem;
+    border-top: 1px solid var(--border, #e2e8f0);
+    background: #fff;
+    font-size: 0.78rem;
+    color: var(--muted, #64748b);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem;
 }
 
 .admin-sidebar-toggle {
-  display: none;
-  position: fixed;
-  top: 1rem;
-  left: 1rem;
-  z-index: 1045;
-  border: 1px solid var(--border, #e2e8f0);
-  background: #fff;
-  border-radius: var(--radius-sm, 0.6rem);
-  width: 40px;
-  height: 40px;
-  align-items: center;
-  justify-content: center;
-  color: var(--text, #1e293b);
-  cursor: pointer;
-  box-shadow: var(--shadow-sm, 0 2px 12px rgba(10, 25, 49, 0.08));
+    display: none;
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 1045;
+    border: 1px solid var(--border, #e2e8f0);
+    background: #fff;
+    border-radius: var(--radius-sm, 0.6rem);
+    width: 40px;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    color: var(--text, #1e293b);
+    cursor: pointer;
+    box-shadow: var(--shadow-sm, 0 2px 12px rgba(10, 25, 49, 0.08));
 }
 
 .admin-sidebar-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(10, 25, 49, 0.45);
-  z-index: 1035;
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 25, 49, 0.45);
+    z-index: 1035;
 }
 
 @media (max-width: 991.98px) {
-  .admin-sidebar {
-    transform: translateX(-100%);
-  }
+    .admin-sidebar {
+        transform: translateX(-100%);
+    }
 
-  .admin-sidebar.open {
-    transform: translateX(0);
-  }
+    .admin-sidebar.open {
+        transform: translateX(0);
+    }
 
-  .admin-wrapper {
-    margin-left: 0;
-  }
+    .admin-wrapper {
+        margin-left: 0;
+    }
 
-  .admin-sidebar-toggle {
-    display: inline-flex;
-  }
+    .admin-sidebar-toggle {
+        display: inline-flex;
+    }
 
-  .admin-sidebar-overlay.show {
-    display: block;
-  }
+    .admin-sidebar-overlay.show {
+        display: block;
+    }
 }

@@ -32,51 +32,88 @@
                     <div class="card booking-card border-0 shadow-lg">
                         <div class="card-body p-4">
                             <h2 class="h5 fw-bold mb-3">Tìm phòng trống</h2>
-                            <form id="quickBookingForm">
+                            <form method="GET" action="{{ route('rooms') }}">
+
                                 <div class="row g-2 mb-3">
+
                                     <div class="col-6">
-                                        <label class="form-label">Nhận phòng</label>
-                                        <input type="date" class="form-control" id="checkin" required />
+                                        <label class="form-label">
+                                            Nhận phòng
+                                        </label>
+
+                                        <input type="date" name="check_in_date" class="form-control" required>
                                     </div>
+
                                     <div class="col-6">
-                                        <label class="form-label">Trả phòng</label>
-                                        <input type="date" class="form-control" id="checkout" required />
+                                        <label class="form-label">
+                                            Trả phòng
+                                        </label>
+
+                                        <input type="date" name="check_out_date" class="form-control" required>
                                     </div>
+
                                 </div>
+
                                 <div class="row g-2 mb-3">
+
                                     <div class="col-6">
-                                        <label class="form-label">Người lớn</label>
-                                        <select class="form-select" id="adults">
+                                        <label class="form-label">
+                                            Người lớn
+                                        </label>
+
+                                        <select name="adult_count" class="form-select">
                                             <option value="1">1 người lớn</option>
                                             <option value="2" selected>2 người lớn</option>
                                             <option value="3">3 người lớn</option>
                                             <option value="4">4 người lớn</option>
                                         </select>
                                     </div>
+
                                     <div class="col-6">
-                                        <label class="form-label">Trẻ em</label>
-                                        <select class="form-select" id="children">
+                                        <label class="form-label">
+                                            Trẻ em
+                                        </label>
+
+                                        <select name="child_count" class="form-select">
                                             <option value="0" selected>0 trẻ em</option>
                                             <option value="1">1 trẻ em</option>
                                             <option value="2">2 trẻ em</option>
                                             <option value="3">3 trẻ em</option>
                                         </select>
                                     </div>
+
                                 </div>
+
                                 <div class="row g-2 mb-3">
+
                                     <div class="col-12">
-                                        <label class="form-label">Loại phòng</label>
-                                        <select class="form-select" id="roomType">
-                                            <option value="deluxe-sea">Phòng Deluxe hướng biển</option>
-                                            <option value="premier-city">Phòng Premier hướng phố</option>
-                                            <option value="family-suite">Suite gia đình</option>
-                                            <option value="presidential-suite">Phòng Tổng thống</option>
+                                        <label class="form-label">
+                                            Hạng phòng
+                                        </label>
+
+                                        <select name="room_category_id" class="form-select">
+
+                                            <option value="">
+                                                Tất cả hạng phòng
+                                            </option>
+
+                                            @foreach ($featuredRoomCategories as $category)
+
+                                                <option value="{{ $category->id }}">
+                                                    {{ $category->name }}
+                                                </option>
+
+                                            @endforeach
+
                                         </select>
                                     </div>
+
                                 </div>
+
                                 <button type="submit" class="btn btn-primary w-100 py-2">
                                     Kiểm tra phòng trống
                                 </button>
+
                             </form>
                         </div>
                     </div>
@@ -170,124 +207,154 @@
     <!-- Featured Rooms -->
     <section class="py-5 bg-light">
         <div class="container">
+
             <div class="d-flex justify-content-between align-items-center mb-3">
+
                 <div>
                     <h2 class="h3 fw-bold mb-1" data-aos="fade-right">
-                        Hang phing noi bat
+                        Hạng phòng nổi bật
                     </h2>
+
                     <p class="text-muted mb-0" data-aos="fade-right" data-aos-delay="100">
                         Lựa chọn phòng phù hợp cho chuyến đi của bạn.
                     </p>
                 </div>
-                <a href="/rooms" class="btn btn-outline-primary d-none d-md-inline-flex" data-aos="fade-left">
+
+                <a href="{{ route('rooms') }}" class="btn btn-outline-primary d-none d-md-inline-flex" data-aos="fade-left">
                     Xem tất cả phòng
                 </a>
+
             </div>
 
             <div class="swiper roomsSwiper" data-aos="fade-up">
+
                 <div class="swiper-wrapper">
-                    <!-- Room 1 -->
-                    <div class="swiper-slide">
-                        <article class="card room-card h-100 border-0 shadow-sm">
-                            <div class="ratio ratio-4x3">
-                                <img src="https://images.pexels.com/photos/1579253/pexels-photo-1579253.jpeg"
-                                    class="card-img-top" alt="Deluxe Sea View" />
-                            </div>
-                            <div class="card-body">
-                                <span class="badge bg-primary-soft text-primary mb-2">Deluxe Sea View</span>
-                                <h3 class="h5">Phòng Deluxe view biển</h3>
-                                <p class="small text-muted mb-2">
-                                    32m² • Ban công riêng • Hướng thẳng ra biển Mỹ Khê.
-                                </p>
-                                <p class="small mb-2"><strong>Tối đa 2 người lớn</strong></p>
-                                <ul class="amenity-list mb-3">
-                                    <li class="amenity-pill">WiFi tốc độ cao</li>
-                                    <li class="amenity-pill">Buffet sáng</li>
-                                    <li class="amenity-pill">Smart TV 55"</li>
-                                </ul>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <span class="fw-bold text-primary fs-5">1.800.000đ</span>
-                                        <span class="text-muted small">/đêm</span>
-                                    </div>
-                                    <a href="/room-deluxe-sea" class="btn btn-outline-primary btn-sm">
-                                        Xem chi tiết
-                                    </a>
-                                </div>
-                            </div>
-                        </article>
-                    </div>
 
-                    <!-- Room 2 -->
-                    <div class="swiper-slide">
-                        <article class="card room-card h-100 border-0 shadow-sm">
-                            <div class="ratio ratio-4x3">
-                                <img src="https://images.pexels.com/photos/271639/pexels-photo-271639.jpeg"
-                                    class="card-img-top" alt="Family Suite" />
-                            </div>
-                            <div class="card-body">
-                                <span class="badge bg-success-soft text-success mb-2">Family Suite</span>
-                                <h3 class="h5">Suite gia đình 2 phòng ngủ</h3>
-                                <p class="small text-muted mb-2">
-                                    60m² • 2 phòng ngủ • Phòng khách riêng, phù hợp gia đình.
-                                </p>
-                                <p class="small mb-2"><strong>Tối đa 4 người lớn, 2 trẻ em</strong></p>
-                                <ul class="amenity-list mb-3">
-                                    <li class="amenity-pill">Bồn tắm nằm &amp; đứng</li>
-                                    <li class="amenity-pill">Minibar &amp; pantry</li>
-                                    <li class="amenity-pill">2 phòng ngủ</li>
-                                </ul>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <span class="fw-bold text-primary fs-5">3.200.000đ</span>
-                                        <span class="text-muted small">/đêm</span>
-                                    </div>
-                                    <a href="/room-family-suite" class="btn btn-outline-primary btn-sm">
-                                        Xem chi tiết
-                                    </a>
-                                </div>
-                            </div>
-                        </article>
-                    </div>
+                    @forelse ($featuredRoomCategories as $category)
 
-                    <!-- Room 3 -->
-                    <div class="swiper-slide">
-                        <article class="card room-card h-100 border-0 shadow-sm">
-                            <div class="ratio ratio-4x3">
-                                <img src="https://images.pexels.com/photos/1571450/pexels-photo-1571450.jpeg"
-                                    class="card-img-top" alt="Premier City View" />
-                            </div>
-                            <div class="card-body">
-                                <span class="badge bg-warning-soft text-warning mb-2">Premier City View</span>
-                                <h3 class="h5">Phòng Premier view thành phố</h3>
-                                <p class="small text-muted mb-2">
-                                    28m² • Cửa sổ rộng toàn cảnh thành phố Đà Nẵng.
-                                </p>
-                                <p class="small mb-2"><strong>Tối đa 2 người lớn</strong></p>
-                                <ul class="amenity-list mb-3">
-                                    <li class="amenity-pill">Miễn phí đậu xe</li>
-                                    <li class="amenity-pill">Smart TV 55"</li>
-                                    <li class="amenity-pill">View thành phố</li>
-                                </ul>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <span class="fw-bold text-primary fs-5">1.400.000đ</span>
-                                        <span class="text-muted small">/đêm</span>
-                                    </div>
-                                    <a href="/room-premier-city" class="btn btn-outline-primary btn-sm">
-                                        Xem chi tiết
-                                    </a>
+                        <div class="swiper-slide">
+
+                            <article class="card room-card h-100 border-0 shadow-sm">
+
+                                <div class="ratio ratio-4x3">
+
+                                    @if ($category->thumbnail)
+
+                                        <img src="{{ asset('storage/' . $category->thumbnail) }}" class="card-img-top"
+                                            alt="{{ $category->name }}" style="object-fit: cover;">
+
+                                    @elseif ($category->images->count())
+
+                                        <img src="{{ asset('storage/' . $category->images->first()->image) }}" class="card-img-top"
+                                            alt="{{ $category->name }}" style="object-fit: cover;">
+
+                                    @else
+
+                                        <div class="bg-light d-flex align-items-center justify-content-center h-100">
+                                            <span class="text-muted">
+                                                Chưa có ảnh
+                                            </span>
+                                        </div>
+
+                                    @endif
+
                                 </div>
+
+                                <div class="card-body">
+
+                                    <span class="badge bg-primary-soft text-primary mb-2">
+                                        {{ $category->name }}
+                                    </span>
+
+                                    <h3 class="h5">
+                                        {{ $category->name }}
+                                    </h3>
+
+                                    <p class="small text-muted mb-2">
+                                        • {{ $category->area ?? '---' }}m²
+                                        • {{ $category->bed_count ?? 1 }} giường
+                                    </p>
+
+                                    <p class="small mb-2">
+                                        <strong>
+                                            Tối đa {{ $category->adult_capacity }} người lớn,
+                                            {{ $category->child_capacity }} trẻ em
+                                        </strong>
+                                    </p>
+
+                                    <ul class="amenity-list mb-3">
+
+                                        @forelse ($category->amenities->take(3) as $amenity)
+
+                                            <li class="amenity-pill">
+
+                                                @if ($amenity->icon)
+
+                                                    <i class="{{ $amenity->icon }} me-1"></i>
+
+                                                @endif
+
+                                                {{ $amenity->name }}
+
+                                            </li>
+
+                                        @empty
+
+                                            <li class="amenity-pill">
+                                                Chưa có tiện ích
+                                            </li>
+
+                                        @endforelse
+
+                                    </ul>
+
+                                    <div class="d-flex justify-content-between align-items-center">
+
+                                        <div>
+
+                                            <span class="fw-bold text-primary fs-5">
+                                                {{ number_format($category->price, 0, ',', '.') }}đ
+                                            </span>
+
+                                            <span class="text-muted small">
+                                                /đêm
+                                            </span>
+
+                                        </div>
+
+                                        <a href="{{ route('rooms.show', $category->id) }}"
+                                            class="btn btn-outline-primary btn-sm">
+                                            Xem chi tiết
+                                        </a>
+
+                                    </div>
+
+                                </div>
+
+                            </article>
+
+                        </div>
+
+                    @empty
+
+                        <div class="swiper-slide">
+
+                            <div class="alert alert-info mb-0">
+                                Hiện chưa có hạng phòng nào.
                             </div>
-                        </article>
-                    </div>
+
+                        </div>
+
+                    @endforelse
+
                 </div>
 
-                <!-- Swiper navigation -->
                 <div class="swiper-button-next"></div>
                 <div class="swiper-button-prev"></div>
                 <div class="swiper-pagination"></div>
+
             </div>
+
         </div>
     </section>
 

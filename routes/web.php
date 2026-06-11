@@ -3,6 +3,9 @@
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\UserSettingController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\User\RoomController;
+use App\Models\RoomCategory;
+use App\Http\Controllers\BookingController;
 
 /*
 |--------------------------------------------------------------------------
@@ -11,7 +14,13 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/', function () {
-    return view('user.pages.home');
+    $featuredRoomCategories = RoomCategory::with(['images', 'amenities'])
+        ->where('status', 'active')
+        ->latest()
+        ->take(6)
+        ->get();
+
+    return view('user.pages.home', compact('featuredRoomCategories'));
 })->name('home');
 /*
 |--------------------------------------------------------------------------
@@ -23,9 +32,8 @@ Route::get('/about', function () {
     return view('user.pages.about');
 });
 
-Route::get('/rooms', function () {
-    return view('user.pages.rooms');
-})->name('rooms');
+Route::get('/rooms', [RoomController::class, 'index'])->name('rooms');
+Route::get('/rooms/{roomCategory}', [RoomController::class, 'show'])->name('rooms.show');
 
 Route::get('/booking-history', function () {
     return view('user.pages.booking-history');
@@ -33,23 +41,6 @@ Route::get('/booking-history', function () {
 
 Route::get('/contact', function () {
     return view('user.pages.contact');
-});
-
-
-Route::get('/room-deluxe-sea', function () {
-    return view('user.pages.room-deluxe-sea');
-});
-
-Route::get('/room-family-suite', function () {
-    return view('user.pages.room-family-suite');
-});
-
-Route::get('/room-premier-city', function () {
-    return view('user.pages.room-premier-city');
-});
-
-Route::get('/room-presidential', function () {
-    return view('user.pages.room-presidential');
 });
 
 /*
@@ -84,6 +75,14 @@ Route::middleware('auth')->group(function () {
 
     Route::delete('/profile', [ProfileController::class, 'destroy'])
         ->name('profile.destroy');
+
+    Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel'])
+        ->name('bookings.cancel');
+
+    Route::get(
+        '/booking-history/{booking}',
+        [BookingController::class, 'show']
+    )->name('bookings.show');
 });
 
 /*
@@ -93,3 +92,11 @@ Route::middleware('auth')->group(function () {
 */
 
 require __DIR__ . '/auth.php';
+
+Route::middleware('auth')->group(function () {
+    Route::get('/bookings/confirm', [BookingController::class, 'confirm'])
+        ->name('bookings.confirm');
+
+    Route::post('/bookings', [BookingController::class, 'store'])
+        ->name('bookings.store');
+});

@@ -2,17 +2,17 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+use App\Models\Booking;
 use App\Models\Customer;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-
 
 class UserSettingController extends Controller
 {
     public function index()
     {
-        $user = auth()->user();
+        $user = Auth::user();
 
         $customer = Customer::firstOrCreate(
             [
@@ -24,10 +24,23 @@ class UserSettingController extends Controller
                 'phone' => '',
                 'gender' => null,
                 'address' => '',
+                'email' => $user->email,
             ]
         );
 
-        return view('user.pages.user-settings', compact('user', 'customer'));
+        $bookings = Booking::with(['roomCategory', 'bookingRooms.room'])
+            ->where('customer_id', $customer->id)
+            ->latest()
+            ->get();
+
+        $bookingCount = $bookings->count();
+
+        return view('user.pages.user-settings', compact(
+            'user',
+            'customer',
+            'bookings',
+            'bookingCount'
+        ));
     }
 
     public function update(Request $request)
@@ -47,7 +60,6 @@ class UserSettingController extends Controller
             ]);
         }
 
-
         /** @var \App\Models\User $user */
         $user = Auth::user();
 
@@ -56,7 +68,6 @@ class UserSettingController extends Controller
             'email' => $request->email,
         ];
 
-        // avatar upload luôn trong form chính
         if ($request->hasFile('avatar')) {
             $data['avatar'] = $request->file('avatar')->store('avatars', 'public');
         }
@@ -79,7 +90,7 @@ class UserSettingController extends Controller
 
         if (!Hash::check($request->pass_old, $user->password)) {
             return back()->withErrors([
-                'pass_old' => 'Mật khẩu hiện tại không đúng'
+                'pass_old' => 'Mật khẩu hiện tại không đúng',
             ]);
         }
 
@@ -89,5 +100,4 @@ class UserSettingController extends Controller
 
         return back()->with('success', 'Đổi mật khẩu thành công');
     }
-
 }

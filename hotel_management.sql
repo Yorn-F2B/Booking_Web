@@ -336,6 +336,7 @@ CREATE TABLE room_images (
 -- TABLE: bookings
 -- Chức năng:
 -- Phiếu đặt phòng
+-- 1 booking có thể đặt nhiều phòng cùng 1 hạng phòng
 -- =========================================================
 
 CREATE TABLE bookings (
@@ -350,6 +351,9 @@ CREATE TABLE bookings (
     -- Nhân viên tạo booking
     created_by BIGINT UNSIGNED NULL,
 
+    -- Hạng phòng khách muốn đặt
+    room_category_id BIGINT UNSIGNED NOT NULL,
+
     -- Check-in dự kiến
     check_in_date DATE NOT NULL,
 
@@ -362,11 +366,17 @@ CREATE TABLE bookings (
     -- Check-out thực tế
     actual_check_out DATETIME NULL,
 
-    -- Người lớn
+    -- Tổng số người lớn của cả booking
     adult_count INT DEFAULT 1,
 
-    -- Trẻ em
+    -- Tổng số trẻ em của cả booking
     child_count INT DEFAULT 0,
+
+    -- Số phòng khách muốn đặt
+    room_quantity INT DEFAULT 1,
+
+    -- Khách có muốn các phòng cạnh/gần nhau không
+    prefer_adjacent_rooms TINYINT(1) DEFAULT 0,
 
     -- Tổng tiền tạm tính
     estimated_total DECIMAL(12,2) DEFAULT 0,
@@ -392,9 +402,10 @@ CREATE TABLE bookings (
     ) DEFAULT 'pending',
 
     -- Ghi chú
-    note TEXT,
+    note TEXT NULL,
 
     created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+
     updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
@@ -405,32 +416,42 @@ CREATE TABLE bookings (
 
     FOREIGN KEY (created_by)
         REFERENCES users(id)
-        ON DELETE SET NULL
+        ON DELETE SET NULL,
+
+    FOREIGN KEY (room_category_id)
+        REFERENCES room_categories(id)
 );
 
 -- =========================================================
 -- TABLE: booking_rooms
 -- Chức năng:
--- Danh sách phòng thuộc booking
+-- Danh sách phòng thật được gán cho booking
+-- 1 booking có thể có nhiều phòng
 -- =========================================================
 
 CREATE TABLE booking_rooms (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
+    -- Booking cha
     booking_id BIGINT UNSIGNED NOT NULL,
+
+    -- Phòng thật được gán
     room_id BIGINT UNSIGNED NOT NULL,
 
-    -- Số người ở phòng này
-    people_count INT DEFAULT 1,
+    -- Số người lớn ở phòng này
+    adult_count INT DEFAULT 1,
 
-    -- Giá tại thời điểm đặt
-    price_at_booking DECIMAL(12,2),
+    -- Số trẻ em ở phòng này
+    child_count INT DEFAULT 0,
+
+    -- Giá phòng tại thời điểm đặt
+    price_at_booking DECIMAL(12,2) DEFAULT 0,
 
     -- Phụ phí
     surcharge DECIMAL(12,2) DEFAULT 0,
 
     -- Lý do phụ phí
-    surcharge_reason VARCHAR(255),
+    surcharge_reason VARCHAR(255) NULL,
 
     created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 
