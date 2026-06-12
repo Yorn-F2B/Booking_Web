@@ -20,9 +20,133 @@
     <main class="py-5">
         <div class="container">
 
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body p-4">
+                    <h2 class="h5 fw-bold mb-3">
+                        Lọc phòng trống
+                    </h2>
+
+                    @if ($errors->any())
+                        <div class="alert alert-danger">
+                            <ul class="mb-0">
+                                @foreach ($errors->all() as $error)
+                                    <li>{{ $error }}</li>
+                                @endforeach
+                            </ul>
+                        </div>
+                    @endif
+
+                    <form method="GET" action="{{ route('rooms') }}">
+
+                        <div class="row g-3 align-items-end">
+
+                            <div class="col-md-3">
+                                <label class="form-label">
+                                    Nhận phòng
+                                </label>
+
+                                <input type="date"
+                                    name="check_in_date"
+                                    id="check_in_date"
+                                    class="form-control"
+                                    min="{{ date('Y-m-d') }}"
+                                    value="{{ old('check_in_date', $searchData['check_in_date'] ?? '') }}">
+                            </div>
+
+                            <div class="col-md-3">
+                                <label class="form-label">
+                                    Trả phòng
+                                </label>
+
+                                <input type="date"
+                                    name="check_out_date"
+                                    id="check_out_date"
+                                    class="form-control"
+                                    min="{{ date('Y-m-d', strtotime('+1 day')) }}"
+                                    value="{{ old('check_out_date', $searchData['check_out_date'] ?? '') }}">
+                            </div>
+
+                            <div class="col-md-2">
+                                <label class="form-label">
+                                    Người lớn
+                                </label>
+
+                                <select name="adult_count" class="form-select">
+                                    <option value="">Tất cả</option>
+
+                                    @for ($i = 1; $i <= 6; $i++)
+                                        <option value="{{ $i }}"
+                                            {{ (string) old('adult_count', $searchData['adult_count'] ?? '') === (string) $i ? 'selected' : '' }}>
+                                            {{ $i }} người lớn
+                                        </option>
+                                    @endfor
+                                </select>
+                            </div>
+
+                            <div class="col-md-2">
+                                <label class="form-label">
+                                    Trẻ em
+                                </label>
+
+                                <select name="child_count" class="form-select">
+                                    <option value="">Tất cả</option>
+
+                                    @for ($i = 0; $i <= 4; $i++)
+                                        <option value="{{ $i }}"
+                                            {{ (string) old('child_count', $searchData['child_count'] ?? '') === (string) $i ? 'selected' : '' }}>
+                                            {{ $i }} trẻ em
+                                        </option>
+                                    @endfor
+                                </select>
+                            </div>
+
+                            <div class="col-md-2">
+                                <label class="form-label">
+                                    Hạng phòng
+                                </label>
+
+                                <select name="room_category_id" class="form-select">
+                                    <option value="">Tất cả</option>
+
+                                   @foreach (($filterRoomCategories ?? collect()) as $filterCategory)
+                                        <option value="{{ $filterCategory->id }}"
+                                            {{ (string) old('room_category_id', $searchData['room_category_id'] ?? '') === (string) $filterCategory->id ? 'selected' : '' }}>
+                                            {{ $filterCategory->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            <div class="col-md-12 d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    Kiểm tra phòng trống
+                                </button>
+
+                                <a href="{{ route('rooms') }}" class="btn btn-outline-secondary">
+                                    Xóa lọc
+                                </a>
+                            </div>
+
+                        </div>
+
+                    </form>
+                </div>
+            </div>
+
+            @if (!empty($hasFilter))
+                <div class="alert alert-info">
+                    Đang hiển thị các hạng phòng còn phòng trống theo điều kiện bạn đã chọn.
+                </div>
+            @endif
+
             <div class="row g-4">
 
                 @forelse ($roomCategories as $category)
+
+                    @php
+                        $availableRoomsCount = $category->available_rooms_count ?? 0;
+                        $isAvailable = $availableRoomsCount > 0;
+                    @endphp
 
                     <div class="col-12">
 
@@ -62,9 +186,21 @@
 
                                     <div class="card-body h-100 d-flex flex-column">
 
-                                        <span class="badge bg-primary-soft text-primary mb-2">
-                                            {{ $category->name }}
-                                        </span>
+                                        <div class="d-flex flex-wrap gap-2 mb-2">
+                                            <span class="badge bg-primary-soft text-primary">
+                                                {{ $category->name }}
+                                            </span>
+
+                                            @if ($isAvailable)
+                                                <span class="badge bg-success">
+                                                    Còn {{ $availableRoomsCount }} phòng
+                                                </span>
+                                            @else
+                                                <span class="badge bg-danger">
+                                                    Hết phòng
+                                                </span>
+                                            @endif
+                                        </div>
 
                                         <h2 class="h5">
                                             {{ $category->name }}
@@ -120,10 +256,23 @@
                                                 </span>
                                             </div>
 
-                                            <a href="{{ route('rooms.show', $category->id) }}"
-                                                class="btn btn-outline-primary btn-sm">
-                                                Xem chi tiết
-                                            </a>
+                                            <div class="d-flex gap-2">
+                                                <a href="{{ route('rooms.show', $category->id) }}"
+                                                    class="btn btn-outline-primary btn-sm">
+                                                    Xem chi tiết
+                                                </a>
+
+                                                @if ($isAvailable)
+                                                    <a href="{{ route('rooms.show', $category->id) }}"
+                                                        class="btn btn-primary btn-sm">
+                                                        Đặt phòng
+                                                    </a>
+                                                @else
+                                                    <button type="button" class="btn btn-secondary btn-sm" disabled>
+                                                        Hết phòng
+                                                    </button>
+                                                @endif
+                                            </div>
 
                                         </div>
 
@@ -141,8 +290,8 @@
 
                     <div class="col-12">
 
-                        <div class="alert alert-info mb-0">
-                            Hiện chưa có hạng phòng nào được hiển thị.
+                        <div class="alert alert-warning mb-0">
+                            Không tìm thấy hạng phòng còn trống phù hợp với điều kiện đã chọn.
                         </div>
 
                     </div>
@@ -153,5 +302,36 @@
 
         </div>
     </main>
+
+    <script>
+        const checkInInput = document.getElementById('check_in_date');
+        const checkOutInput = document.getElementById('check_out_date');
+
+        function addOneDay(dateString) {
+            const date = new Date(dateString);
+            date.setDate(date.getDate() + 1);
+            return date.toISOString().split('T')[0];
+        }
+
+        if (checkInInput && checkOutInput) {
+            if (checkInInput.value) {
+                checkOutInput.min = addOneDay(checkInInput.value);
+            }
+
+            checkInInput.addEventListener('change', function () {
+                if (!this.value) {
+                    checkOutInput.min = "{{ date('Y-m-d', strtotime('+1 day')) }}";
+                    return;
+                }
+
+                const minCheckOutDate = addOneDay(this.value);
+                checkOutInput.min = minCheckOutDate;
+
+                if (checkOutInput.value && checkOutInput.value <= this.value) {
+                    checkOutInput.value = minCheckOutDate;
+                }
+            });
+        }
+    </script>
 
 @endsection

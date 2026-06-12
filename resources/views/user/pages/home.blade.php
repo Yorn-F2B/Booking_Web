@@ -41,7 +41,8 @@
                                             Nhận phòng
                                         </label>
 
-                                        <input type="date" name="check_in_date" class="form-control" required>
+                                        <input type="date" name="check_in_date" id="check_in_date" class="form-control"
+                                            min="{{ date('Y-m-d') }}" value="{{ request('check_in_date') }}" required>
                                     </div>
 
                                     <div class="col-6">
@@ -49,7 +50,9 @@
                                             Trả phòng
                                         </label>
 
-                                        <input type="date" name="check_out_date" class="form-control" required>
+                                        <input type="date" name="check_out_date" id="check_out_date" class="form-control"
+                                            min="{{ date('Y-m-d', strtotime('+1 day')) }}"
+                                            value="{{ request('check_out_date') }}" required>
                                     </div>
 
                                 </div>
@@ -540,4 +543,29 @@
             </div>
         </div>
     </section>
+
+    <script>
+        const checkInInput = document.getElementById('check_in_date');
+        const checkOutInput = document.getElementById('check_out_date');
+
+        if (checkInInput && checkOutInput) {
+            checkInInput.addEventListener('change', function () {
+                const checkInDate = new Date(this.value);
+
+                if (!this.value) {
+                    return;
+                }
+
+                checkInDate.setDate(checkInDate.getDate() + 1);
+
+                const minCheckOutDate = checkInDate.toISOString().split('T')[0];
+
+                checkOutInput.min = minCheckOutDate;
+
+                if (checkOutInput.value && checkOutInput.value <= this.value) {
+                    checkOutInput.value = minCheckOutDate;
+                }
+            });
+        }
+    </script>
 @endsection

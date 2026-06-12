@@ -11,71 +11,91 @@
     </div>
 
     <nav class="admin-nav">
+        @php
+            $userRole = auth()->user()->role ?? null;
+            $isSuperAdmin = $userRole === 'super_admin';
+            $isManager = $userRole === 'manager';
+            $isReceptionist = $userRole === 'receptionist';
+            $isHousekeeping = $userRole === 'housekeeping';
+        @endphp
+
         <div class="admin-nav-label">Tổng quan</div>
-        <a href="#" class="admin-nav-link disabled"><i class="bx bx-grid-alt"></i> Dashboard</a>
+
+        <a href="#" class="admin-nav-link disabled">
+            <i class="bx bx-grid-alt"></i>
+            Dashboard
+        </a>
 
         <div class="admin-nav-label">Quản lý</div>
-        <a href="{{ route('staffs.index') }}"
-            class="admin-nav-link {{ request()->routeIs('staffs.*') ? 'active' : '' }}">
-            <i class="bx bx-group"></i>
-            Nhân viên
-        </a>
 
-        <a href="{{ route('room-categories.index') }}"
-            class="admin-nav-link {{ request()->routeIs('room-categories.*') ? 'active' : '' }}">
-            <i class="bx bx-bed"></i>
-            Hạng phòng
-        </a>
+        @if ($isSuperAdmin)
+            <a href="{{ route('staffs.index') }}"
+                class="admin-nav-link {{ request()->routeIs('staffs.*') ? 'active' : '' }}">
+                <i class="bx bx-group"></i>
+                Nhân viên
+            </a>
+        @endif
 
-        <a href="{{ route('admin.rooms.index') }}"
-            class="admin-nav-link {{ request()->routeIs('admin.rooms.*') ? 'active' : '' }}">
-            <i class="bx bx-door-open"></i>
-            Danh sách phòng
-        </a>
+        @if ($isSuperAdmin || $isManager)
+            <a href="{{ route('room-categories.index') }}"
+                class="admin-nav-link {{ request()->routeIs('room-categories.*') ? 'active' : '' }}">
+                <i class="bx bx-bed"></i>
+                Hạng phòng
+            </a>
 
-        <a href="{{ route('services.index') }}"
-            class="admin-nav-link {{ request()->routeIs('services.*') ? 'active' : '' }}">
-            <i class="bx bx-food-menu"></i>
-            Dịch vụ
-        </a>
+            <a href="{{ route('admin.rooms.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.rooms.*') ? 'active' : '' }}">
+                <i class="bx bx-door-open"></i>
+                Danh sách phòng
+            </a>
 
-        <a href="{{ route('amenities.index') }}"
-            class="admin-nav-link {{ request()->routeIs('amenities.*') ? 'active' : '' }}">
-            <i class="bx bx-star"></i>
-            Tiện ích
-        </a>
+            <a href="{{ route('services.index') }}"
+                class="admin-nav-link {{ request()->routeIs('services.*') ? 'active' : '' }}">
+                <i class="bx bx-food-menu"></i>
+                Dịch vụ
+            </a>
 
-        <a href="{{ route('admin.bookings.index') }}"
-            class="admin-nav-link {{ request()->routeIs('admin.bookings.*') ? 'active' : '' }}">
-            <i class="bx bx-calendar-check"></i>
-            Đặt phòng
-        </a>
+            <a href="{{ route('amenities.index') }}"
+                class="admin-nav-link {{ request()->routeIs('amenities.*') ? 'active' : '' }}">
+                <i class="bx bx-star"></i>
+                Tiện ích
+            </a>
+        @endif
 
-        <a href="{{ route('admin.housekeeping.index') }}"
-            class="admin-nav-link {{ request()->routeIs('admin.housekeeping.*') ? 'active' : '' }}">
-            <i class="bx bx-brush"></i>
-            Phòng cần dọn
-        </a>
+        @if ($isSuperAdmin || $isReceptionist)
+            <a href="{{ route('admin.bookings.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.bookings.*') ? 'active' : '' }}">
+                <i class="bx bx-calendar-check"></i>
+                Đặt phòng
+            </a>
+        @endif
 
-        <a href="{{ route('admin.floor-inspections.index') }}"
-            class="admin-nav-link {{ request()->routeIs('admin.floor-inspections.*') ? 'active' : '' }}">
-            <i class="bx bx-search-alt"></i>
-            Phòng cần kiểm tra
-        </a>
+        @if ($isSuperAdmin || $isHousekeeping)
+            <a href="{{ route('admin.housekeeping.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.housekeeping.*') ? 'active' : '' }}">
+                <i class="bx bx-brush"></i>
+                Phòng cần dọn
+            </a>
 
-        <a href="{{ route('admin.inspection-approvals.index') }}"
-            class="admin-nav-link {{ request()->routeIs('admin.inspection-approvals.*') ? 'active' : '' }}">
-            <i class="bx bx-check-shield"></i>
-            Duyệt kiểm tra phòng
-        </a>
+            <a href="{{ route('admin.floor-inspections.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.floor-inspections.*') ? 'active' : '' }}">
+                <i class="bx bx-search-alt"></i>
+                Yêu cầu kiểm tra phòng
+            </a>
+        @endif
+
+        @if ($isSuperAdmin || $isManager)
+            <a href="{{ route('admin.inspection-approvals.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.inspection-approvals.*') ? 'active' : '' }}">
+                <i class="bx bx-check-shield"></i>
+                Duyệt kiểm tra phòng
+            </a>
+        @endif
 
         <a href="#" class="admin-nav-link disabled">
             <i class="bx bx-user"></i>
             Khách hàng
         </a>
-
-        <div class="admin-nav-label">Khác</div>
-        <a href="{{ route('home') }}" class="admin-nav-link"><i class="bx bx-home-alt"></i> Về trang chủ</a>
     </nav>
 
     <div class="admin-sidebar-user">
