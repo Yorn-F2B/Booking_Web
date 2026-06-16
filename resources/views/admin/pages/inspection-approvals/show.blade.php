@@ -37,7 +37,7 @@
 
                 <div>
                     <h2>Duyệt kiểm tra phòng {{ $roomInspection->room->room_number ?? '---' }}</h2>
-                    <p>Admin xác nhận từng hạng mục hư hại trước khi cộng vào đơn thanh toán</p>
+<p>Admin xác nhận từng hạng mục minibar và hư hại trước khi cộng vào đơn thanh toán</p>
                 </div>
 
                 <a href="{{ route('admin.inspection-approvals.index') }}" class="btn btn-outline-secondary">
@@ -138,8 +138,8 @@
                     <div class="settings-section">
 
                         <h5 class="fw-bold mb-3">
-                            Hạng mục hư hại
-                        </h5>
+    Hạng mục minibar / hư hại
+</h5>
 
                         @if (!$roomInspection->has_damage)
 
@@ -198,7 +198,8 @@
 
                                                 <tr>
                                                     <th style="width: 70px;">Duyệt</th>
-                                                    <th>Hạng mục</th>
+<th>Loại</th>
+<th>Hạng mục</th>
                                                     <th>Đơn giá</th>
                                                     <th>Số lượng</th>
                                                     <th>Tổng</th>
@@ -223,6 +224,16 @@
                                                                 @checked($item->status == 'approved')
                                                                 {{ $roomInspection->status != 'reported' ? 'disabled' : '' }}>
                                                         </td>
+
+                                                        <td>
+    @if ($item->type == 'minibar')
+        <span class="badge bg-primary">Minibar</span>
+    @elseif ($item->type == 'damage_fee')
+        <span class="badge bg-danger">Hư hại</span>
+    @else
+        <span class="badge bg-secondary">{{ $item->type }}</span>
+    @endif
+</td>
 
                                                         <td>
                                                             <strong>{{ $item->name }}</strong>

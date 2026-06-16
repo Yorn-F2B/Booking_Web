@@ -78,12 +78,18 @@
 
                                     <tr>
                                         <th>Ngày nhận phòng</th>
-                                        <td>{{ date('d/m/Y', strtotime($booking->check_in_date)) }}</td>
+                                        <td>
+                                            {{ date('d/m/Y', strtotime($booking->check_in_date)) }}
+                                            <div class="small text-muted">Nhận phòng từ 14:00 đến 15:00</div>
+                                        </td>
                                     </tr>
 
                                     <tr>
                                         <th>Ngày trả phòng</th>
-                                        <td>{{ date('d/m/Y', strtotime($booking->check_out_date)) }}</td>
+                                        <td>
+                                            {{ date('d/m/Y', strtotime($booking->check_out_date)) }}
+                                            <div class="small text-muted">Trả phòng trước 11:00</div>
+                                        </td>
                                     </tr>
 
                                     <tr>

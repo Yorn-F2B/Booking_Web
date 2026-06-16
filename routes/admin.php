@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return view('admin.dashboard');
+    return view('admin.pages.dashboard.dashboard');
 })->name('admin.dashboard');
 
 Route::middleware('role:super_admin')->group(function () {

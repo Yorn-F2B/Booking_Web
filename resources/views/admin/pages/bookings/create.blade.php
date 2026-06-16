@@ -304,6 +304,54 @@
 
                         <div class="booking-form-card">
 
+                            <h5>Dịch vụ đặt trước</h5>
+
+                            <p class="booking-help-text">
+                                Lễ tân có thể thêm dịch vụ khách yêu cầu ngay khi tạo booking.
+                            </p>
+
+                            @foreach ($services as $index => $service)
+                                <div class="border rounded p-2 mb-2 service-row" data-price="{{ $service->price }}">
+
+                                    <div class="form-check mb-2">
+                                        <input type="checkbox" name="services[{{ $index }}][service_id]"
+                                            value="{{ $service->id }}" class="form-check-input service-check"
+                                            id="service{{ $service->id }}">
+
+                                        <label for="service{{ $service->id }}" class="form-check-label">
+                                            <strong>{{ $service->name }}</strong>
+                                            -
+                                            {{ number_format($service->price, 0, ',', '.') }}đ / {{ $service->unit }}
+                                            <span
+                                                class="badge bg-{{ $service->type == 'minibar' ? 'warning text-dark' : 'primary' }}">
+                                                {{ $service->type == 'minibar' ? 'Minibar' : 'Dịch vụ' }}
+                                            </span>
+                                        </label>
+                                    </div>
+
+                                    <div class="row g-2">
+                                        <div class="col-4">
+                                            <input type="number" name="services[{{ $index }}][quantity]"
+                                                class="form-control form-control-sm service-quantity" value="1" min="1">
+                                        </div>
+
+                                        <div class="col-8">
+                                            <input type="text" name="services[{{ $index }}][note]"
+                                                class="form-control form-control-sm" placeholder="Ghi chú nếu có">
+                                        </div>
+                                    </div>
+
+                                </div>
+                            @endforeach
+
+                            <div class="booking-total-box mt-3">
+                                <div class="booking-help-text">Tổng dịch vụ đặt trước</div>
+                                <strong id="serviceTotalText">0đ</strong>
+                            </div>
+
+                        </div>
+                        <div class="booking-form-card">
+
                             <h5>Tóm tắt xử lý</h5>
 
                             <p class="booking-help-text">
@@ -352,6 +400,8 @@
         const preferAdjacentRooms = document.getElementById('preferAdjacentRooms');
         const estimatedTotalText = document.getElementById('estimatedTotalText');
         const nightCountText = document.getElementById('nightCountText');
+        const serviceRows = document.querySelectorAll('.service-row');
+        const serviceTotalText = document.getElementById('serviceTotalText');
 
         function formatMoney(value) {
             return new Intl.NumberFormat('vi-VN').format(value) + 'đ';
@@ -432,10 +482,35 @@
                 return;
             }
 
-            const total = price * quantity * nights;
+            const serviceTotal = calculateServiceTotal();
+            const total = price * quantity * nights + serviceTotal;
 
             estimatedTotalText.innerText = formatMoney(total);
             nightCountText.innerText = quantity + ' phòng x ' + nights + ' đêm';
+        }
+
+        function calculateServiceTotal() {
+            let total = 0;
+
+            serviceRows.forEach(function (row) {
+                const checkbox = row.querySelector('.service-check');
+                const quantityInput = row.querySelector('.service-quantity');
+
+                if (!checkbox || !quantityInput || !checkbox.checked) {
+                    return;
+                }
+
+                const price = parseFloat(row.dataset.price || 0);
+                const quantity = parseInt(quantityInput.value || 1);
+
+                total += price * quantity;
+            });
+
+            if (serviceTotalText) {
+                serviceTotalText.innerText = formatMoney(total);
+            }
+
+            return total;
         }
 
         function refreshBookingForm() {
@@ -458,6 +533,19 @@
         if (checkInDate.value) {
             autoSetCheckoutDate();
         }
+
+        serviceRows.forEach(function (row) {
+            const checkbox = row.querySelector('.service-check');
+            const quantityInput = row.querySelector('.service-quantity');
+
+            if (checkbox) {
+                checkbox.addEventListener('change', refreshBookingForm);
+            }
+
+            if (quantityInput) {
+                quantityInput.addEventListener('input', refreshBookingForm);
+            }
+        });
 
         refreshBookingForm();
     </script>

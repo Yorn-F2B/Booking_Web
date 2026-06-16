@@ -84,6 +84,10 @@
                                     Phí hư hại
                                 </option>
 
+                                <option value="violation_fee" {{ old('type') == 'violation_fee' ? 'selected' : '' }}>
+                                    Phí vi phạm
+                                </option>
+
                             </select>
 
                             @error('type')

@@ -16,6 +16,8 @@ class Booking extends Model
         'room_category_id',
         'check_in_date',
         'check_out_date',
+        'check_in_at',
+        'check_out_at',
         'actual_check_in',
         'actual_check_out',
         'adult_count',
@@ -27,6 +29,16 @@ class Booking extends Model
         'payment_status',
         'status',
         'note',
+        'late_arrival_fee',
+        'late_arrival_hours',
+        'late_arrival_policy',
+    ];
+
+    protected $casts = [
+        'check_in_at' => 'datetime',
+        'check_out_at' => 'datetime',
+        'actual_check_in' => 'datetime',
+        'actual_check_out' => 'datetime',
     ];
 
     public function customer()
@@ -52,5 +64,15 @@ class Booking extends Model
     public function roomInspections()
     {
         return $this->hasMany(RoomInspection::class);
+    }
+
+    public function serviceItems()
+    {
+        return $this->hasMany(BookingServiceItem::class);
+    }
+
+    public function logs()
+    {
+        return $this->hasMany(BookingLog::class)->latest();
     }
 }

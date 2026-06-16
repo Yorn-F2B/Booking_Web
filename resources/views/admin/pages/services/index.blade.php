@@ -65,8 +65,12 @@
                                         <span class="badge bg-primary">Dịch vụ</span>
                                     @elseif ($service->type == 'minibar')
                                         <span class="badge bg-warning text-dark">Minibar</span>
-                                    @else
+                                    @elseif ($service->type == 'damage_fee')
                                         <span class="badge bg-danger">Phí hư hại</span>
+                                    @elseif ($service->type == 'violation_fee')
+                                        <span class="badge bg-dark">Phí vi phạm</span>
+                                    @else
+                                        <span class="badge bg-secondary">{{ $service->type }}</span>
                                     @endif
                                 </td>
 

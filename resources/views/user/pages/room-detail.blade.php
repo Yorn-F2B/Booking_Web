@@ -328,13 +328,18 @@
                                 <ul class="list-unstyled small text-muted mb-0">
 
                                     <li class="mb-1">
-                                        <i class="bx bx-check text-success me-1"></i>
-                                        Miễn phí kiểm tra tình trạng phòng
+                                        <i class="bx bx-time text-success me-1"></i>
+                                        Nhận phòng từ 14:00 đến 15:00
+                                    </li>
+
+                                    <li class="mb-1">
+                                        <i class="bx bx-time-five text-success me-1"></i>
+                                        Trả phòng trước 11:00
                                     </li>
 
                                     <li class="mb-1">
                                         <i class="bx bx-check text-success me-1"></i>
-                                        Không cần thanh toán online ngay
+                                        Miễn phí kiểm tra tình trạng phòng
                                     </li>
 
                                     <li class="mb-1">

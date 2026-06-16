@@ -21,7 +21,14 @@
 
         $customerName = trim(($roomInspection->booking->customer->last_name ?? '') . ' ' . ($roomInspection->booking->customer->first_name ?? ''));
 
-        $oldItemMap = $roomInspection->items->keyBy('service_id');
+        $oldDamageItemMap = $roomInspection->items
+            ->where('type', 'damage_fee')
+            ->keyBy('service_id');
+
+        $oldRoomMinibarItemMap = $roomInspection->items
+            ->where('type', 'minibar')
+            ->keyBy('service_id');    
+
     @endphp
 
     <div class="admin-wrapper">
@@ -38,7 +45,7 @@
 
                 <div>
                     <h2>Kiểm tra phòng {{ $roomInspection->room->room_number ?? '---' }}</h2>
-                    <p>Quản lý tầng ghi nhận và cập nhật tình trạng phòng trước khi check-out</p>
+                    <p>Buồng phòng ghi nhận hư hại trong phòng trước khi check-out</p>
                 </div>
 
                 <a href="{{ route('admin.floor-inspections.index') }}" class="btn btn-outline-secondary">
@@ -144,6 +151,108 @@
 
                             <fieldset {{ $roomInspection->status == 'confirmed' ? 'disabled' : '' }}>
 
+                            <div class="mb-4">
+
+                                <label class="form-label fw-semibold">
+                                    Minibar / đồ uống khách đã đăng ký trước
+                                </label>
+
+                                @if ($registeredMinibarItems->count() > 0)
+
+                                    <div class="alert alert-info small">
+                                        Nhập số lượng khách thực tế sử dụng. Phần không dùng sẽ được giữ lịch sử nhưng không tính tiền.
+                                    </div>
+
+                                    <div class="table-responsive">
+
+                                        <table class="table table-bordered align-middle">
+
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Dịch vụ đã đăng ký</th>
+                                                    <th style="width: 120px;">Đăng ký</th>
+                                                    <th style="width: 150px;">Thực dùng</th>
+                                                    <th style="width: 160px;">Đơn giá</th>
+                                                    <th style="width: 160px;">Tạm tính</th>
+                                                </tr>
+                                            </thead>
+
+                                            <tbody>
+
+                                                @foreach ($registeredMinibarItems as $registeredItem)
+
+                                                    @php
+                                                        $usedQuantity = old(
+                                                            'registered_minibar_used_quantities.' . $registeredItem->id,
+                                                            $registeredItem->used_quantity ?? 0
+                                                        );
+                                                    @endphp
+
+                                                    <tr>
+                                                        <td>
+                                                            <strong>{{ $registeredItem->name }}</strong>
+
+                                                            @if ($registeredItem->note)
+                                                                <div class="text-muted small">
+                                                                    {{ $registeredItem->note }}
+                                                                </div>
+                                                            @endif
+
+                                                            <div class="text-muted small">
+                                                                Trạng thái:
+                                                                {{ $registeredItem->billing_status ?? 'pending' }}
+                                                            </div>
+                                                        </td>
+
+                                                        <td>
+                                                            {{ $registeredItem->quantity }}
+                                                            {{ $registeredItem->service->unit ?? '' }}
+                                                        </td>
+
+                                                        <td>
+                                                            <input type="number"
+                                                                name="registered_minibar_used_quantities[{{ $registeredItem->id }}]"
+                                                                class="form-control registered-minibar-quantity"
+                                                                value="{{ $usedQuantity }}"
+                                                                min="0"
+                                                                max="{{ $registeredItem->quantity }}"
+                                                                data-price="{{ (float) $registeredItem->unit_price }}">
+                                                        </td>
+
+                                                        <td>
+                                                            {{ number_format((float) $registeredItem->unit_price, 0, ',', '.') }}đ
+                                                        </td>
+
+                                                        <td>
+                                                            <span class="registered-minibar-total">0đ</span>
+                                                        </td>
+                                                    </tr>
+
+                                                @endforeach
+
+                                            </tbody>
+
+                                        </table>
+
+                                    </div>
+
+                                    <div class="text-end mt-2">
+                                        <h6>
+                                            Tổng minibar đăng ký thực dùng:
+                                            <span id="grandRegisteredMinibarTotal">0đ</span>
+                                        </h6>
+                                    </div>
+
+                                @else
+
+                                    <div class="alert alert-light border small">
+                                        Booking này không có minibar/đồ uống đăng ký trước.
+                                    </div>
+
+                                @endif
+
+                            </div>
+
                                 <div class="mb-4">
 
                                     <label class="form-label fw-semibold">
@@ -161,6 +270,109 @@
                                     </select>
 
                                 </div>
+
+                                <div class="mb-4">
+
+    <label class="form-label fw-semibold">
+        Minibar / đồ tính phí có sẵn trong phòng khách đã dùng
+    </label>
+
+    @if ($minibarServices->count() > 0)
+
+        <div class="table-responsive">
+
+            <table class="table table-bordered align-middle">
+
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 60px;">Chọn</th>
+                        <th>Đồ dùng</th>
+                        <th>Đơn giá</th>
+                        <th>Đơn vị</th>
+                        <th style="width: 120px;">Số lượng</th>
+                        <th>Tạm tính</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    @foreach ($minibarServices as $minibarService)
+
+                        @php
+                            $oldItem = $oldRoomMinibarItemMap[$minibarService->id] ?? null;
+                            $isChecked = $oldItem ? true : false;
+                            $quantity = $oldItem ? $oldItem->quantity : 1;
+                        @endphp
+
+                        <tr>
+                            <td>
+                                <input type="checkbox"
+                                    name="room_minibar_service_ids[]"
+                                    value="{{ $minibarService->id }}"
+                                    class="form-check-input room-minibar-checkbox"
+                                    @checked($isChecked)>
+                            </td>
+
+                            <td>
+                                <strong>{{ $minibarService->name }}</strong>
+
+                                @if ($minibarService->description)
+                                    <div class="text-muted small">
+                                        {{ $minibarService->description }}
+                                    </div>
+                                @endif
+                            </td>
+
+                            <td>
+                                {{ number_format((float) $minibarService->price, 0, ',', '.') }}đ
+                            </td>
+
+                            <td>
+                                {{ $minibarService->unit }}
+                            </td>
+
+                            <td>
+                                <input type="number"
+                                    name="room_minibar_quantities[{{ $minibarService->id }}]"
+                                    id="roomMinibarQuantity{{ $minibarService->id }}"
+                                    class="form-control form-control-sm room-minibar-quantity"
+                                    value="{{ $quantity }}"
+                                    min="1"
+                                    data-price="{{ (float) $minibarService->price }}"
+                                    {{ $isChecked ? '' : 'disabled' }}>
+                            </td>
+
+                            <td>
+                                <span id="roomMinibarTotal{{ $minibarService->id }}">
+                                    0đ
+                                </span>
+                            </td>
+                        </tr>
+
+                    @endforeach
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+        <div class="text-end mt-3">
+            <h6>
+                Tổng minibar/đồ trong phòng:
+                <span id="grandRoomMinibarTotal">0đ</span>
+            </h6>
+        </div>
+
+    @else
+
+        <div class="alert alert-warning">
+            Chưa có dịch vụ loại "Minibar". Vui lòng vào quản lý Dịch vụ và thêm đồ minibar.
+        </div>
+
+    @endif
+
+</div>
 
                                 <div id="damageWrapper" style="display:none;">
 
@@ -190,7 +402,7 @@
                                                     @foreach ($damageServices as $damageService)
 
                                                         @php
-                                                            $oldItem = $oldItemMap[$damageService->id] ?? null;
+                                                            $oldItem = $oldDamageItemMap[$damageService->id] ?? null;
                                                             $isChecked = $oldItem ? true : false;
                                                             $quantity = $oldItem ? $oldItem->quantity : 1;
                                                         @endphp
@@ -258,7 +470,7 @@
                                     @else
 
                                         <div class="alert alert-warning">
-                                            Chưa có hạng mục phí hư hại nào. Vui lòng thêm trong phần Dịch vụ với loại "Phí hư hại".
+                                            Chưa có hạng mục phí hư hại nào. Vui lòng vào quản lý Dịch vụ và thêm dịch vụ loại "Phí hư hại".
                                         </div>
 
                                     @endif
@@ -308,98 +520,199 @@
 
     </div>
 
-    <script>
-        const hasDamage = document.getElementById('hasDamage');
-        const damageWrapper = document.getElementById('damageWrapper');
+<script>
+    const hasDamage = document.getElementById('hasDamage');
+    const damageWrapper = document.getElementById('damageWrapper');
 
-        function formatMoney(number) {
-            return new Intl.NumberFormat('vi-VN').format(number).replaceAll(',', '.') + 'đ';
+    function formatMoney(number) {
+        return new Intl.NumberFormat('vi-VN').format(number).replaceAll(',', '.') + 'đ';
+    }
+
+    function toggleDamageWrapper() {
+        if (!hasDamage || !damageWrapper) {
+            return;
         }
 
-        function toggleDamageWrapper() {
-            if (!hasDamage || !damageWrapper) {
+        damageWrapper.style.display = hasDamage.value === '1' ? 'block' : 'none';
+
+        if (hasDamage.value !== '1') {
+            document.querySelectorAll('.damage-checkbox').forEach(function (checkbox) {
+                checkbox.checked = false;
+            });
+
+            document.querySelectorAll('.damage-quantity').forEach(function (input) {
+                input.disabled = true;
+                input.value = 1;
+            });
+        }
+
+        calculateDamageTotal();
+    }
+
+    function calculateRegisteredMinibarTotal() {
+        let grandTotal = 0;
+
+        document.querySelectorAll('.registered-minibar-quantity').forEach(function (input) {
+            const price = parseFloat(input.dataset.price || 0);
+            const max = parseInt(input.getAttribute('max') || 0);
+            let quantity = parseInt(input.value || 0);
+
+            if (quantity < 0) {
+                quantity = 0;
+                input.value = 0;
+            }
+
+            if (max > 0 && quantity > max) {
+                quantity = max;
+                input.value = max;
+            }
+
+            const lineTotal = price * quantity;
+            grandTotal += lineTotal;
+
+            const row = input.closest('tr');
+            const totalElement = row ? row.querySelector('.registered-minibar-total') : null;
+
+            if (totalElement) {
+                totalElement.innerText = formatMoney(lineTotal);
+            }
+        });
+
+        const grandElement = document.getElementById('grandRegisteredMinibarTotal');
+
+        if (grandElement) {
+            grandElement.innerText = formatMoney(grandTotal);
+        }
+    }
+
+    function calculateRoomMinibarTotal() {
+        let grandTotal = 0;
+
+        document.querySelectorAll('.room-minibar-checkbox').forEach(function (checkbox) {
+            const serviceId = checkbox.value;
+            const quantityInput = document.getElementById('roomMinibarQuantity' + serviceId);
+            const totalElement = document.getElementById('roomMinibarTotal' + serviceId);
+
+            if (!quantityInput || !totalElement) {
                 return;
             }
 
-            damageWrapper.style.display = hasDamage.value === '1' ? 'block' : 'none';
+            const quantity = Math.max(1, parseInt(quantityInput.value || 1));
+            const price = parseFloat(quantityInput.dataset.price || 0);
 
-            if (hasDamage.value !== '1') {
-                document.querySelectorAll('.damage-checkbox').forEach(function (checkbox) {
-                    checkbox.checked = false;
-                });
+            let lineTotal = 0;
 
-                document.querySelectorAll('.damage-quantity').forEach(function (input) {
-                    input.disabled = true;
-                    input.value = 1;
-                });
+            if (checkbox.checked) {
+                lineTotal = price * quantity;
+                grandTotal += lineTotal;
             }
 
-            calculateDamageTotal();
+            totalElement.innerText = formatMoney(lineTotal);
+        });
+
+        const grandRoomMinibarTotal = document.getElementById('grandRoomMinibarTotal');
+
+        if (grandRoomMinibarTotal) {
+            grandRoomMinibarTotal.innerText = formatMoney(grandTotal);
         }
+    }
 
-        function calculateDamageTotal() {
-            let grandTotal = 0;
-
-            document.querySelectorAll('.damage-checkbox').forEach(function (checkbox) {
-                const serviceId = checkbox.value;
-                const quantityInput = document.getElementById('damageQuantity' + serviceId);
-                const totalElement = document.getElementById('damageTotal' + serviceId);
-
-                if (!quantityInput || !totalElement) {
-                    return;
-                }
-
-                const quantity = Math.max(1, parseInt(quantityInput.value || 1));
-                const price = parseFloat(quantityInput.dataset.price || 0);
-
-                let lineTotal = 0;
-
-                if (checkbox.checked) {
-                    lineTotal = price * quantity;
-                    grandTotal += lineTotal;
-                }
-
-                totalElement.innerText = formatMoney(lineTotal);
-            });
-
-            const grandDamageTotal = document.getElementById('grandDamageTotal');
-
-            if (grandDamageTotal) {
-                grandDamageTotal.innerText = formatMoney(grandTotal);
-            }
-        }
+    function calculateDamageTotal() {
+        let grandTotal = 0;
 
         document.querySelectorAll('.damage-checkbox').forEach(function (checkbox) {
             const serviceId = checkbox.value;
             const quantityInput = document.getElementById('damageQuantity' + serviceId);
+            const totalElement = document.getElementById('damageTotal' + serviceId);
 
-            if (quantityInput) {
-                quantityInput.disabled = !checkbox.checked;
+            if (!quantityInput || !totalElement) {
+                return;
             }
 
-            checkbox.addEventListener('change', function () {
-                if (quantityInput) {
-                    quantityInput.disabled = !this.checked;
+            const quantity = Math.max(1, parseInt(quantityInput.value || 1));
+            const price = parseFloat(quantityInput.dataset.price || 0);
 
-                    if (this.checked && (!quantityInput.value || quantityInput.value < 1)) {
-                        quantityInput.value = 1;
-                    }
-                }
+            let lineTotal = 0;
 
-                calculateDamageTotal();
-            });
+            if (checkbox.checked) {
+                lineTotal = price * quantity;
+                grandTotal += lineTotal;
+            }
+
+            totalElement.innerText = formatMoney(lineTotal);
         });
 
-        document.querySelectorAll('.damage-quantity').forEach(function (input) {
-            input.addEventListener('input', calculateDamageTotal);
-            input.addEventListener('change', calculateDamageTotal);
-        });
+        const grandDamageTotal = document.getElementById('grandDamageTotal');
 
-        if (hasDamage) {
-            hasDamage.addEventListener('change', toggleDamageWrapper);
+        if (grandDamageTotal) {
+            grandDamageTotal.innerText = formatMoney(grandTotal);
+        }
+    }
+
+    document.querySelectorAll('.registered-minibar-quantity').forEach(function (input) {
+        input.addEventListener('input', calculateRegisteredMinibarTotal);
+        input.addEventListener('change', calculateRegisteredMinibarTotal);
+    });
+
+    document.querySelectorAll('.room-minibar-checkbox').forEach(function (checkbox) {
+        const serviceId = checkbox.value;
+        const quantityInput = document.getElementById('roomMinibarQuantity' + serviceId);
+
+        if (quantityInput) {
+            quantityInput.disabled = !checkbox.checked;
         }
 
-        toggleDamageWrapper();
-    </script>
+        checkbox.addEventListener('change', function () {
+            if (quantityInput) {
+                quantityInput.disabled = !this.checked;
+
+                if (this.checked && (!quantityInput.value || quantityInput.value < 1)) {
+                    quantityInput.value = 1;
+                }
+            }
+
+            calculateRoomMinibarTotal();
+        });
+    });
+
+    document.querySelectorAll('.room-minibar-quantity').forEach(function (input) {
+        input.addEventListener('input', calculateRoomMinibarTotal);
+        input.addEventListener('change', calculateRoomMinibarTotal);
+    });
+
+    document.querySelectorAll('.damage-checkbox').forEach(function (checkbox) {
+        const serviceId = checkbox.value;
+        const quantityInput = document.getElementById('damageQuantity' + serviceId);
+
+        if (quantityInput) {
+            quantityInput.disabled = !checkbox.checked;
+        }
+
+        checkbox.addEventListener('change', function () {
+            if (quantityInput) {
+                quantityInput.disabled = !this.checked;
+
+                if (this.checked && (!quantityInput.value || quantityInput.value < 1)) {
+                    quantityInput.value = 1;
+                }
+            }
+
+            calculateDamageTotal();
+        });
+    });
+
+    document.querySelectorAll('.damage-quantity').forEach(function (input) {
+        input.addEventListener('input', calculateDamageTotal);
+        input.addEventListener('change', calculateDamageTotal);
+    });
+
+    if (hasDamage) {
+        hasDamage.addEventListener('change', toggleDamageWrapper);
+    }
+
+    calculateRegisteredMinibarTotal();
+    calculateRoomMinibarTotal();
+    toggleDamageWrapper();
+</script>
 
 @endsection

@@ -19,8 +19,10 @@ class RoomController extends Controller
             'room_category_id' => 'nullable|exists:room_categories,id',
         ], [
             'check_in_date.required_with' => 'Vui lòng chọn ngày nhận phòng.',
+            'check_in_date.date' => 'Ngày nhận phòng không hợp lệ.',
             'check_in_date.after_or_equal' => 'Ngày nhận phòng không được nhỏ hơn hôm nay.',
             'check_out_date.required_with' => 'Vui lòng chọn ngày trả phòng.',
+            'check_out_date.date' => 'Ngày trả phòng không hợp lệ.',
             'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
             'adult_count.integer' => 'Số người lớn không hợp lệ.',
             'adult_count.min' => 'Phải có ít nhất 1 người lớn.',
@@ -43,24 +45,34 @@ class RoomController extends Controller
         $checkInDate = $data['check_in_date'] ?? null;
         $checkOutDate = $data['check_out_date'] ?? null;
 
+        $checkInAt = $checkInDate
+            ? $checkInDate . ' 14:00:00'
+            : null;
+
+        $checkOutAt = $checkOutDate
+            ? $checkOutDate . ' 11:00:00'
+            : null;
+
         $hasFilter = $request->filled('check_in_date')
             || $request->filled('check_out_date')
             || $request->filled('adult_count')
             || $request->filled('child_count')
             || $request->filled('room_category_id');
 
-        $availableRoomCondition = function ($query) use ($checkInDate, $checkOutDate) {
+        $hasDateFilter = $checkInDate && $checkOutDate;
+
+        $availableRoomCondition = function ($query) use ($checkInAt, $checkOutAt) {
             $query->where('status', 'available');
 
-            if ($checkInDate && $checkOutDate) {
-                $query->whereDoesntHave('bookingRooms.booking', function ($bookingQuery) use ($checkInDate, $checkOutDate) {
+            if ($checkInAt && $checkOutAt) {
+                $query->whereDoesntHave('bookingRooms.booking', function ($bookingQuery) use ($checkInAt, $checkOutAt) {
                     $bookingQuery->whereIn('status', [
                         'pending',
                         'confirmed',
                         'checked_in',
                     ])
-                        ->whereDate('check_in_date', '<', $checkOutDate)
-                        ->whereDate('check_out_date', '>', $checkInDate);
+                        ->where('check_in_at', '<', $checkOutAt)
+                        ->where('check_out_at', '>', $checkInAt);
                 });
             }
         };
@@ -83,7 +95,7 @@ class RoomController extends Controller
             $roomCategories->where('child_capacity', '>=', $data['child_count']);
         }
 
-        if ($hasFilter) {
+        if ($hasDateFilter) {
             $roomCategories->whereHas('rooms', $availableRoomCondition);
         }
 

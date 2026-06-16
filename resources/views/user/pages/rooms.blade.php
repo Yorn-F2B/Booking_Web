@@ -45,10 +45,7 @@
                                     Nhận phòng
                                 </label>
 
-                                <input type="date"
-                                    name="check_in_date"
-                                    id="check_in_date"
-                                    class="form-control"
+                                <input type="date" name="check_in_date" id="check_in_date" class="form-control"
                                     min="{{ date('Y-m-d') }}"
                                     value="{{ old('check_in_date', $searchData['check_in_date'] ?? '') }}">
                             </div>
@@ -58,10 +55,7 @@
                                     Trả phòng
                                 </label>
 
-                                <input type="date"
-                                    name="check_out_date"
-                                    id="check_out_date"
-                                    class="form-control"
+                                <input type="date" name="check_out_date" id="check_out_date" class="form-control"
                                     min="{{ date('Y-m-d', strtotime('+1 day')) }}"
                                     value="{{ old('check_out_date', $searchData['check_out_date'] ?? '') }}">
                             </div>
@@ -75,8 +69,7 @@
                                     <option value="">Tất cả</option>
 
                                     @for ($i = 1; $i <= 6; $i++)
-                                        <option value="{{ $i }}"
-                                            {{ (string) old('adult_count', $searchData['adult_count'] ?? '') === (string) $i ? 'selected' : '' }}>
+                                        <option value="{{ $i }}" {{ (string) old('adult_count', $searchData['adult_count'] ?? '') === (string) $i ? 'selected' : '' }}>
                                             {{ $i }} người lớn
                                         </option>
                                     @endfor
@@ -92,8 +85,7 @@
                                     <option value="">Tất cả</option>
 
                                     @for ($i = 0; $i <= 4; $i++)
-                                        <option value="{{ $i }}"
-                                            {{ (string) old('child_count', $searchData['child_count'] ?? '') === (string) $i ? 'selected' : '' }}>
+                                        <option value="{{ $i }}" {{ (string) old('child_count', $searchData['child_count'] ?? '') === (string) $i ? 'selected' : '' }}>
                                             {{ $i }} trẻ em
                                         </option>
                                     @endfor
@@ -108,13 +100,20 @@
                                 <select name="room_category_id" class="form-select">
                                     <option value="">Tất cả</option>
 
-                                   @foreach (($filterRoomCategories ?? collect()) as $filterCategory)
-                                        <option value="{{ $filterCategory->id }}"
-                                            {{ (string) old('room_category_id', $searchData['room_category_id'] ?? '') === (string) $filterCategory->id ? 'selected' : '' }}>
+                                    @foreach (($filterRoomCategories ?? collect()) as $filterCategory)
+                                        <option value="{{ $filterCategory->id }}" {{ (string) old('room_category_id', $searchData['room_category_id'] ?? '') === (string) $filterCategory->id ? 'selected' : '' }}>
                                             {{ $filterCategory->name }}
                                         </option>
                                     @endforeach
                                 </select>
+                            </div>
+
+                            <div class="col-md-12">
+                                <div class="alert alert-info mb-0 small">
+                                    Hệ thống kiểm tra phòng trống theo chính sách:
+                                    nhận phòng <strong>14:00 - 15:00</strong>,
+                                    trả phòng <strong>trước 11:00</strong>.
+                                </div>
                             </div>
 
                             <div class="col-md-12 d-flex gap-2">
@@ -133,20 +132,20 @@
                 </div>
             </div>
 
-            @if (!empty($hasFilter))
+            @if (!empty($searchData['check_in_date']) && !empty($searchData['check_out_date']))
                 <div class="alert alert-info">
-                    Đang hiển thị các hạng phòng còn phòng trống theo điều kiện bạn đã chọn.
+                    Đang hiển thị các hạng phòng còn phòng trống từ
+                    <strong>{{ $searchData['check_in_time'] ?? '14:00' }}</strong>
+                    ngày <strong>{{ date('d/m/Y', strtotime($searchData['check_in_date'])) }}</strong>
+                    đến
+                    <strong>{{ $searchData['check_out_time'] ?? '11:00' }}</strong>
+                    ngày <strong>{{ date('d/m/Y', strtotime($searchData['check_out_date'])) }}</strong>.
                 </div>
             @endif
 
             <div class="row g-4">
 
                 @forelse ($roomCategories as $category)
-
-                    @php
-                        $availableRoomsCount = $category->available_rooms_count ?? 0;
-                        $isAvailable = $availableRoomsCount > 0;
-                    @endphp
 
                     <div class="col-12">
 
@@ -190,16 +189,6 @@
                                             <span class="badge bg-primary-soft text-primary">
                                                 {{ $category->name }}
                                             </span>
-
-                                            @if ($isAvailable)
-                                                <span class="badge bg-success">
-                                                    Còn {{ $availableRoomsCount }} phòng
-                                                </span>
-                                            @else
-                                                <span class="badge bg-danger">
-                                                    Hết phòng
-                                                </span>
-                                            @endif
                                         </div>
 
                                         <h2 class="h5">
@@ -261,17 +250,6 @@
                                                     class="btn btn-outline-primary btn-sm">
                                                     Xem chi tiết
                                                 </a>
-
-                                                @if ($isAvailable)
-                                                    <a href="{{ route('rooms.show', $category->id) }}"
-                                                        class="btn btn-primary btn-sm">
-                                                        Đặt phòng
-                                                    </a>
-                                                @else
-                                                    <button type="button" class="btn btn-secondary btn-sm" disabled>
-                                                        Hết phòng
-                                                    </button>
-                                                @endif
                                             </div>
 
                                         </div>

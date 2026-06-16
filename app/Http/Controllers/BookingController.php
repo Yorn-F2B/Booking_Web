@@ -7,6 +7,8 @@ use App\Models\BookingRoom;
 use App\Models\Customer;
 use App\Models\Room;
 use App\Models\RoomCategory;
+use App\Models\Service;
+use App\Models\BookingServiceItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +26,9 @@ class BookingController extends Controller
             'child_count' => 'nullable|integer|min:0',
             'note' => 'nullable|string|max:1000',
         ]);
+
+        $checkInAt = $data['check_in_date'] . ' 14:00:00';
+        $checkOutAt = $data['check_out_date'] . ' 11:00:00';
 
         $roomCategory = RoomCategory::where('status', 'active')
             ->findOrFail($data['room_category_id']);
@@ -45,8 +50,8 @@ class BookingController extends Controller
         if (
             $customer && $this->hasActiveBookingInDateRange(
                 $customer->id,
-                $data['check_in_date'],
-                $data['check_out_date']
+                $checkInAt,
+                $checkOutAt
             )
         ) {
             return back()
@@ -56,14 +61,21 @@ class BookingController extends Controller
 
         $availableRoom = $this->findAvailableRoom(
             $roomCategory->id,
-            $data['check_in_date'],
-            $data['check_out_date']
+            $checkInAt,
+            $checkOutAt
         );
 
         if (!$availableRoom) {
+            $checkInText = date('d/m/Y', strtotime($data['check_in_date']));
+            $checkOutText = date('d/m/Y', strtotime($data['check_out_date']));
+
             return back()
                 ->withInput()
-                ->with('error', 'Không còn phòng trống phù hợp trong thời gian bạn chọn.');
+                ->with('error', 'Hạng phòng này không còn phòng trống từ ngày '
+                    . $checkInText
+                    . ' đến ngày '
+                    . $checkOutText
+                    . '. Vui lòng chọn ngày khác hoặc hạng phòng khác.');
         }
 
         $nightCount = $this->getNightCount(
@@ -73,12 +85,19 @@ class BookingController extends Controller
 
         $estimatedTotal = $roomCategory->price * $nightCount;
 
+        $services = Service::where('status', 'active')
+            ->whereIn('type', ['service', 'minibar'])
+            ->orderBy('type')
+            ->orderBy('name')
+            ->get();
+
         return view('user.pages.booking-confirm', [
             'bookingData' => $data,
             'roomCategory' => $roomCategory,
             'customer' => $customer,
             'nightCount' => $nightCount,
             'estimatedTotal' => $estimatedTotal,
+            'services' => $services,
         ]);
     }
 
@@ -99,7 +118,15 @@ class BookingController extends Controller
             'address' => 'nullable|string|max:1000',
 
             'note' => 'nullable|string|max:1000',
+
+            'services' => 'nullable|array',
+            'services.*.service_id' => 'nullable|exists:services,id',
+            'services.*.quantity' => 'nullable|integer|min:1',
+            'services.*.note' => 'nullable|string|max:1000',
         ]);
+
+        $checkInAt = $data['check_in_date'] . ' 14:00:00';
+        $checkOutAt = $data['check_out_date'] . ' 11:00:00';
 
         $roomCategory = RoomCategory::where('status', 'active')
             ->findOrFail($data['room_category_id']);
@@ -116,7 +143,7 @@ class BookingController extends Controller
                 ->with('error', 'Số trẻ em vượt quá sức chứa của hạng phòng.');
         }
 
-        $booking = DB::transaction(function () use ($data, $roomCategory) {
+        $booking = DB::transaction(function () use ($data, $roomCategory, $checkInAt, $checkOutAt) {
             $customer = Customer::updateOrCreate(
                 [
                     'user_id' => Auth::id(),
@@ -135,8 +162,8 @@ class BookingController extends Controller
             if (
                 $this->hasActiveBookingInDateRange(
                     $customer->id,
-                    $data['check_in_date'],
-                    $data['check_out_date']
+                    $checkInAt,
+                    $checkOutAt
                 )
             ) {
                 return 'active_booking_exists';
@@ -144,8 +171,8 @@ class BookingController extends Controller
 
             $availableRoom = $this->findAvailableRoom(
                 $roomCategory->id,
-                $data['check_in_date'],
-                $data['check_out_date']
+                $checkInAt,
+                $checkOutAt
             );
 
             if (!$availableRoom) {
@@ -157,7 +184,9 @@ class BookingController extends Controller
                 $data['check_out_date']
             );
 
-            $estimatedTotal = $roomCategory->price * $nightCount;
+            $serviceItems = $this->prepareServiceItems($data['services'] ?? []);
+            $serviceItemTotal = collect($serviceItems)->sum('total');
+            $estimatedTotal = ($roomCategory->price * $nightCount) + $serviceItemTotal;
 
             $booking = Booking::create([
                 'booking_code' => $this->generateBookingCode(),
@@ -166,6 +195,8 @@ class BookingController extends Controller
                 'room_category_id' => $roomCategory->id,
                 'check_in_date' => $data['check_in_date'],
                 'check_out_date' => $data['check_out_date'],
+                'check_in_at' => $checkInAt,
+                'check_out_at' => $checkOutAt,
                 'adult_count' => $data['adult_count'],
                 'child_count' => $data['child_count'] ?? 0,
                 'room_quantity' => 1,
@@ -188,6 +219,19 @@ class BookingController extends Controller
                 'created_at' => now(),
             ]);
 
+            foreach ($serviceItems as $item) {
+                BookingServiceItem::create([
+                    'booking_id' => $booking->id,
+                    'service_id' => $item['service_id'],
+                    'name' => $item['name'],
+                    'type' => $item['type'],
+                    'unit_price' => $item['unit_price'],
+                    'quantity' => $item['quantity'],
+                    'total' => $item['total'],
+                    'note' => $item['note'],
+                ]);
+            }
+
             $availableRoom->update([
                 'status' => 'reserved',
             ]);
@@ -203,9 +247,16 @@ class BookingController extends Controller
         }
 
         if (!$booking) {
+            $checkInText = date('d/m/Y', strtotime($data['check_in_date']));
+            $checkOutText = date('d/m/Y', strtotime($data['check_out_date']));
+
             return back()
                 ->withInput()
-                ->with('error', 'Phòng vừa được người khác đặt. Vui lòng chọn lại thời gian khác.');
+                ->with('error', 'Hạng phòng này không còn phòng trống từ ngày '
+                    . $checkInText
+                    . ' đến ngày '
+                    . $checkOutText
+                    . '. Phòng có thể vừa được người khác đặt, vui lòng chọn ngày khác.');
         }
 
         return redirect()
@@ -255,6 +306,7 @@ class BookingController extends Controller
         $booking->load([
             'roomCategory',
             'bookingRooms.room',
+            'serviceItems.service',
         ]);
 
         return view(
@@ -263,24 +315,70 @@ class BookingController extends Controller
         );
     }
 
-    private function findAvailableRoom($roomCategoryId, $checkInDate, $checkOutDate)
+
+    private function prepareServiceItems(array $items): array
+    {
+        $preparedItems = [];
+        $usedServiceIds = [];
+
+        foreach ($items as $item) {
+            if (empty($item['service_id'])) {
+                continue;
+            }
+
+            $serviceId = (int) $item['service_id'];
+
+            if (in_array($serviceId, $usedServiceIds)) {
+                continue;
+            }
+
+            $service = Service::where('id', $serviceId)
+                ->where('status', 'active')
+                ->whereIn('type', ['service', 'minibar'])
+                ->first();
+
+            if (!$service) {
+                continue;
+            }
+
+            $quantity = max(1, (int) ($item['quantity'] ?? 1));
+            $unitPrice = (float) $service->price;
+            $total = $unitPrice * $quantity;
+
+            $preparedItems[] = [
+                'service_id' => $service->id,
+                'name' => $service->name,
+                'type' => $service->type,
+                'unit_price' => $unitPrice,
+                'quantity' => $quantity,
+                'total' => $total,
+                'note' => $item['note'] ?? null,
+            ];
+
+            $usedServiceIds[] = $serviceId;
+        }
+
+        return $preparedItems;
+    }
+
+    private function findAvailableRoom($roomCategoryId, $checkInAt, $checkOutAt)
     {
         return Room::where('room_category_id', $roomCategoryId)
-            ->where('status', 'available')
-            ->whereDoesntHave('bookingRooms.booking', function ($query) use ($checkInDate, $checkOutDate) {
+            ->whereNotIn('status', ['maintenance', 'cleaning'])
+            ->whereDoesntHave('bookingRooms.booking', function ($query) use ($checkInAt, $checkOutAt) {
                 $query->whereIn('status', [
                     'pending',
                     'confirmed',
                     'checked_in',
                 ])
-                    ->whereDate('check_in_date', '<', $checkOutDate)
-                    ->whereDate('check_out_date', '>', $checkInDate);
+                    ->where('check_in_at', '<', $checkOutAt)
+                    ->where('check_out_at', '>', $checkInAt);
             })
             ->inRandomOrder()
             ->first();
     }
 
-    private function hasActiveBookingInDateRange($customerId, $checkInDate, $checkOutDate)
+    private function hasActiveBookingInDateRange($customerId, $checkInAt, $checkOutAt)
     {
         return Booking::where('customer_id', $customerId)
             ->whereIn('status', [
@@ -288,8 +386,8 @@ class BookingController extends Controller
                 'confirmed',
                 'checked_in',
             ])
-            ->whereDate('check_in_date', '<', $checkOutDate)
-            ->whereDate('check_out_date', '>', $checkInDate)
+            ->where('check_in_at', '<', $checkOutAt)
+            ->where('check_out_at', '>', $checkInAt)
             ->exists();
     }
 

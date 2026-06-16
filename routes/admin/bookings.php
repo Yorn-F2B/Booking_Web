@@ -9,12 +9,16 @@ use App\Http\Controllers\Admin\FloorInspectionController;
 use App\Http\Controllers\Admin\InspectionApprovalController;
 use App\Http\Controllers\Admin\HousekeepingController;
 use App\Http\Controllers\Admin\BookingCreateController;
+use App\Http\Controllers\Admin\RoomAvailabilityController;
 
 /*
 |--------------------------------------------------------------------------
 | Booking create
 |--------------------------------------------------------------------------
 */
+
+Route::get('room-availability', [RoomAvailabilityController::class, 'index'])
+    ->name('admin.room-availability.index');
 
 Route::get('bookings/create', [BookingCreateController::class, 'create'])
     ->name('admin.bookings.create');
@@ -46,41 +50,25 @@ Route::post('bookings/{booking}/change-room', [BookingRoomController::class, 'ch
 Route::patch('bookings/{booking}/check-in', [BookingLifecycleController::class, 'checkIn'])
     ->name('admin.bookings.check-in');
 
+Route::patch('bookings/{booking}/cancel-late-arrival', [BookingLifecycleController::class, 'cancelLateArrival'])
+    ->name('admin.bookings.cancel-late-arrival');
+
 Route::patch('bookings/{booking}/request-inspection', [BookingLifecycleController::class, 'requestInspection'])
     ->name('admin.bookings.request-inspection');
 
 Route::patch('bookings/{booking}/check-out', [BookingLifecycleController::class, 'checkOut'])
     ->name('admin.bookings.check-out');
+Route::patch('bookings/{booking}/extend-stay', [BookingLifecycleController::class, 'extendStay'])
+    ->name('admin.bookings.extend-stay');
 
-/*
-|--------------------------------------------------------------------------
-| Floor inspections
-|--------------------------------------------------------------------------
-*/
+Route::post('bookings/{booking}/service-items', [BookingController::class, 'storeServiceItem'])
+    ->name('admin.bookings.service-items.store');
 
-Route::get('floor-inspections', [FloorInspectionController::class, 'index'])
-    ->name('admin.floor-inspections.index');
+Route::patch('bookings/{booking}/service-items/{bookingServiceItem}', [BookingController::class, 'updateServiceItem'])
+    ->name('admin.bookings.service-items.update');
 
-Route::get('floor-inspections/{roomInspection}', [FloorInspectionController::class, 'show'])
-    ->name('admin.floor-inspections.show');
-
-Route::post('floor-inspections/{roomInspection}/report', [FloorInspectionController::class, 'report'])
-    ->name('admin.floor-inspections.report');
-
-/*
-|--------------------------------------------------------------------------
-| Inspection approvals
-|--------------------------------------------------------------------------
-*/
-
-Route::get('inspection-approvals', [InspectionApprovalController::class, 'index'])
-    ->name('admin.inspection-approvals.index');
-
-Route::get('inspection-approvals/{roomInspection}', [InspectionApprovalController::class, 'show'])
-    ->name('admin.inspection-approvals.show');
-
-Route::post('inspection-approvals/{roomInspection}/approve', [InspectionApprovalController::class, 'approve'])
-    ->name('admin.inspection-approvals.approve');
+Route::delete('bookings/{booking}/service-items/{bookingServiceItem}', [BookingController::class, 'destroyServiceItem'])
+    ->name('admin.bookings.service-items.destroy');
 
 /*
 |--------------------------------------------------------------------------
@@ -99,6 +87,12 @@ Route::patch('housekeeping/{room}/mark-available', [HousekeepingController::clas
 | Booking resource
 |--------------------------------------------------------------------------
 */
+
+Route::patch('bookings/{booking}/payment-status', [BookingController::class, 'updatePaymentStatus'])
+    ->name('admin.bookings.update-payment-status');
+
+Route::patch('bookings/{booking}/note', [BookingController::class, 'updateNote'])
+    ->name('admin.bookings.update-note');
 
 Route::resource('bookings', BookingController::class)
     ->except(['create', 'store'])

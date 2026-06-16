@@ -9,6 +9,7 @@ class RoomInspectionItem extends Model
     protected $fillable = [
         'room_inspection_id',
         'service_id',
+        'type',
         'name',
         'unit',
         'price',

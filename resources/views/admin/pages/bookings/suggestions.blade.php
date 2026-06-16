@@ -162,8 +162,14 @@
 
                                     @foreach ($data as $key => $value)
                                         @if (is_array($value))
-                                            @foreach ($value as $subValue)
-                                                <input type="hidden" name="{{ $key }}[]" value="{{ $subValue }}">
+                                            @foreach ($value as $subKey => $subValue)
+                                                @if (is_array($subValue))
+                                                    @foreach ($subValue as $deepValue)
+                                                        <input type="hidden" name="{{ $key }}[{{ $subKey }}][]" value="{{ $deepValue }}">
+                                                    @endforeach
+                                                @else
+                                                    <input type="hidden" name="{{ $key }}[]" value="{{ $subValue }}">
+                                                @endif
                                             @endforeach
                                         @else
                                             <input type="hidden" name="{{ $key }}" value="{{ $value }}">

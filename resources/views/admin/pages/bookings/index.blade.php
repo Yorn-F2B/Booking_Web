@@ -357,9 +357,34 @@
                                     </td>
 
                                     <td>
-                                        <span class="booking-badge {{ $paymentStatusClass }}">
-                                            {{ $paymentStatusLabels[$booking->payment_status] ?? $booking->payment_status }}
-                                        </span>
+                                        @if (in_array($booking->payment_status, ['paid', 'refunded']))
+                                            <span class="booking-badge {{ $paymentStatusClass }}">
+                                                {{ $paymentStatusLabels[$booking->payment_status] ?? $booking->payment_status }}
+                                            </span>
+                                        @else
+                                            <form action="{{ route('admin.bookings.update-payment-status', $booking->id) }}"
+                                                method="POST">
+                                                @csrf
+                                                @method('PATCH')
+
+                                                <select name="payment_status"
+                                                    class="form-select form-select-sm {{ $paymentStatusClass }}"
+                                                    onchange="this.form.submit()">
+
+                                                    @if ($booking->payment_status == 'unpaid')
+                                                        <option value="unpaid" selected>Chưa thanh toán</option>
+                                                        <option value="partial">Đã cọc</option>
+                                                        <option value="paid">Đã thanh toán</option>
+                                                        <option value="refunded">Đã hoàn tiền</option>
+                                                    @elseif ($booking->payment_status == 'partial')
+                                                        <option value="partial" selected>Đã cọc</option>
+                                                        <option value="paid">Đã thanh toán</option>
+                                                        <option value="refunded">Đã hoàn tiền</option>
+                                                    @endif
+
+                                                </select>
+                                            </form>
+                                        @endif
                                     </td>
 
                                     <td>

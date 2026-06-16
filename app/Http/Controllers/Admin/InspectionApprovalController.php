@@ -8,6 +8,7 @@ use App\Models\RoomInspectionItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use App\Models\BookingLog;
 
 class InspectionApprovalController extends Controller
 {
@@ -120,6 +121,40 @@ class InspectionApprovalController extends Controller
                 ]);
             }
 
+            $approvedItems = $roomInspection->items
+                ->where('status', 'approved')
+                ->map(function ($item) {
+                    return $item->name . ' x' . $item->quantity . ' = ' . number_format((float) $item->total, 0, ',', '.') . 'đ';
+                })
+                ->implode('; ');
+
+            $rejectedItems = $roomInspection->items
+                ->where('status', 'rejected')
+                ->map(function ($item) {
+                    return $item->name . ' - không duyệt' . ($item->admin_note ? ' vì: ' . $item->admin_note : '');
+                })
+                ->implode('; ');
+
+            $description = 'Admin duyệt kiểm tra phòng '
+                . ($roomInspection->room->room_number ?? '')
+                . '. Phí hư hại được duyệt: '
+                . number_format((float) $approvedTotal, 0, ',', '.')
+                . 'đ.';
+
+            if ($approvedItems) {
+                $description .= ' Mục duyệt: ' . $approvedItems . '.';
+            }
+
+            if ($rejectedItems) {
+                $description .= ' Mục không duyệt: ' . $rejectedItems . '.';
+            }
+
+            $this->addBookingLog(
+                $booking,
+                'inspection_approved',
+                $description
+            );
+
             DB::commit();
 
             return redirect()
@@ -130,5 +165,15 @@ class InspectionApprovalController extends Controller
 
             return back()->with('error', 'Có lỗi khi duyệt kiểm tra: ' . $e->getMessage());
         }
+    }
+
+    private function addBookingLog($booking, string $action, string $description): void
+    {
+        BookingLog::create([
+            'booking_id' => $booking->id,
+            'user_id' => Auth::id(),
+            'action' => $action,
+            'description' => $description,
+        ]);
     }
 }

@@ -32,6 +32,9 @@
                     <div class="card booking-card border-0 shadow-lg">
                         <div class="card-body p-4">
                             <h2 class="h5 fw-bold mb-3">Tìm phòng trống</h2>
+                            <p class="small text-muted mb-3">
+                                Nhận phòng: <strong>14:00 - 15:00</strong> · Trả phòng: <strong>trước 11:00</strong>
+                            </p>
                             <form method="GET" action="{{ route('rooms') }}">
 
                                 <div class="row g-2 mb-3">

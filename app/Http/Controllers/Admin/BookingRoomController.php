@@ -8,6 +8,8 @@ use App\Models\BookingRoom;
 use App\Models\Room;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Models\BookingLog;
+use Illuminate\Support\Facades\Auth;
 
 class BookingRoomController extends Controller
 {
@@ -81,6 +83,17 @@ class BookingRoomController extends Controller
                 'status' => 'confirmed',
             ]);
 
+            $newRoomNumbers = Room::whereIn('id', $data['room_ids'])
+                ->orderBy('room_number')
+                ->pluck('room_number')
+                ->implode(', ');
+
+            $this->addBookingLog(
+                $booking,
+                'assign_rooms',
+                'Gán/cập nhật phòng cho booking: ' . $newRoomNumbers . '.'
+            );
+
             DB::commit();
 
             return redirect()
@@ -147,6 +160,20 @@ class BookingRoomController extends Controller
                 'note' => $oldNote . now()->format('d/m/Y H:i') . ' - Đổi từ phòng ' . $oldRoom->room_number . ' sang phòng ' . $newRoom->room_number . '. Lý do: ' . $data['change_reason'],
             ]);
 
+            $this->addBookingLog(
+                $booking,
+                'change_room',
+                'Đổi từ phòng '
+                . $oldRoom->room_number
+                . ' sang phòng '
+                . $newRoom->room_number
+                . '. Lý do: '
+                . $data['change_reason']
+                . '. Trạng thái phòng cũ: '
+                . $data['old_room_new_status']
+                . '.'
+            );
+
             DB::commit();
 
             return back()->with('success', 'Đổi phòng thành công.');
@@ -155,5 +182,15 @@ class BookingRoomController extends Controller
 
             return back()->with('error', 'Có lỗi khi đổi phòng: ' . $e->getMessage());
         }
+    }
+
+    private function addBookingLog(Booking $booking, string $action, string $description): void
+    {
+        BookingLog::create([
+            'booking_id' => $booking->id,
+            'user_id' => Auth::id(),
+            'action' => $action,
+            'description' => $description,
+        ]);
     }
 }

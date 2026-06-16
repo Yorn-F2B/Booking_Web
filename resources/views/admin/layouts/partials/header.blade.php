@@ -62,6 +62,12 @@
             </a>
         @endif
 
+        <a href="{{ route('admin.room-availability.index') }}"
+            class="admin-nav-link {{ request()->routeIs('admin.room-availability.*') ? 'active' : '' }}">
+            <i class="bx bx-search"></i>
+            Tra cứu phòng trống
+        </a>
+
         @if ($isSuperAdmin || $isReceptionist)
             <a href="{{ route('admin.bookings.index') }}"
                 class="admin-nav-link {{ request()->routeIs('admin.bookings.*') ? 'active' : '' }}">
