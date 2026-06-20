@@ -41,6 +41,15 @@ Route::post('bookings/{booking}/assign-rooms', [BookingRoomController::class, 'a
 Route::post('bookings/{booking}/change-room', [BookingRoomController::class, 'changeRoom'])
     ->name('admin.bookings.change-room');
 
+Route::patch('bookings/{booking}/add-room-to-booking', [BookingLifecycleController::class, 'addRoomToBooking'])
+    ->name('admin.bookings.add-room-to-booking');
+
+Route::patch('bookings/{booking}/change-one-room-category', [BookingLifecycleController::class, 'changeOneRoomCategory'])
+    ->name('admin.bookings.change-one-room-category');
+
+Route::patch('bookings/{booking}/change-all-room-category', [BookingLifecycleController::class, 'changeAllRoomCategory'])
+    ->name('admin.bookings.change-all-room-category');
+
 /*
 |--------------------------------------------------------------------------
 | Booking lifecycle
@@ -50,6 +59,9 @@ Route::post('bookings/{booking}/change-room', [BookingRoomController::class, 'ch
 Route::patch('bookings/{booking}/check-in', [BookingLifecycleController::class, 'checkIn'])
     ->name('admin.bookings.check-in');
 
+Route::patch('bookings/{booking}/priority-cleaning', [BookingLifecycleController::class, 'requestPriorityCleaning'])
+    ->name('admin.bookings.priority-cleaning');
+
 Route::patch('bookings/{booking}/cancel-late-arrival', [BookingLifecycleController::class, 'cancelLateArrival'])
     ->name('admin.bookings.cancel-late-arrival');
 
@@ -58,8 +70,15 @@ Route::patch('bookings/{booking}/request-inspection', [BookingLifecycleControlle
 
 Route::patch('bookings/{booking}/check-out', [BookingLifecycleController::class, 'checkOut'])
     ->name('admin.bookings.check-out');
+
+Route::post('bookings/{booking}/extend-stay/preview', [BookingLifecycleController::class, 'previewExtendStay'])
+    ->name('admin.bookings.extend-stay.preview');
+
 Route::patch('bookings/{booking}/extend-stay', [BookingLifecycleController::class, 'extendStay'])
     ->name('admin.bookings.extend-stay');
+
+Route::post('bookings/hourly-inventory-check', [BookingCreateController::class, 'checkHourlyInventory'])
+    ->name('admin.bookings.hourly-inventory-check');
 
 Route::post('bookings/{booking}/service-items', [BookingController::class, 'storeServiceItem'])
     ->name('admin.bookings.service-items.store');
@@ -94,6 +113,7 @@ Route::patch('bookings/{booking}/payment-status', [BookingController::class, 'up
 Route::patch('bookings/{booking}/note', [BookingController::class, 'updateNote'])
     ->name('admin.bookings.update-note');
 
+
 Route::resource('bookings', BookingController::class)
-    ->except(['create', 'store'])
+    ->except(['create', 'store', 'destroy'])
     ->names('admin.bookings');

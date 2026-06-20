@@ -17,10 +17,24 @@
             'rejected' => 'bg-danger',
         ];
 
+        $itemStatusLabels = [
+            'pending' => 'Chờ duyệt',
+            'approved' => 'Đã duyệt',
+            'rejected' => 'Không duyệt',
+        ];
+
         $customerName = trim(($roomInspection->booking->customer->last_name ?? '') . ' ' . ($roomInspection->booking->customer->first_name ?? ''));
 
-        $proposedTotal = $roomInspection->items->sum('total');
-        $approvedTotal = $roomInspection->items->where('status', 'approved')->sum('total');
+        $minibarItems = $roomInspection->items->where('type', 'minibar');
+        $damageItems = $roomInspection->items->where('type', 'damage_fee');
+
+        $proposedMinibarTotal = $minibarItems->sum('total');
+        $proposedDamageTotal = $damageItems->sum('total');
+        $proposedTotal = $proposedMinibarTotal + $proposedDamageTotal;
+
+        $approvedMinibarTotal = $minibarItems->where('status', 'approved')->sum('total');
+        $approvedDamageTotal = $damageItems->where('status', 'approved')->sum('total');
+        $approvedTotal = $approvedMinibarTotal + $approvedDamageTotal;
     @endphp
 
     <div class="admin-wrapper">
@@ -37,7 +51,7 @@
 
                 <div>
                     <h2>Duyệt kiểm tra phòng {{ $roomInspection->room->room_number ?? '---' }}</h2>
-<p>Admin xác nhận từng hạng mục minibar và hư hại trước khi cộng vào đơn thanh toán</p>
+                    <p>Admin xác nhận từng hạng mục dịch vụ tại phòng và hư hại trước khi cộng vào đơn thanh toán.</p>
                 </div>
 
                 <a href="{{ route('admin.inspection-approvals.index') }}" class="btn btn-outline-secondary">
@@ -120,6 +134,16 @@
                         <hr>
 
                         <div class="mb-2">
+                            <div class="text-muted small">Dịch vụ tại phòng đề xuất</div>
+                            <strong>{{ number_format((float) $proposedMinibarTotal, 0, ',', '.') }}đ</strong>
+                        </div>
+
+                        <div class="mb-2">
+                            <div class="text-muted small">Hư hại đề xuất</div>
+                            <strong>{{ number_format((float) $proposedDamageTotal, 0, ',', '.') }}đ</strong>
+                        </div>
+
+                        <div class="mb-2">
                             <div class="text-muted small">Tổng đề xuất</div>
                             <strong>{{ number_format((float) $proposedTotal, 0, ',', '.') }}đ</strong>
                         </div>
@@ -138,20 +162,19 @@
                     <div class="settings-section">
 
                         <h5 class="fw-bold mb-3">
-    Hạng mục minibar / hư hại
-</h5>
+                            Hạng mục dịch vụ tại phòng / hư hại
+                        </h5>
 
-                        @if (!$roomInspection->has_damage)
+                        @if ($roomInspection->items->count() == 0)
 
                             <div class="alert alert-success">
-                                Quản lý tầng báo phòng không có hư hại.
+                                Buồng phòng báo không phát sinh dịch vụ tại phòng hoặc hư hại cần thu phí.
                             </div>
 
                             @if ($roomInspection->status == 'reported')
-
                                 <form action="{{ route('admin.inspection-approvals.approve', $roomInspection->id) }}"
                                     method="POST"
-                                    onsubmit="return confirm('Xác nhận phòng không phát sinh phí hư hại?')">
+                                    onsubmit="return confirm('Xác nhận phiếu không phát sinh khoản cần thu?')">
 
                                     @csrf
 
@@ -171,161 +194,158 @@
                                     </button>
 
                                 </form>
-
+                            @else
+                                <div class="alert alert-secondary mb-0">
+                                    Phiếu này đã được xử lý nên không thể duyệt lại.
+                                </div>
                             @endif
 
                         @else
 
-                            @if ($roomInspection->items->count() == 0)
+                            <form action="{{ route('admin.inspection-approvals.approve', $roomInspection->id) }}"
+                                method="POST"
+                                onsubmit="return confirm('Xác nhận duyệt các hạng mục đã chọn?')">
 
-                                <div class="alert alert-warning">
-                                    Phiếu này báo có hư hại nhưng chưa có hạng mục nào.
-                                </div>
+                                @csrf
 
-                            @else
+                                <div class="table-responsive">
 
-                                <form action="{{ route('admin.inspection-approvals.approve', $roomInspection->id) }}"
-                                    method="POST"
-                                    onsubmit="return confirm('Xác nhận duyệt các hạng mục đã chọn?')">
+                                    <table class="table table-bordered align-middle">
 
-                                    @csrf
+                                        <thead class="table-light">
 
-                                    <div class="table-responsive">
+                                            <tr>
+                                                <th style="width: 70px;">Duyệt</th>
+                                                <th>Loại</th>
+                                                <th>Hạng mục</th>
+                                                <th>Đơn giá</th>
+                                                <th>Số lượng</th>
+                                                <th>Tổng</th>
+                                                <th>Lý do không duyệt</th>
+                                                <th>Trạng thái</th>
+                                            </tr>
 
-                                        <table class="table table-bordered align-middle">
+                                        </thead>
 
-                                            <thead class="table-light">
+                                        <tbody>
+
+                                            @foreach ($roomInspection->items as $item)
 
                                                 <tr>
-                                                    <th style="width: 70px;">Duyệt</th>
-<th>Loại</th>
-<th>Hạng mục</th>
-                                                    <th>Đơn giá</th>
-                                                    <th>Số lượng</th>
-                                                    <th>Tổng</th>
-                                                    <th>Lý do không duyệt</th>
-                                                    <th>Trạng thái</th>
+
+                                                    <td class="text-center">
+                                                        <input type="checkbox"
+                                                            name="approved_item_ids[]"
+                                                            value="{{ $item->id }}"
+                                                            class="form-check-input approval-checkbox"
+                                                            data-note-id="rejectNote{{ $item->id }}"
+                                                            @checked($item->status == 'approved')
+                                                            {{ $roomInspection->status != 'reported' ? 'disabled' : '' }}>
+                                                    </td>
+
+                                                    <td>
+                                                        @if ($item->type == 'minibar')
+                                                            <span class="badge bg-primary">Dịch vụ tại phòng</span>
+                                                        @elseif ($item->type == 'damage_fee')
+                                                            <span class="badge bg-danger">Hư hại</span>
+                                                        @else
+                                                            <span class="badge bg-secondary">{{ $item->type }}</span>
+                                                        @endif
+                                                    </td>
+
+                                                    <td>
+                                                        <strong>{{ $item->name }}</strong>
+
+                                                        @if ($item->unit)
+                                                            <div class="text-muted small">
+                                                                Đơn vị: {{ $item->unit }}
+                                                            </div>
+                                                        @endif
+                                                    </td>
+
+                                                    <td>
+                                                        {{ number_format((float) $item->price, 0, ',', '.') }}đ
+                                                    </td>
+
+                                                    <td>
+                                                        {{ $item->quantity }}
+                                                    </td>
+
+                                                    <td>
+                                                        <strong>
+                                                            {{ number_format((float) $item->total, 0, ',', '.') }}đ
+                                                        </strong>
+                                                    </td>
+
+                                                    <td style="min-width: 220px;">
+                                                        @if ($roomInspection->status == 'reported')
+                                                            <input type="text"
+                                                                name="rejection_notes[{{ $item->id }}]"
+                                                                id="rejectNote{{ $item->id }}"
+                                                                class="form-control form-control-sm rejection-note"
+                                                                value="{{ old('rejection_notes.' . $item->id, $item->admin_note) }}"
+                                                                placeholder="Nhập lý do nếu không duyệt">
+                                                        @else
+                                                            {{ $item->admin_note ?: '---' }}
+                                                        @endif
+                                                    </td>
+
+                                                    <td>
+                                                        @if ($item->status == 'approved')
+                                                            <span class="badge bg-success">
+                                                                Đã duyệt
+                                                            </span>
+                                                        @elseif ($item->status == 'rejected')
+                                                            <span class="badge bg-danger">
+                                                                Không duyệt
+                                                            </span>
+                                                        @else
+                                                            <span class="badge bg-warning text-dark">
+                                                                {{ $itemStatusLabels[$item->status] ?? $item->status }}
+                                                            </span>
+                                                        @endif
+                                                    </td>
+
                                                 </tr>
 
-                                            </thead>
+                                            @endforeach
 
-                                            <tbody>
+                                        </tbody>
 
-                                                @foreach ($roomInspection->items as $item)
+                                    </table>
 
-                                                    <tr>
+                                </div>
 
-                                                        <td class="text-center">
-                                                            <input type="checkbox"
-                                                                name="approved_item_ids[]"
-                                                                value="{{ $item->id }}"
-                                                                class="form-check-input approval-checkbox"
-                                                                data-note-id="rejectNote{{ $item->id }}"
-                                                                @checked($item->status == 'approved')
-                                                                {{ $roomInspection->status != 'reported' ? 'disabled' : '' }}>
-                                                        </td>
+                                @if ($roomInspection->status == 'reported')
 
-                                                        <td>
-    @if ($item->type == 'minibar')
-        <span class="badge bg-primary">Minibar</span>
-    @elseif ($item->type == 'damage_fee')
-        <span class="badge bg-danger">Hư hại</span>
-    @else
-        <span class="badge bg-secondary">{{ $item->type }}</span>
-    @endif
-</td>
-
-                                                        <td>
-                                                            <strong>{{ $item->name }}</strong>
-
-                                                            @if ($item->unit)
-                                                                <div class="text-muted small">
-                                                                    Đơn vị: {{ $item->unit }}
-                                                                </div>
-                                                            @endif
-                                                        </td>
-
-                                                        <td>
-                                                            {{ number_format((float) $item->price, 0, ',', '.') }}đ
-                                                        </td>
-
-                                                        <td>
-                                                            {{ $item->quantity }}
-                                                        </td>
-
-                                                        <td>
-                                                            <strong>
-                                                                {{ number_format((float) $item->total, 0, ',', '.') }}đ
-                                                            </strong>
-                                                        </td>
-
-                                                        <td style="min-width: 220px;">
-                                                            @if ($roomInspection->status == 'reported')
-                                                                <input type="text"
-                                                                    name="rejection_notes[{{ $item->id }}]"
-                                                                    id="rejectNote{{ $item->id }}"
-                                                                    class="form-control form-control-sm rejection-note"
-                                                                    value="{{ old('rejection_notes.' . $item->id, $item->admin_note) }}"
-                                                                    placeholder="Nhập lý do nếu không duyệt">
-                                                            @else
-                                                                {{ $item->admin_note ?: '---' }}
-                                                            @endif
-                                                        </td>
-
-                                                        <td>
-                                                            @if ($item->status == 'approved')
-                                                                <span class="badge bg-success">
-                                                                    Đã duyệt
-                                                                </span>
-                                                            @elseif ($item->status == 'rejected')
-                                                                <span class="badge bg-danger">
-                                                                    Không duyệt
-                                                                </span>
-                                                            @else
-                                                                <span class="badge bg-warning text-dark">
-                                                                    Chờ duyệt
-                                                                </span>
-                                                            @endif
-                                                        </td>
-
-                                                    </tr>
-
-                                                @endforeach
-
-                                            </tbody>
-
-                                        </table>
-
+                                    <div class="alert alert-info small">
+                                        Tích chọn hạng mục hợp lệ để cộng vào đơn. Hạng mục không tích chọn bắt buộc nhập lý do không duyệt.
                                     </div>
 
-                                    @if ($roomInspection->status == 'reported')
+                                    <div class="mb-3">
+                                        <label class="form-label">
+                                            Ghi chú chung của admin
+                                        </label>
 
-                                        <div class="mb-3">
-                                            <label class="form-label">
-                                                Ghi chú chung của admin
-                                            </label>
+                                        <textarea name="admin_note"
+                                            rows="3"
+                                            class="form-control"
+                                            placeholder="Ví dụ: Chỉ duyệt các hạng mục đã xác minh với khách"></textarea>
+                                    </div>
 
-                                            <textarea name="admin_note"
-                                                rows="3"
-                                                class="form-control"
-                                                placeholder="Ví dụ: Chỉ duyệt các hạng mục đã xác minh với khách"></textarea>
-                                        </div>
+                                    <button type="submit" class="btn btn-success">
+                                        Xác nhận duyệt
+                                    </button>
 
-                                        <button type="submit" class="btn btn-success">
-                                            Xác nhận duyệt
-                                        </button>
+                                @else
 
-                                    @else
+                                    <div class="alert alert-secondary mb-0">
+                                        Phiếu này đã được xử lý nên không thể duyệt lại.
+                                    </div>
 
-                                        <div class="alert alert-secondary mb-0">
-                                            Phiếu này đã được xử lý nên không thể duyệt lại.
-                                        </div>
+                                @endif
 
-                                    @endif
-
-                                </form>
-
-                            @endif
+                            </form>
 
                         @endif
 

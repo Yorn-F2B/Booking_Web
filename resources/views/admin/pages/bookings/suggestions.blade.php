@@ -162,13 +162,13 @@
 
                                     @foreach ($data as $key => $value)
                                         @if (is_array($value))
-                                            @foreach ($value as $subKey => $subValue)
-                                                @if (is_array($subValue))
-                                                    @foreach ($subValue as $deepValue)
-                                                        <input type="hidden" name="{{ $key }}[{{ $subKey }}][]" value="{{ $deepValue }}">
+                                            @foreach ($value as $index => $item)
+                                                @if (is_array($item))
+                                                    @foreach ($item as $subKey => $subValue)
+                                                        <input type="hidden" name="{{ $key }}[{{ $index }}][{{ $subKey }}]" value="{{ $subValue }}">
                                                     @endforeach
                                                 @else
-                                                    <input type="hidden" name="{{ $key }}[]" value="{{ $subValue }}">
+                                                    <input type="hidden" name="{{ $key }}[]" value="{{ $item }}">
                                                 @endif
                                             @endforeach
                                         @else

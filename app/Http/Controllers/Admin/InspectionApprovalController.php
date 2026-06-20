@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\RoomInspection;
-use App\Models\RoomInspectionItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -62,43 +61,48 @@ class InspectionApprovalController extends Controller
 
         $roomInspection->load(['booking', 'room', 'items']);
 
-        if ($roomInspection->has_damage && $roomInspection->items->count() == 0) {
-            return back()->with('error', 'Phiếu báo có hư hại nhưng chưa có hạng mục nào.');
-        }
-
         $approvedItemIds = $data['approved_item_ids'] ?? [];
         $approvedItemIds = array_map('intval', $approvedItemIds);
 
         DB::beginTransaction();
 
         try {
-            $approvedTotal = 0;
+            $approvedMinibarTotal = 0;
+            $approvedDamageTotal = 0;
 
             foreach ($roomInspection->items as $item) {
-                if (in_array($item->id, $approvedItemIds)) {
+                if (in_array((int) $item->id, $approvedItemIds)) {
                     $item->update([
                         'status' => 'approved',
                         'admin_note' => null,
                     ]);
 
-                    $approvedTotal += $item->total;
-                } else {
-                    $note = $data['rejection_notes'][$item->id] ?? null;
-
-                    if ($roomInspection->has_damage && !$note) {
-                        DB::rollBack();
-
-                        return back()
-                            ->withInput()
-                            ->with('error', 'Vui lòng nhập lý do cho các hạng mục không duyệt.');
+                    if ($item->type == 'minibar') {
+                        $approvedMinibarTotal += (float) $item->total;
+                    } else {
+                        $approvedDamageTotal += (float) $item->total;
                     }
 
-                    $item->update([
-                        'status' => 'rejected',
-                        'admin_note' => $note,
-                    ]);
+                    continue;
                 }
+
+                $note = $data['rejection_notes'][$item->id] ?? null;
+
+                if (!$note) {
+                    DB::rollBack();
+
+                    return back()
+                        ->withInput()
+                        ->with('error', 'Vui lòng nhập lý do cho các hạng mục không duyệt.');
+                }
+
+                $item->update([
+                    'status' => 'rejected',
+                    'admin_note' => $note,
+                ]);
             }
+
+            $approvedTotal = $approvedMinibarTotal + $approvedDamageTotal;
 
             $roomInspection->update([
                 'status' => 'confirmed',
@@ -109,36 +113,58 @@ class InspectionApprovalController extends Controller
             ]);
 
             $booking = $roomInspection->booking;
-            $oldNote = $booking->note ? $booking->note . "\n" : '';
 
             if ($approvedTotal > 0) {
-                $newEstimatedTotal = (float) $booking->estimated_total + (float) $approvedTotal;
+                $oldNote = $booking->note ? $booking->note . "\n" : '';
+
+                $noteParts = [];
+
+                if ($approvedMinibarTotal > 0) {
+                    $noteParts[] = 'dịch vụ tại phòng +' . number_format($approvedMinibarTotal, 0, ',', '.') . 'đ';
+                }
+
+                if ($approvedDamageTotal > 0) {
+                    $noteParts[] = 'hư hại +' . number_format($approvedDamageTotal, 0, ',', '.') . 'đ';
+                }
 
                 $booking->update([
-                    'estimated_total' => $newEstimatedTotal,
+                    'estimated_total' => (float) $booking->estimated_total + (float) $approvedTotal,
                     'payment_status' => $booking->deposit_amount > 0 ? 'partial' : 'unpaid',
-                    'note' => $oldNote . now()->format('d/m/Y H:i') . ' - Admin duyệt phí hư hại phòng ' . $roomInspection->room->room_number . ': +' . number_format((float) $approvedTotal, 0, ',', '.') . 'đ.',
+                    'note' => $oldNote
+                        . now()->format('d/m/Y H:i')
+                        . ' - Admin duyệt kiểm tra phòng '
+                        . ($roomInspection->room->room_number ?? '')
+                        . ': ' . implode(', ', $noteParts)
+                        . '. Tổng cộng +' . number_format($approvedTotal, 0, ',', '.') . 'đ.',
                 ]);
             }
 
             $approvedItems = $roomInspection->items
                 ->where('status', 'approved')
                 ->map(function ($item) {
-                    return $item->name . ' x' . $item->quantity . ' = ' . number_format((float) $item->total, 0, ',', '.') . 'đ';
+                    $typeLabel = $item->type == 'minibar' ? 'dịch vụ tại phòng' : 'hư hại';
+
+                    return $typeLabel . ' - ' . $item->name . ' x' . $item->quantity . ' = ' . number_format((float) $item->total, 0, ',', '.') . 'đ';
                 })
                 ->implode('; ');
 
             $rejectedItems = $roomInspection->items
                 ->where('status', 'rejected')
                 ->map(function ($item) {
-                    return $item->name . ' - không duyệt' . ($item->admin_note ? ' vì: ' . $item->admin_note : '');
+                    $typeLabel = $item->type == 'minibar' ? 'dịch vụ tại phòng' : 'hư hại';
+
+                    return $typeLabel . ' - ' . $item->name . ' - không duyệt' . ($item->admin_note ? ' vì: ' . $item->admin_note : '');
                 })
                 ->implode('; ');
 
             $description = 'Admin duyệt kiểm tra phòng '
                 . ($roomInspection->room->room_number ?? '')
-                . '. Phí hư hại được duyệt: '
-                . number_format((float) $approvedTotal, 0, ',', '.')
+                . '. Dịch vụ tại phòng được duyệt: '
+                . number_format($approvedMinibarTotal, 0, ',', '.')
+                . 'đ. Hư hại được duyệt: '
+                . number_format($approvedDamageTotal, 0, ',', '.')
+                . 'đ. Tổng cộng: '
+                . number_format($approvedTotal, 0, ',', '.')
                 . 'đ.';
 
             if ($approvedItems) {
@@ -159,7 +185,7 @@ class InspectionApprovalController extends Controller
 
             return redirect()
                 ->route('admin.inspection-approvals.index')
-                ->with('success', 'Đã duyệt kết quả kiểm tra phòng.');
+                ->with('success', 'Đã duyệt kết quả kiểm tra phòng. Khoản được duyệt đã được cộng vào đơn.');
         } catch (\Throwable $e) {
             DB::rollBack();
 

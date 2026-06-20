@@ -3,6 +3,34 @@
 @section('title', 'Trang chủ')
 
 @section('content')
+
+    @php
+        $now = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
+        $checkInLimitToday = $now->copy()->setTime(14, 0, 0);
+
+        $minOnlineCheckInDate = $now->greaterThanOrEqualTo($checkInLimitToday)
+            ? $now->copy()->addDay()->toDateString()
+            : $now->toDateString();
+
+        $minOnlineCheckOutDate = \Carbon\Carbon::parse($minOnlineCheckInDate)
+            ->addDay()
+            ->toDateString();
+
+        $onlineBookingClosedToday = $now->greaterThanOrEqualTo($checkInLimitToday);
+
+        $maxAdultCapacity = max(1, (int) ($maxAdultCapacity ?? 1));
+        $maxChildCapacity = max(0, (int) ($maxChildCapacity ?? 0));
+
+        $homeSelectedAdultCount = old(
+            'adult_count',
+            request('adult_count', min(2, $maxAdultCapacity))
+        );
+
+        $homeSelectedChildCount = old(
+            'child_count',
+            request('child_count', 0)
+        );
+    @endphp
     <!-- Hero + Booking Form -->
     <section class="hero-section position-relative">
         <div class="hero-overlay"></div>
@@ -33,8 +61,18 @@
                         <div class="card-body p-4">
                             <h2 class="h5 fw-bold mb-3">Tìm phòng trống</h2>
                             <p class="small text-muted mb-3">
-                                Nhận phòng: <strong>14:00 - 15:00</strong> · Trả phòng: <strong>trước 11:00</strong>
+                                Nhận phòng linh hoạt: <strong>13:00 - 14:00</strong> nếu phòng sẵn sàng · Trả phòng:
+                                <strong>trước 12:00</strong>
                             </p>
+
+                            @if ($onlineBookingClosedToday)
+                                <div class="alert alert-warning small mb-3">
+                                    Hôm nay đã quá mốc giữ phòng online lúc <strong>14:00</strong>.
+                                    Ngày nhận phòng sớm nhất có thể chọn là
+                                    <strong>{{ \Carbon\Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') }}</strong>.
+                                </div>
+                            @endif
+
                             <form method="GET" action="{{ route('rooms') }}">
 
                                 <div class="row g-2 mb-3">
@@ -44,8 +82,11 @@
                                             Nhận phòng
                                         </label>
 
-                                        <input type="date" name="check_in_date" id="check_in_date" class="form-control"
-                                            min="{{ date('Y-m-d') }}" value="{{ request('check_in_date') }}" required>
+                                        <input type="date" name="check_in_date" id="home_check_in_date"
+                                            class="form-control js-online-check-in" min="{{ $minOnlineCheckInDate }}"
+                                            data-min-check-in="{{ $minOnlineCheckInDate }}"
+                                            value="{{ request('check_in_date') && request('check_in_date') >= $minOnlineCheckInDate ? request('check_in_date') : '' }}"
+                                            required>
                                     </div>
 
                                     <div class="col-6">
@@ -53,9 +94,11 @@
                                             Trả phòng
                                         </label>
 
-                                        <input type="date" name="check_out_date" id="check_out_date" class="form-control"
-                                            min="{{ date('Y-m-d', strtotime('+1 day')) }}"
-                                            value="{{ request('check_out_date') }}" required>
+                                        <input type="date" name="check_out_date" id="home_check_out_date"
+                                            class="form-control js-online-check-out" min="{{ $minOnlineCheckOutDate }}"
+                                            data-min-check-out="{{ $minOnlineCheckOutDate }}"
+                                            value="{{ request('check_out_date') && request('check_out_date') >= $minOnlineCheckOutDate ? request('check_out_date') : '' }}"
+                                            required>
                                     </div>
 
                                 </div>
@@ -67,11 +110,16 @@
                                             Người lớn
                                         </label>
 
-                                        <select name="adult_count" class="form-select">
-                                            <option value="1">1 người lớn</option>
-                                            <option value="2" selected>2 người lớn</option>
-                                            <option value="3">3 người lớn</option>
-                                            <option value="4">4 người lớn</option>
+                                        <select name="adult_count" id="home_adult_count" class="form-select" required>
+                                            <option value="" disabled {{ empty($homeSelectedAdultCount) ? 'selected' : '' }}>
+                                                Chọn số người lớn
+                                            </option>
+
+                                            @for ($i = 1; $i <= $maxAdultCapacity; $i++)
+                                                <option value="{{ $i }}" {{ (string) $homeSelectedAdultCount === (string) $i ? 'selected' : '' }}>
+                                                    {{ $i }} người lớn
+                                                </option>
+                                            @endfor
                                         </select>
                                     </div>
 
@@ -80,11 +128,16 @@
                                             Trẻ em
                                         </label>
 
-                                        <select name="child_count" class="form-select">
-                                            <option value="0" selected>0 trẻ em</option>
-                                            <option value="1">1 trẻ em</option>
-                                            <option value="2">2 trẻ em</option>
-                                            <option value="3">3 trẻ em</option>
+                                        <select name="child_count" id="home_child_count" class="form-select" required>
+                                            <option value="" disabled {{ $homeSelectedChildCount === '' || $homeSelectedChildCount === null ? 'selected' : '' }}>
+                                                Chọn số trẻ em
+                                            </option>
+
+                                            @for ($i = 0; $i <= $maxChildCapacity; $i++)
+                                                <option value="{{ $i }}" {{ (string) $homeSelectedChildCount === (string) $i ? 'selected' : '' }}>
+                                                    {{ $i }} trẻ em
+                                                </option>
+                                            @endfor
                                         </select>
                                     </div>
 
@@ -97,21 +150,20 @@
                                             Hạng phòng
                                         </label>
 
-                                        <select name="room_category_id" class="form-select">
+                                        <select name="room_category_id" id="home_room_category_id" class="form-select">
+    <option value="">
+        Tất cả hạng phòng
+    </option>
 
-                                            <option value="">
-                                                Tất cả hạng phòng
-                                            </option>
-
-                                            @foreach ($featuredRoomCategories as $category)
-
-                                                <option value="{{ $category->id }}">
-                                                    {{ $category->name }}
-                                                </option>
-
-                                            @endforeach
-
-                                        </select>
+    @foreach ($featuredRoomCategories as $category)
+        <option value="{{ $category->id }}"
+            data-adult-capacity="{{ (int) $category->adult_capacity }}"
+            data-child-capacity="{{ (int) $category->child_capacity }}"
+            {{ (string) request('room_category_id') === (string) $category->id ? 'selected' : '' }}>
+            {{ $category->name }}
+        </option>
+    @endforeach
+</select>
                                     </div>
 
                                 </div>
@@ -548,27 +600,153 @@
     </section>
 
     <script>
-        const checkInInput = document.getElementById('check_in_date');
-        const checkOutInput = document.getElementById('check_out_date');
-
-        if (checkInInput && checkOutInput) {
-            checkInInput.addEventListener('change', function () {
-                const checkInDate = new Date(this.value);
-
-                if (!this.value) {
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.js-online-check-in').forEach(function (checkInInput) {
+                const form = checkInInput.closest('form');
+                if (!form) {
                     return;
                 }
 
-                checkInDate.setDate(checkInDate.getDate() + 1);
+                const checkOutInput = form.querySelector('.js-online-check-out');
+                const minCheckInDate = checkInInput.dataset.minCheckIn;
 
-                const minCheckOutDate = checkInDate.toISOString().split('T')[0];
+                checkInInput.min = minCheckInDate;
 
-                checkOutInput.min = minCheckOutDate;
+                if (checkInInput.value && checkInInput.value < minCheckInDate) {
+                    checkInInput.value = '';
+                }
 
-                if (checkOutInput.value && checkOutInput.value <= this.value) {
-                    checkOutInput.value = minCheckOutDate;
+                if (typeof flatpickr !== 'undefined') {
+                    if (checkInInput._flatpickr) {
+                        checkInInput._flatpickr.destroy();
+                    }
+
+                    flatpickr(checkInInput, {
+                        locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
+                            ? flatpickr.l10ns.vn
+                            : 'default',
+                        dateFormat: 'Y-m-d',
+                        minDate: minCheckInDate,
+                        disableMobile: false,
+                        allowInput: false,
+                        onChange: function (selectedDates, dateStr) {
+                            syncCheckOutMinDate(dateStr);
+                        }
+                    });
+                }
+
+                function addOneDay(dateString) {
+                    const parts = dateString.split('-');
+
+                    const date = new Date(
+                        Number(parts[0]),
+                        Number(parts[1]) - 1,
+                        Number(parts[2])
+                    );
+
+                    date.setDate(date.getDate() + 1);
+
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+
+                    return `${year}-${month}-${day}`;
+                }
+
+                function syncCheckOutMinDate(checkInDate) {
+                    if (!checkOutInput || !checkInDate) {
+                        return;
+                    }
+
+                    const minCheckOutDate = addOneDay(checkInDate);
+
+                    checkOutInput.min = minCheckOutDate;
+                    checkOutInput.dataset.minCheckOut = minCheckOutDate;
+
+                    if (checkOutInput.value && checkOutInput.value < minCheckOutDate) {
+                        checkOutInput.value = minCheckOutDate;
+                    }
+
+                    if (typeof flatpickr !== 'undefined') {
+                        if (checkOutInput._flatpickr) {
+                            checkOutInput._flatpickr.destroy();
+                        }
+
+                        flatpickr(checkOutInput, {
+                            locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
+                                ? flatpickr.l10ns.vn
+                                : 'default',
+                            dateFormat: 'Y-m-d',
+                            minDate: minCheckOutDate,
+                            disableMobile: false,
+                            allowInput: false
+                        });
+                    }
+                }
+
+                if (checkInInput.value) {
+                    syncCheckOutMinDate(checkInInput.value);
+                } else if (checkOutInput) {
+                    const defaultMinCheckOutDate = checkOutInput.dataset.minCheckOut || checkOutInput.min;
+
+                    checkOutInput.min = defaultMinCheckOutDate;
+
+                    if (checkOutInput.value && checkOutInput.value < defaultMinCheckOutDate) {
+                        checkOutInput.value = '';
+                    }
+
+                    if (typeof flatpickr !== 'undefined') {
+                        if (checkOutInput._flatpickr) {
+                            checkOutInput._flatpickr.destroy();
+                        }
+
+                        flatpickr(checkOutInput, {
+                            locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
+                                ? flatpickr.l10ns.vn
+                                : 'default',
+                            dateFormat: 'Y-m-d',
+                            minDate: defaultMinCheckOutDate,
+                            disableMobile: false,
+                            allowInput: false
+                        });
+                    }
                 }
             });
+
+             const categorySelect = document.getElementById('home_room_category_id');
+        const adultSelect = document.getElementById('home_adult_count');
+        const childSelect = document.getElementById('home_child_count');
+
+        if (!categorySelect || !adultSelect || !childSelect) {
+            return;
         }
+
+        function applyCapacityFromSelectedCategory() {
+            const selectedOption = categorySelect.options[categorySelect.selectedIndex];
+
+            if (!selectedOption || !selectedOption.value) {
+                adultSelect.value = '';
+                childSelect.value = '';
+                adultSelect.disabled = false;
+                childSelect.disabled = false;
+                return;
+            }
+
+            const adultCapacity = selectedOption.dataset.adultCapacity || '';
+            const childCapacity = selectedOption.dataset.childCapacity || '0';
+
+            adultSelect.value = adultCapacity;
+            childSelect.value = childCapacity;
+
+            adultSelect.disabled = false;
+            childSelect.disabled = false;
+        }
+
+        categorySelect.addEventListener('change', applyCapacityFromSelectedCategory);
+
+        if (categorySelect.value) {
+            applyCapacityFromSelectedCategory();
+        }
+        });
     </script>
 @endsection

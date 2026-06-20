@@ -4,56 +4,185 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\RoomCategory;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class RoomAvailabilityController extends Controller
 {
+    private const TIMEZONE = 'Asia/Ho_Chi_Minh';
+    private const DEFAULT_CLEANING_BUFFER_MINUTES = 60;
+    private const DEFAULT_LOOKUP_DURATION_HOURS = 2;
+
     public function index(Request $request)
     {
+        $now = now(self::TIMEZONE)->startOfMinute();
+        $roundedNow = $this->roundUpTime($now->copy(), 15);
+        $defaultCheckOutAt = $roundedNow->copy()->addHours(self::DEFAULT_LOOKUP_DURATION_HOURS);
+
         $roomCategories = collect();
 
-        $data = $request->validate([
-            'check_in_date' => 'nullable|date|after_or_equal:today',
-            'check_out_date' => 'nullable|date|after:check_in_date',
-        ], [
-            'check_in_date.date' => 'Ngày nhận phòng không hợp lệ.',
-            'check_in_date.after_or_equal' => 'Ngày nhận phòng không được nhỏ hơn hôm nay.',
-            'check_out_date.date' => 'Ngày trả phòng không hợp lệ.',
-            'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
+        $hasSearch = $request->hasAny([
+            'check_in_date',
+            'check_in_time',
+            'check_out_date',
+            'check_out_time',
         ]);
 
-        $checkInDate = $data['check_in_date'] ?? null;
-        $checkOutDate = $data['check_out_date'] ?? null;
+        $searchData = [
+            'searched' => false,
+            'check_in_date' => $request->input('check_in_date', $roundedNow->toDateString()),
+            'check_in_time' => $request->input('check_in_time', $roundedNow->format('H:i')),
+            'check_out_date' => $request->input('check_out_date', $defaultCheckOutAt->toDateString()),
+            'check_out_time' => $request->input('check_out_time', $defaultCheckOutAt->format('H:i')),
+            'check_in_at' => null,
+            'check_out_at' => null,
+            'cleaning_buffer_minutes' => self::DEFAULT_CLEANING_BUFFER_MINUTES,
+            'quick_booking_type' => 'hourly',
+            'quick_booking_mode' => 'walk_in',
+        ];
 
-        if ($checkInDate && $checkOutDate) {
-            $checkInAt = $checkInDate . ' 14:00:00';
-            $checkOutAt = $checkOutDate . ' 11:00:00';
+        $uiData = [
+            'today' => $now->toDateString(),
+            'rounded_now_date' => $roundedNow->toDateString(),
+            'rounded_now_time' => $roundedNow->format('H:i'),
+            'default_checkout_date' => $defaultCheckOutAt->toDateString(),
+            'default_checkout_time' => $defaultCheckOutAt->format('H:i'),
+            'cleaning_buffer_minutes' => self::DEFAULT_CLEANING_BUFFER_MINUTES,
+        ];
 
-            $roomCategories = RoomCategory::withCount([
-                'rooms as available_rooms_count' => function ($query) use ($checkInAt, $checkOutAt) {
-                    $query->where('status', 'available')
-                        ->whereDoesntHave('bookingRooms.booking', function ($bookingQuery) use ($checkInAt, $checkOutAt) {
-                            $bookingQuery->whereIn('status', [
-                                'pending',
-                                'confirmed',
-                                'checked_in',
-                            ])
-                                ->where('check_in_at', '<', $checkOutAt)
-                                ->where('check_out_at', '>', $checkInAt);
-                        });
-                },
-            ])
-                ->where('status', 'active')
-                ->having('available_rooms_count', '>', 0)
-                ->get();
+        if (!$hasSearch) {
+            return view('admin.pages.room-availability.index', compact('roomCategories', 'searchData', 'uiData'));
         }
 
-        return view('admin.pages.room-availability.index', [
-            'roomCategories' => $roomCategories,
-            'searchData' => [
-                'check_in_date' => $checkInDate,
-                'check_out_date' => $checkOutDate,
-            ],
+        $validator = Validator::make($request->all(), [
+            'check_in_date' => 'required|date|after_or_equal:today',
+            'check_in_time' => 'required|date_format:H:i',
+            'check_out_date' => 'required|date|after_or_equal:check_in_date',
+            'check_out_time' => 'required|date_format:H:i',
+        ], [
+            'check_in_date.required' => 'Vui lòng chọn ngày nhận phòng.',
+            'check_in_date.date' => 'Ngày nhận phòng không hợp lệ.',
+            'check_in_date.after_or_equal' => 'Ngày nhận phòng không được nhỏ hơn hôm nay.',
+            'check_in_time.required' => 'Vui lòng chọn giờ nhận phòng.',
+            'check_in_time.date_format' => 'Giờ nhận phòng phải đúng định dạng 24 giờ, ví dụ 14:00.',
+            'check_out_date.required' => 'Vui lòng chọn ngày trả phòng.',
+            'check_out_date.date' => 'Ngày trả phòng không hợp lệ.',
+            'check_out_date.after_or_equal' => 'Ngày trả phòng không được nhỏ hơn ngày nhận phòng.',
+            'check_out_time.required' => 'Vui lòng chọn giờ trả phòng.',
+            'check_out_time.date_format' => 'Giờ trả phòng phải đúng định dạng 24 giờ, ví dụ 12:00.',
         ]);
+
+        $validator->after(function ($validator) use ($request, $now) {
+            if (
+                !$request->filled('check_in_date')
+                || !$request->filled('check_in_time')
+                || !$request->filled('check_out_date')
+                || !$request->filled('check_out_time')
+            ) {
+                return;
+            }
+
+            try {
+                $checkInAt = Carbon::parse(
+                    $request->input('check_in_date') . ' ' . $request->input('check_in_time') . ':00',
+                    self::TIMEZONE
+                );
+
+                $checkOutAt = Carbon::parse(
+                    $request->input('check_out_date') . ' ' . $request->input('check_out_time') . ':00',
+                    self::TIMEZONE
+                );
+            } catch (\Throwable $exception) {
+                $validator->errors()->add('check_in_date', 'Khoảng thời gian tra cứu không hợp lệ.');
+                return;
+            }
+
+            if ($checkInAt->lt($now)) {
+                $validator->errors()->add(
+                    'check_in_time',
+                    'Thời gian nhận phòng không được nhỏ hơn thời điểm hiện tại.'
+                );
+            }
+
+            if ($checkOutAt->lessThanOrEqualTo($checkInAt)) {
+                $validator->errors()->add(
+                    'check_out_time',
+                    'Thời gian trả phòng phải sau thời gian nhận phòng.'
+                );
+            }
+        });
+
+        if ($validator->fails()) {
+            return back()
+                ->withInput()
+                ->withErrors($validator);
+        }
+
+        $data = $validator->validated();
+
+        $checkInAt = Carbon::parse(
+            $data['check_in_date'] . ' ' . $data['check_in_time'] . ':00',
+            self::TIMEZONE
+        );
+
+        $checkOutAt = Carbon::parse(
+            $data['check_out_date'] . ' ' . $data['check_out_time'] . ':00',
+            self::TIMEZONE
+        );
+
+        $roomCategories = RoomCategory::withCount([
+            'rooms as available_rooms_count' => function ($query) use ($checkInAt, $checkOutAt) {
+                $query->availableForPeriod(
+                    $checkInAt,
+                    $checkOutAt,
+                    null,
+                    self::DEFAULT_CLEANING_BUFFER_MINUTES
+                );
+            },
+        ])
+            ->where('status', 'active')
+            ->orderBy('price')
+            ->get();
+
+        $quickBookingType = $this->guessQuickBookingType($checkInAt, $checkOutAt);
+
+        $searchData = [
+            'searched' => true,
+            'check_in_date' => $checkInAt->toDateString(),
+            'check_in_time' => $checkInAt->format('H:i'),
+            'check_out_date' => $checkOutAt->toDateString(),
+            'check_out_time' => $checkOutAt->format('H:i'),
+            'check_in_at' => $checkInAt,
+            'check_out_at' => $checkOutAt,
+            'cleaning_buffer_minutes' => self::DEFAULT_CLEANING_BUFFER_MINUTES,
+            'quick_booking_type' => $quickBookingType,
+            'quick_booking_mode' => $quickBookingType === 'overnight' ? 'advance' : 'walk_in',
+        ];
+
+        return view('admin.pages.room-availability.index', compact('roomCategories', 'searchData', 'uiData'));
+    }
+
+    private function roundUpTime(Carbon $time, int $stepMinutes = 15): Carbon
+    {
+        $time->second(0);
+
+        $minute = (int) $time->format('i');
+        $roundedMinute = (int) ceil($minute / $stepMinutes) * $stepMinutes;
+
+        if ($roundedMinute >= 60) {
+            return $time->addHour()->minute(0);
+        }
+
+        return $time->minute($roundedMinute);
+    }
+
+    private function guessQuickBookingType(Carbon $checkInAt, Carbon $checkOutAt): string
+    {
+        $isStandardOvernight = $checkInAt->format('H:i') === '14:00'
+            && $checkOutAt->format('H:i') === '12:00'
+            && $checkOutAt->copy()->startOfDay()->greaterThan($checkInAt->copy()->startOfDay());
+
+        return $isStandardOvernight ? 'overnight' : 'hourly';
     }
 }

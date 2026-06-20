@@ -9,11 +9,20 @@ class Booking extends Model
 {
     use SoftDeletes;
 
+    public const STANDARD_CHECK_OUT_TIME = '12:00:00';
+    public const PRIORITY_CLEANING_START_TIME = '12:00:00';
+    public const EARLY_CHECK_IN_TIME = '13:00:00';
+    public const STANDARD_CHECK_IN_TIME = '14:00:00';
+    public const DEFAULT_CLEANING_BUFFER_MINUTES = 60;
+
     protected $fillable = [
         'booking_code',
         'customer_id',
         'created_by',
         'room_category_id',
+        'booking_type',
+        'booking_mode',
+        'booking_source',
         'check_in_date',
         'check_out_date',
         'check_in_at',
@@ -32,6 +41,7 @@ class Booking extends Model
         'late_arrival_fee',
         'late_arrival_hours',
         'late_arrival_policy',
+        'cleaning_buffer_minutes',
     ];
 
     protected $casts = [

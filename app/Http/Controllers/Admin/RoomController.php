@@ -11,33 +11,46 @@ class RoomController extends Controller
 {
     public function index(Request $request)
     {
-        $rooms = Room::with('category');
+        $roomQuery = Room::with('category');
 
         if ($request->filled('room_number')) {
-            $rooms->where('room_number', 'like', '%' . $request->room_number . '%');
+            $roomQuery->where('room_number', 'like', '%' . $request->room_number . '%');
         }
 
         if ($request->filled('status')) {
-            $rooms->where('status', $request->status);
+            $roomQuery->where('status', $request->status);
         }
 
         if ($request->filled('floor_number')) {
-            $rooms->where('floor_number', $request->floor_number);
+            $roomQuery->where('floor_number', $request->floor_number);
+        }
+
+        if ($request->filled('room_category_id')) {
+            $roomQuery->where('room_category_id', $request->room_category_id);
         }
 
         $maxFloor = Room::max('floor_number') ?? 0;
 
-        $rooms = $rooms
-            ->orderBy('floor_number')
-            ->orderBy('room_number')
-            ->paginate(10);
+        $roomCategories = RoomCategory::orderBy('name')->get();
 
-        return view('admin.pages.rooms.index', compact('rooms', 'maxFloor'));
+        $rooms = $roomQuery
+            ->orderByDesc('floor_number')
+            ->orderByRaw('CAST(room_number AS UNSIGNED) ASC')
+            ->orderBy('room_number')
+            ->get();
+
+        return view('admin.pages.rooms.index', compact(
+            'rooms',
+            'maxFloor',
+            'roomCategories'
+        ));
     }
 
     public function create()
     {
-        $categories = RoomCategory::where('status', 'active')->get();
+        $categories = RoomCategory::where('status', 'active')
+            ->orderBy('name')
+            ->get();
 
         return view('admin.pages.rooms.create', compact('categories'));
     }
@@ -48,7 +61,7 @@ class RoomController extends Controller
             'room_number' => 'required|max:20|unique:rooms,room_number',
             'room_category_id' => 'required|exists:room_categories,id',
             'floor_number' => 'nullable|integer|min:0',
-            'status' => 'required|in:available,reserved,occupied,cleaning,maintenance',
+            'status' => 'required|in:available,reserved,occupied,inspection,cleaning,maintenance',
             'note' => 'nullable|string',
         ]);
 
@@ -68,7 +81,9 @@ class RoomController extends Controller
 
     public function edit(Room $room)
     {
-        $categories = RoomCategory::where('status', 'active')->get();
+        $categories = RoomCategory::where('status', 'active')
+            ->orderBy('name')
+            ->get();
 
         return view('admin.pages.rooms.edit', compact('room', 'categories'));
     }
@@ -79,7 +94,7 @@ class RoomController extends Controller
             'room_number' => 'required|max:20|unique:rooms,room_number,' . $room->id,
             'room_category_id' => 'required|exists:room_categories,id',
             'floor_number' => 'nullable|integer|min:0',
-            'status' => 'required|in:available,reserved,occupied,cleaning,maintenance',
+            'status' => 'required|in:available,reserved,occupied,inspection,cleaning,maintenance',
             'note' => 'nullable|string',
         ]);
 

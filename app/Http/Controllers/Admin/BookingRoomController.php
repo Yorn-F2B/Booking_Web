@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Models\BookingLog;
 use Illuminate\Support\Facades\Auth;
+use Carbon\Carbon;
 
 class BookingRoomController extends Controller
 {
@@ -30,23 +31,30 @@ class BookingRoomController extends Controller
 
         $booking->load('bookingRooms.room', 'roomCategory');
 
-        $oldRoomIds = $booking->bookingRooms
-            ->pluck('room_id')
+        if (!$booking->check_in_at || !$booking->check_out_at) {
+            return back()->with('error', 'Booking chưa có thời gian nhận/trả phòng nên không thể kiểm tra phòng trống.');
+        }
+
+        $selectedRoomIds = collect($data['room_ids'])
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
             ->toArray();
 
-        $validRoomCount = Room::whereIn('id', $data['room_ids'])
-            ->where('room_category_id', $booking->room_category_id)
-            ->where(function ($query) use ($oldRoomIds) {
-                $query->where('status', 'available');
+        if (count($selectedRoomIds) !== count($data['room_ids'])) {
+            return back()->with('error', 'Không được chọn trùng phòng trong cùng một booking.');
+        }
 
-                if (!empty($oldRoomIds)) {
-                    $query->orWhereIn('id', $oldRoomIds);
-                }
-            })
+        $validRoomCount = Room::whereIn('id', $selectedRoomIds)
+            ->where('room_category_id', $booking->room_category_id)
+            ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
             ->count();
 
         if ($validRoomCount != $booking->room_quantity) {
-            return back()->with('error', 'Danh sách phòng chọn không hợp lệ. Chỉ được chọn phòng trống hoặc phòng đang thuộc booking này.');
+            return back()->with(
+                'error',
+                'Danh sách phòng chọn không hợp lệ. Có phòng đã bị đặt trùng thời gian, đang trong thời gian dọn phòng hoặc không thuộc đúng hạng phòng.'
+            );
         }
 
         DB::beginTransaction();
@@ -62,7 +70,7 @@ class BookingRoomController extends Controller
 
             BookingRoom::where('booking_id', $booking->id)->delete();
 
-            foreach ($data['room_ids'] as $roomId) {
+            foreach ($selectedRoomIds as $roomId) {
                 BookingRoom::create([
                     'booking_id' => $booking->id,
                     'room_id' => $roomId,
@@ -83,8 +91,7 @@ class BookingRoomController extends Controller
                 'status' => 'confirmed',
             ]);
 
-            $newRoomNumbers = Room::whereIn('id', $data['room_ids'])
-                ->orderBy('room_number')
+            $newRoomNumbers = Room::whereIn('id', $selectedRoomIds)->orderBy('room_number')
                 ->pluck('room_number')
                 ->implode(', ');
 
@@ -127,19 +134,34 @@ class BookingRoomController extends Controller
             return back()->with('error', 'Phòng cần đổi không thuộc booking này.');
         }
 
+        $checkInAt = $booking->check_in_at;
+        $checkOutAt = $booking->check_out_at;
+
+        if (!$checkInAt || !$checkOutAt) {
+            return back()->with('error', 'Booking chưa có thời gian check-in/check-out nên không thể kiểm tra phòng theo thời gian.');
+        }
+
+        $oldRoom = Room::findOrFail($data['old_room_id']);
+
         $newRoom = Room::where('id', $data['new_room_id'])
-            ->where('room_category_id', $booking->room_category_id)
-            ->where('status', 'available')
+            ->where('room_category_id', $oldRoom->room_category_id)
+            ->availableForPeriod($checkInAt, $checkOutAt, $booking->id)
             ->first();
 
         if (!$newRoom) {
-            return back()->with('error', 'Phòng thay thế không hợp lệ hoặc không còn trống.');
+            return back()->with(
+                'error',
+                'Không thể đổi phòng. Trong khoảng thời gian '
+                . Carbon::parse($checkInAt)->format('d/m/Y H:i')
+                . ' → '
+                . Carbon::parse($checkOutAt)->format('d/m/Y H:i')
+                . ', tất cả phòng cùng hạng đã được đặt hoặc đang sử dụng.'
+            );
         }
 
         DB::beginTransaction();
 
         try {
-            $oldRoom = Room::findOrFail($data['old_room_id']);
 
             $bookingRoom->update([
                 'room_id' => $newRoom->id,

@@ -11,6 +11,7 @@ use App\Models\BookingLog;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Service;
 use App\Models\BookingServiceItem;
+use Carbon\Carbon;
 
 class BookingController extends Controller
 {
@@ -40,16 +41,29 @@ class BookingController extends Controller
             $bookings->where('status', $request->status);
         }
 
-        if ($request->filled('payment_status')) {
+        if ($request->filled('payment_status') && in_array($request->payment_status, ['unpaid', 'partial', 'paid'], true)) {
             $bookings->where('payment_status', $request->payment_status);
         }
 
-        if ($request->filled('check_in_from')) {
-            $bookings->whereDate('check_in_date', '>=', $request->check_in_from);
-        }
+        if ($request->filled('filter_date')) {
+            $filterDate = $request->filter_date;
 
-        if ($request->filled('check_in_to')) {
-            $bookings->whereDate('check_in_date', '<=', $request->check_in_to);
+            $timeFrom = $request->filter_time_from ?: '00:00';
+            $timeTo = $request->filter_time_to ?: '23:59';
+
+            $filterStart = Carbon::parse($filterDate . ' ' . $timeFrom . ':00', 'Asia/Ho_Chi_Minh');
+            $filterEnd = Carbon::parse($filterDate . ' ' . $timeTo . ':59', 'Asia/Ho_Chi_Minh');
+
+            if ($filterEnd->lessThanOrEqualTo($filterStart)) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'filter_time_to' => 'Giờ kết thúc lọc phải sau giờ bắt đầu.',
+                    ]);
+            }
+
+            $bookings->where('check_in_at', '<', $filterEnd)
+                ->where('check_out_at', '>', $filterStart);
         }
 
         $bookings = $bookings
@@ -75,25 +89,8 @@ class BookingController extends Controller
             ->toArray();
 
         $availableRooms = Room::where('room_category_id', $booking->room_category_id)
-            ->where(function ($query) use ($assignedRoomIds) {
-                $query->whereNotIn('status', ['maintenance', 'cleaning']);
-
-                if (!empty($assignedRoomIds)) {
-                    $query->orWhereIn('id', $assignedRoomIds);
-                }
-            })
-            ->where(function ($query) use ($booking, $assignedRoomIds) {
-                if (!empty($assignedRoomIds)) {
-                    $query->whereIn('id', $assignedRoomIds);
-                }
-
-                $query->orWhereDoesntHave('bookingRooms.booking', function ($bookingQuery) use ($booking) {
-                    $bookingQuery->where('id', '!=', $booking->id)
-                        ->whereIn('status', ['pending', 'confirmed', 'checked_in'])
-                        ->where('check_in_at', '<', $booking->check_out_at)
-                        ->where('check_out_at', '>', $booking->check_in_at);
-                });
-            })
+            ->whereNotIn('id', $assignedRoomIds)
+            ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
             ->orderBy('floor_number')
             ->orderBy('room_number')
             ->get();
@@ -123,6 +120,7 @@ class BookingController extends Controller
             ->where('billing_status', 'confirmed')
             ->sum('total');
         $availableServices = Service::where('status', 'active')
+            ->where('price', '>', 0)
             ->whereIn('type', ['service', 'minibar'])
             ->orderBy('type')
             ->orderBy('name')
@@ -150,8 +148,8 @@ class BookingController extends Controller
     public function update(Request $request, Booking $booking)
     {
         $data = $request->validate([
-            'status' => 'required|in:pending,confirmed,checked_in,checked_out,cancelled',
-            'payment_status' => 'required|in:unpaid,partial,paid,refunded',
+            'status' => 'required|in:pending,confirmed,checked_in,inspection_requested,checked_out,completed',
+            'payment_status' => 'required|in:unpaid,partial,paid',
             'note' => 'nullable|string|max:1000',
         ]);
 
@@ -184,12 +182,6 @@ class BookingController extends Controller
                     'status' => 'cleaning',
                 ]);
             }
-
-            if ($booking->status == 'cancelled') {
-                $bookingRoom->room->update([
-                    'status' => 'available',
-                ]);
-            }
         }
 
         $changes = [];
@@ -217,44 +209,10 @@ class BookingController extends Controller
 
     public function destroy(Booking $booking)
     {
-        if (!in_array($booking->status, ['pending', 'confirmed'])) {
-            return redirect()
-                ->back()
-                ->with('error', 'Chỉ có thể hủy booking đang chờ xác nhận hoặc đã xác nhận.');
-        }
-
-        DB::beginTransaction();
-
-        try {
-            $booking->load('bookingRooms.room');
-
-            foreach ($booking->bookingRooms as $bookingRoom) {
-                if ($bookingRoom->room) {
-                    $bookingRoom->room->update([
-                        'status' => 'available',
-                    ]);
-                }
-            }
-
-            $oldNote = $booking->note ? $booking->note . "\n" : '';
-
-            $booking->update([
-                'status' => 'cancelled',
-                'note' => $oldNote . now()->format('d/m/Y H:i') . ' - Booking đã được hủy bởi nhân viên.',
-            ]);
-
-            DB::commit();
-
-            return redirect()
-                ->route('admin.bookings.index')
-                ->with('success', 'Hủy booking thành công.');
-        } catch (\Throwable $e) {
-            DB::rollBack();
-
-            return redirect()
-                ->back()
-                ->with('error', 'Có lỗi khi hủy booking: ' . $e->getMessage());
-        }
+        return back()->with(
+            'error',
+            'Admin không được hủy booking thường. Chỉ được xử lý hủy no-show từ trang chi tiết khi khách quá giờ check-in theo chính sách.'
+        );
     }
 
     public function storeServiceItem(Request $request, Booking $booking)
@@ -264,86 +222,97 @@ class BookingController extends Controller
         }
 
         $data = $request->validate([
-            'service_id' => 'required|exists:services,id',
-            'quantity' => 'required|integer|min:1',
-            'note' => 'nullable|string|max:1000',
+            'services' => 'required|array|min:1',
+            'services.*.service_id' => 'required|exists:services,id',
+            'services.*.quantity' => 'required|integer|min:1',
+            'services.*.note' => 'nullable|string|max:1000',
         ], [
-            'service_id.required' => 'Vui lòng chọn dịch vụ.',
-            'quantity.required' => 'Vui lòng nhập số lượng.',
-            'quantity.min' => 'Số lượng phải lớn hơn 0.',
+            'services.required' => 'Vui lòng thêm ít nhất một dịch vụ.',
+            'services.*.service_id.required' => 'Vui lòng chọn dịch vụ.',
+            'services.*.quantity.required' => 'Vui lòng nhập số lượng.',
+            'services.*.quantity.min' => 'Số lượng phải lớn hơn 0.',
         ]);
-
-        $service = Service::where('id', $data['service_id'])
-            ->where('status', 'active')
-            ->whereIn('type', ['service', 'minibar'])
-            ->first();
-
-        if (!$service) {
-            return back()->with('error', 'Dịch vụ không hợp lệ hoặc đã bị ẩn.');
-        }
-
-        $quantity = (int) $data['quantity'];
-        $unitPrice = (float) $service->price;
-
-        $billingStatus = $service->type == 'minibar' ? 'pending' : 'confirmed';
-        $usedQuantity = $service->type == 'minibar' ? 0 : $quantity;
-        $total = $unitPrice * $usedQuantity;
 
         DB::beginTransaction();
 
         try {
-            $existingItem = BookingServiceItem::where('booking_id', $booking->id)
-                ->where('service_id', $service->id)
-                ->whereIn('type', ['service', 'minibar'])
-                ->first();
+            $totalAdded = 0;
+            $logMessages = [];
 
-            if ($existingItem) {
-                $existingItem->quantity += $quantity;
+            foreach ($data['services'] as $serviceRow) {
+                $service = Service::where('id', $serviceRow['service_id'])
+                    ->where('status', 'active')
+                    ->where('price', '>', 0)
+                    ->whereIn('type', ['service', 'minibar'])
+                    ->first();
 
-                if ($existingItem->type == 'minibar') {
-                    $existingItem->billing_status = 'pending';
-                    $existingItem->used_quantity = 0;
-                    $existingItem->total = 0;
-                } else {
+                if (!$service) {
+                    throw new \Exception('Có dịch vụ không hợp lệ hoặc đã bị ẩn.');
+                }
+
+                $quantity = max(1, (int) $serviceRow['quantity']);
+                $unitPrice = (float) $service->price;
+
+                $billingStatus = 'confirmed';
+                $usedQuantity = $quantity;
+                $total = $unitPrice * $quantity;
+
+                $existingItem = BookingServiceItem::where('booking_id', $booking->id)
+                    ->where('service_id', $service->id)
+                    ->whereIn('type', ['service', 'minibar'])
+                    ->first();
+
+                if ($existingItem) {
+                    $existingItem->quantity += $quantity;
                     $existingItem->used_quantity += $quantity;
                     $existingItem->billing_status = 'confirmed';
                     $existingItem->total += $total;
+
+                    if (!empty($serviceRow['note'])) {
+                        $existingItem->note = trim(($existingItem->note ? $existingItem->note . "\n" : '') . $serviceRow['note']);
+                    }
+
+                    $existingItem->save();
+                } else {
+                    BookingServiceItem::create([
+                        'booking_id' => $booking->id,
+                        'service_id' => $service->id,
+                        'name' => $service->name,
+                        'type' => $service->type,
+                        'unit_price' => $unitPrice,
+                        'quantity' => $quantity,
+                        'used_quantity' => $usedQuantity,
+                        'billing_status' => $billingStatus,
+                        'confirmed_by' => Auth::id(),
+                        'confirmed_at' => now(),
+                        'confirm_note' => 'Dịch vụ/minibar khách gọi thêm, tính tiền ngay vào booking.',
+                        'total' => $total,
+                        'note' => $serviceRow['note'] ?? null,
+                    ]);
                 }
 
-                if (!empty($data['note'])) {
-                    $existingItem->note = trim(($existingItem->note ? $existingItem->note . "\n" : '') . $data['note']);
-                }
+                $totalAdded += $total;
 
-                $existingItem->save();
-            } else {
-                BookingServiceItem::create([
-                    'booking_id' => $booking->id,
-                    'service_id' => $service->id,
-                    'name' => $service->name,
-                    'type' => $service->type,
-                    'unit_price' => $unitPrice,
-                    'quantity' => $quantity,
-                    'used_quantity' => $usedQuantity,
-                    'billing_status' => $billingStatus,
-                    'total' => $total,
-                    'note' => $data['note'] ?? null,
-                ]);
+                $logMessages[] = $service->name
+                    . ' x ' . $quantity
+                    . ' = ' . number_format($total, 0, ',', '.') . 'đ';
             }
 
-            if ($total > 0) {
-                $booking->estimated_total += $total;
+            if ($totalAdded > 0) {
+                $booking->estimated_total += $totalAdded;
                 $booking->save();
             }
 
             $this->addBookingLog(
                 $booking,
                 'service_added',
-                'Thêm dịch vụ "' . $service->name . '" x ' . $quantity . '. Thành tiền: ' . number_format($total, 0, ',', '.') . 'đ.'
+                'Thêm dịch vụ/minibar vào booking: ' . implode('; ', $logMessages)
+                . '. Tổng cộng thêm: ' . number_format($totalAdded, 0, ',', '.') . 'đ.'
             );
 
             DB::commit();
 
-            return back()->with('success', $existingItem ? 'Dịch vụ đã có trong booking, hệ thống đã cộng thêm số lượng.' : 'Đã thêm dịch vụ vào booking.');
+            return back()->with('success', 'Đã thêm dịch vụ/minibar vào booking và cộng tiền ngay vào đơn.');
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -377,22 +346,18 @@ class BookingController extends Controller
 
             $newQuantity = (int) $data['quantity'];
 
-            if ($bookingServiceItem->type == 'minibar') {
-                $usedQuantity = min((int) $bookingServiceItem->used_quantity, $newQuantity);
-                $newTotal = (float) $bookingServiceItem->unit_price * $usedQuantity;
-            } else {
-                $usedQuantity = $newQuantity;
-                $newTotal = (float) $bookingServiceItem->unit_price * $newQuantity;
-            }
+            $usedQuantity = $newQuantity;
+            $newTotal = (float) $bookingServiceItem->unit_price * $newQuantity;
 
             $difference = $newTotal - $oldTotal;
 
             $bookingServiceItem->update([
                 'quantity' => $newQuantity,
                 'used_quantity' => $usedQuantity,
-                'billing_status' => $bookingServiceItem->type == 'minibar'
-                    ? ($usedQuantity > 0 ? 'confirmed' : 'pending')
-                    : 'confirmed',
+                'billing_status' => 'confirmed',
+                'confirmed_by' => Auth::id(),
+                'confirmed_at' => now(),
+                'confirm_note' => 'Dịch vụ/minibar khách gọi thêm, tính tiền ngay vào booking.',
                 'total' => $newTotal,
             ]);
 
@@ -456,12 +421,12 @@ class BookingController extends Controller
 
     public function updatePaymentStatus(Request $request, Booking $booking)
     {
-        if (in_array($booking->payment_status, ['paid', 'refunded'])) {
-            return back()->with('error', 'Booking đã thanh toán hoặc đã hoàn tiền nên không thể đổi trạng thái thanh toán.');
+        if ($booking->payment_status === 'paid') {
+            return back()->with('error', 'Booking đã thanh toán nên không thể đổi trạng thái thanh toán.');
         }
 
         $data = $request->validate([
-            'payment_status' => 'required|in:unpaid,partial,paid,refunded',
+            'payment_status' => 'required|in:unpaid,partial,paid',
         ]);
 
         $oldPaymentStatus = $booking->payment_status;

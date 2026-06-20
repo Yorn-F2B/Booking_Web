@@ -27,7 +27,15 @@
 
             @if ($errors->any())
                 <div class="alert alert-danger">
-                    Vui lòng kiểm tra lại thông tin bên dưới.
+                    <div class="fw-semibold mb-1">
+                        Vui lòng kiểm tra lại thông tin bên dưới.
+                    </div>
+
+                    <ul class="mb-0">
+                        @foreach ($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
                 </div>
             @endif
 
@@ -243,6 +251,13 @@
                                     Thông tin booking
                                 </h2>
 
+                                <div class="alert alert-info small mb-3">
+                                    Hệ thống kiểm tra và giữ phòng theo giờ thật:
+                                    <strong>14:00</strong> ngày nhận phòng đến
+                                    <strong>12:00</strong> ngày trả phòng.
+                                    Khách có thể nhận từ <strong>13:00</strong> nếu phòng đã sẵn sàng.
+                                </div>
+
                                 <div class="mb-3">
                                     <div class="small text-muted">
                                         Hạng phòng
@@ -260,7 +275,7 @@
                                         {{ date('d/m/Y', strtotime($bookingData['check_in_date'])) }}
                                     </div>
                                     <div class="small text-muted">
-                                        Nhận phòng từ 14:00 đến 15:00
+                                        Nhận phòng linh hoạt 13:00–14:00 nếu phòng đã sẵn sàng
                                     </div>
                                 </div>
 
@@ -272,7 +287,7 @@
                                         {{ date('d/m/Y', strtotime($bookingData['check_out_date'])) }}
                                     </div>
                                     <div class="small text-muted">
-                                        Trả phòng trước 11:00
+                                        Trả phòng trước 12:00
                                     </div>
                                 </div>
 
@@ -331,9 +346,14 @@
                                     Xác nhận đặt phòng
                                 </button>
 
-                                <a href="{{ route('rooms.show', $roomCategory->id) }}"
-                                    class="btn btn-outline-secondary w-100 mt-2">
-                                    Quay lại
+                                <a href="{{ route('rooms', [
+        'check_in_date' => $bookingData['check_in_date'],
+        'check_out_date' => $bookingData['check_out_date'],
+        'adult_count' => $bookingData['adult_count'],
+        'child_count' => $bookingData['child_count'] ?? 0,
+        'room_category_id' => $roomCategory->id,
+    ]) }}" class="btn btn-outline-secondary w-100 mt-2">
+                                    Quay lại danh sách phòng
                                 </a>
 
                                 <p class="small text-muted mt-3 mb-0">
@@ -408,37 +428,37 @@
                     const row = document.createElement('tr');
 
                     row.innerHTML = `
-                            <td class="fw-bold">${service.name}</td>
-                            <td>
-                                <span class="badge ${service.type === 'minibar' ? 'bg-warning text-dark' : 'bg-primary'}">
-                                    ${getTypeLabel(service.type)}
-                                </span>
-                            </td>
-                            <td>${formatMoney(service.price)} / ${service.unit}</td>
-                            <td>
-                                <input type="number" class="form-control form-control-sm selected-service-quantity"
-                                    value="${service.quantity}" min="1" data-service-id="${serviceId}">
-                            </td>
-                            <td class="fw-bold text-danger">${formatMoney(total)}</td>
-                            <td>
-                                <input type="text" class="form-control form-control-sm selected-service-note"
-                                    value="${service.note}" data-service-id="${serviceId}" placeholder="Ghi chú">
-                            </td>
-                            <td class="text-end">
-                                <button type="button" class="btn btn-sm btn-outline-danger remove-service-button"
-                                    data-service-id="${serviceId}">
-                                    Xóa
-                                </button>
-                            </td>
-                        `;
+                                        <td class="fw-bold">${service.name}</td>
+                                        <td>
+                                            <span class="badge ${service.type === 'minibar' ? 'bg-warning text-dark' : 'bg-primary'}">
+                                                ${getTypeLabel(service.type)}
+                                            </span>
+                                        </td>
+                                        <td>${formatMoney(service.price)} / ${service.unit}</td>
+                                        <td>
+                                            <input type="number" class="form-control form-control-sm selected-service-quantity"
+                                                value="${service.quantity}" min="1" data-service-id="${serviceId}">
+                                        </td>
+                                        <td class="fw-bold text-danger">${formatMoney(total)}</td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm selected-service-note"
+                                                value="${service.note}" data-service-id="${serviceId}" placeholder="Ghi chú">
+                                        </td>
+                                        <td class="text-end">
+                                            <button type="button" class="btn btn-sm btn-outline-danger remove-service-button"
+                                                data-service-id="${serviceId}">
+                                                Xóa
+                                            </button>
+                                        </td>
+                                    `;
 
                     selectedServiceTableBody.appendChild(row);
 
                     selectedServiceInputs.insertAdjacentHTML('beforeend', `
-                            <input type="hidden" name="services[${index}][service_id]" value="${serviceId}">
-                            <input type="hidden" name="services[${index}][quantity]" value="${service.quantity}">
-                            <input type="hidden" name="services[${index}][note]" value="${service.note}">
-                        `);
+                                        <input type="hidden" name="services[${index}][service_id]" value="${serviceId}">
+                                        <input type="hidden" name="services[${index}][quantity]" value="${service.quantity}">
+                                        <input type="hidden" name="services[${index}][note]" value="${service.note}">
+                                    `);
 
                     index++;
                 });

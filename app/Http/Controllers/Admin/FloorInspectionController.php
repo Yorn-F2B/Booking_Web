@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\RoomInspection;
 use App\Models\RoomInspectionItem;
 use App\Models\Service;
-use App\Models\BookingServiceItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -49,15 +48,9 @@ class FloorInspectionController extends Controller
             ->orderBy('name')
             ->get();
 
-        $registeredMinibarItems = $roomInspection->booking
-            ? $roomInspection->booking->serviceItems()
-                ->where('type', 'minibar')
-                ->get()
-            : collect();
-
         return view(
             'admin.pages.floor-inspections.show',
-            compact('roomInspection', 'damageServices', 'minibarServices', 'registeredMinibarItems')
+            compact('roomInspection', 'damageServices', 'minibarServices')
         );
     }
 
@@ -70,8 +63,6 @@ class FloorInspectionController extends Controller
             'damage_quantities' => 'nullable|array',
             'damage_quantities.*' => 'nullable|integer|min:1',
             'inspection_note' => 'nullable|string|max:1000',
-            'registered_minibar_used_quantities' => 'nullable|array',
-            'registered_minibar_used_quantities.*' => 'nullable|integer|min:0',
 
             'room_minibar_service_ids' => 'nullable|array',
             'room_minibar_service_ids.*' => 'exists:services,id',
@@ -92,8 +83,8 @@ class FloorInspectionController extends Controller
 
             $damageTotal = 0;
             $minibarTotal = 0;
-
-            $roomInspection->load(['booking.serviceItems']);
+            $damageMessages = [];
+            $minibarMessages = [];
 
             if ($hasDamage) {
                 $damageServiceIds = $data['damage_service_ids'] ?? [];
@@ -120,11 +111,12 @@ class FloorInspectionController extends Controller
 
                     $service = $damageServices[$serviceId];
                     $quantity = max(1, (int) ($damageQuantities[$serviceId] ?? 1));
-                    $lineTotal = $service->price * $quantity;
+                    $lineTotal = (float) $service->price * $quantity;
 
                     RoomInspectionItem::create([
                         'room_inspection_id' => $roomInspection->id,
                         'service_id' => $service->id,
+                        'type' => 'damage_fee',
                         'name' => $service->name,
                         'unit' => $service->unit,
                         'price' => $service->price,
@@ -135,36 +127,8 @@ class FloorInspectionController extends Controller
                     ]);
 
                     $damageTotal += $lineTotal;
+                    $damageMessages[] = $service->name . ' x' . $quantity . ' = ' . number_format($lineTotal, 0, ',', '.') . 'đ';
                 }
-            }
-
-            $registeredUsedQuantities = $data['registered_minibar_used_quantities'] ?? [];
-
-            foreach ($registeredUsedQuantities as $itemId => $usedQuantity) {
-                $item = BookingServiceItem::where('booking_id', $roomInspection->booking_id)
-                    ->where('id', $itemId)
-                    ->where('type', 'minibar')
-                    ->first();
-
-                if (!$item) {
-                    continue;
-                }
-
-                $usedQuantity = max(0, (int) $usedQuantity);
-                $usedQuantity = min($usedQuantity, (int) $item->quantity);
-
-                $itemTotal = (float) $item->unit_price * $usedQuantity;
-
-                $item->update([
-                    'used_quantity' => $usedQuantity,
-                    'billing_status' => $usedQuantity > 0 ? 'confirmed' : 'unused',
-                    'total' => $itemTotal,
-                    'confirmed_by' => Auth::id(),
-                    'confirmed_at' => now(),
-                    'confirm_note' => $usedQuantity > 0
-                        ? 'Buồng phòng xác nhận khách sử dụng ' . $usedQuantity . '/' . $item->quantity . ' ' . $item->name . '.'
-                        : 'Buồng phòng xác nhận khách không sử dụng ' . $item->name . '.',
-                ]);
             }
 
             $roomMinibarServiceIds = $data['room_minibar_service_ids'] ?? [];
@@ -189,7 +153,7 @@ class FloorInspectionController extends Controller
                     RoomInspectionItem::create([
                         'room_inspection_id' => $roomInspection->id,
                         'service_id' => $service->id,
-                        'type' => 'damage_fee',
+                        'type' => 'minibar',
                         'name' => $service->name,
                         'unit' => $service->unit,
                         'price' => $service->price,
@@ -200,6 +164,7 @@ class FloorInspectionController extends Controller
                     ]);
 
                     $minibarTotal += $lineTotal;
+                    $minibarMessages[] = $service->name . ' x' . $quantity . ' = ' . number_format($lineTotal, 0, ',', '.') . 'đ';
                 }
             }
 
@@ -218,25 +183,28 @@ class FloorInspectionController extends Controller
 
             $roomInspection->load(['booking', 'room', 'items']);
 
-            if ($hasDamage) {
-                $this->addBookingLog(
-                    $roomInspection->booking,
-                    'inspection_reported',
-                    'Buồng phòng báo cáo kiểm tra phòng '
-                    . ($roomInspection->room->room_number ?? '')
-                    . ': có hư hại, tổng tạm tính '
-                    . number_format($damageTotal, 0, ',', '.')
-                    . 'đ. Chờ admin duyệt.'
-                );
-            } else {
-                $this->addBookingLog(
-                    $roomInspection->booking,
-                    'inspection_reported',
-                    'Buồng phòng báo cáo kiểm tra phòng '
-                    . ($roomInspection->room->room_number ?? '')
-                    . ': không có hư hại. Chờ admin duyệt.'
-                );
+            $parts = [];
+
+            if ($minibarTotal > 0) {
+                $parts[] = 'dịch vụ tại phòng: ' . implode('; ', $minibarMessages) . ' — tạm tính ' . number_format($minibarTotal, 0, ',', '.') . 'đ';
             }
+
+            if ($damageTotal > 0) {
+                $parts[] = 'hư hại: ' . implode('; ', $damageMessages) . ' — tạm tính ' . number_format($damageTotal, 0, ',', '.') . 'đ';
+            }
+
+            if (empty($parts)) {
+                $parts[] = 'không phát sinh minibar/hư hại';
+            }
+
+            $this->addBookingLog(
+                $roomInspection->booking,
+                'inspection_reported',
+                'Buồng phòng báo cáo kiểm tra phòng '
+                . ($roomInspection->room->room_number ?? '')
+                . ': ' . implode('. ', $parts)
+                . '. Chờ admin duyệt.'
+            );
 
             DB::commit();
 

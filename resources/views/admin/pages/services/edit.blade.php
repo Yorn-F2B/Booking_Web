@@ -83,8 +83,12 @@
                                         Phí hư hại
                                     </option>
 
-                                    <option value="violation_fee" {{ old('type', $service->type) == 'violation_fee' ? 'selected' : '' }}>
-                                        Phí vi phạm
+                                    <option value="occupancy_fee" {{ old('type', $service->type) == 'occupancy_fee' ? 'selected' : '' }}>
+                                        Phụ thu số người
+                                    </option>
+
+                                    <option value="policy_violation_fee" {{ old('type', $service->type) == 'policy_violation_fee' ? 'selected' : '' }}>
+                                        Phí vi phạm nội quy
                                     </option>
 
                                 </select>

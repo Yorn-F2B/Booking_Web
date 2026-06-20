@@ -45,7 +45,7 @@
 
                 <div>
                     <h2>Kiểm tra phòng {{ $roomInspection->room->room_number ?? '---' }}</h2>
-                    <p>Buồng phòng ghi nhận hư hại trong phòng trước khi check-out</p>
+                    <p>Buồng phòng ghi nhận đồ có sẵn trong phòng khách đã dùng và hư hại trước khi check-out</p>
                 </div>
 
                 <a href="{{ route('admin.floor-inspections.index') }}" class="btn btn-outline-secondary">
@@ -151,106 +151,9 @@
 
                             <fieldset {{ $roomInspection->status == 'confirmed' ? 'disabled' : '' }}>
 
-                            <div class="mb-4">
-
-                                <label class="form-label fw-semibold">
-                                    Minibar / đồ uống khách đã đăng ký trước
-                                </label>
-
-                                @if ($registeredMinibarItems->count() > 0)
-
-                                    <div class="alert alert-info small">
-                                        Nhập số lượng khách thực tế sử dụng. Phần không dùng sẽ được giữ lịch sử nhưng không tính tiền.
-                                    </div>
-
-                                    <div class="table-responsive">
-
-                                        <table class="table table-bordered align-middle">
-
-                                            <thead class="table-light">
-                                                <tr>
-                                                    <th>Dịch vụ đã đăng ký</th>
-                                                    <th style="width: 120px;">Đăng ký</th>
-                                                    <th style="width: 150px;">Thực dùng</th>
-                                                    <th style="width: 160px;">Đơn giá</th>
-                                                    <th style="width: 160px;">Tạm tính</th>
-                                                </tr>
-                                            </thead>
-
-                                            <tbody>
-
-                                                @foreach ($registeredMinibarItems as $registeredItem)
-
-                                                    @php
-                                                        $usedQuantity = old(
-                                                            'registered_minibar_used_quantities.' . $registeredItem->id,
-                                                            $registeredItem->used_quantity ?? 0
-                                                        );
-                                                    @endphp
-
-                                                    <tr>
-                                                        <td>
-                                                            <strong>{{ $registeredItem->name }}</strong>
-
-                                                            @if ($registeredItem->note)
-                                                                <div class="text-muted small">
-                                                                    {{ $registeredItem->note }}
-                                                                </div>
-                                                            @endif
-
-                                                            <div class="text-muted small">
-                                                                Trạng thái:
-                                                                {{ $registeredItem->billing_status ?? 'pending' }}
-                                                            </div>
-                                                        </td>
-
-                                                        <td>
-                                                            {{ $registeredItem->quantity }}
-                                                            {{ $registeredItem->service->unit ?? '' }}
-                                                        </td>
-
-                                                        <td>
-                                                            <input type="number"
-                                                                name="registered_minibar_used_quantities[{{ $registeredItem->id }}]"
-                                                                class="form-control registered-minibar-quantity"
-                                                                value="{{ $usedQuantity }}"
-                                                                min="0"
-                                                                max="{{ $registeredItem->quantity }}"
-                                                                data-price="{{ (float) $registeredItem->unit_price }}">
-                                                        </td>
-
-                                                        <td>
-                                                            {{ number_format((float) $registeredItem->unit_price, 0, ',', '.') }}đ
-                                                        </td>
-
-                                                        <td>
-                                                            <span class="registered-minibar-total">0đ</span>
-                                                        </td>
-                                                    </tr>
-
-                                                @endforeach
-
-                                            </tbody>
-
-                                        </table>
-
-                                    </div>
-
-                                    <div class="text-end mt-2">
-                                        <h6>
-                                            Tổng minibar đăng ký thực dùng:
-                                            <span id="grandRegisteredMinibarTotal">0đ</span>
-                                        </h6>
-                                    </div>
-
-                                @else
-
-                                    <div class="alert alert-light border small">
-                                        Booking này không có minibar/đồ uống đăng ký trước.
-                                    </div>
-
-                                @endif
-
+                            <div class="alert alert-info small mb-4">
+                                Chỉ ghi nhận <strong>minibar/đồ có sẵn trong phòng khách đã dùng</strong> và <strong>hư hại phát hiện khi kiểm tra</strong>.
+                                Dịch vụ khách đã gọi thêm trong thời gian ở đã được tính trực tiếp vào booking, không cần buồng phòng xác nhận lại.
                             </div>
 
                                 <div class="mb-4">
@@ -274,7 +177,7 @@
                                 <div class="mb-4">
 
     <label class="form-label fw-semibold">
-        Minibar / đồ tính phí có sẵn trong phòng khách đã dùng
+        Minibar / đồ có sẵn trong phòng khách đã dùng
     </label>
 
     @if ($minibarServices->count() > 0)
@@ -359,7 +262,7 @@
 
         <div class="text-end mt-3">
             <h6>
-                Tổng minibar/đồ trong phòng:
+                Tổng dịch vụ tại phòng:
                 <span id="grandRoomMinibarTotal">0đ</span>
             </h6>
         </div>
@@ -462,7 +365,7 @@
 
                                         <div class="text-end mt-3">
                                             <h5>
-                                                Tổng hư hại:
+                                                Tổng phí hư hại:
                                                 <span id="grandDamageTotal">0đ</span>
                                             </h5>
                                         </div>
@@ -549,42 +452,6 @@
         calculateDamageTotal();
     }
 
-    function calculateRegisteredMinibarTotal() {
-        let grandTotal = 0;
-
-        document.querySelectorAll('.registered-minibar-quantity').forEach(function (input) {
-            const price = parseFloat(input.dataset.price || 0);
-            const max = parseInt(input.getAttribute('max') || 0);
-            let quantity = parseInt(input.value || 0);
-
-            if (quantity < 0) {
-                quantity = 0;
-                input.value = 0;
-            }
-
-            if (max > 0 && quantity > max) {
-                quantity = max;
-                input.value = max;
-            }
-
-            const lineTotal = price * quantity;
-            grandTotal += lineTotal;
-
-            const row = input.closest('tr');
-            const totalElement = row ? row.querySelector('.registered-minibar-total') : null;
-
-            if (totalElement) {
-                totalElement.innerText = formatMoney(lineTotal);
-            }
-        });
-
-        const grandElement = document.getElementById('grandRegisteredMinibarTotal');
-
-        if (grandElement) {
-            grandElement.innerText = formatMoney(grandTotal);
-        }
-    }
-
     function calculateRoomMinibarTotal() {
         let grandTotal = 0;
 
@@ -649,10 +516,6 @@
         }
     }
 
-    document.querySelectorAll('.registered-minibar-quantity').forEach(function (input) {
-        input.addEventListener('input', calculateRegisteredMinibarTotal);
-        input.addEventListener('change', calculateRegisteredMinibarTotal);
-    });
 
     document.querySelectorAll('.room-minibar-checkbox').forEach(function (checkbox) {
         const serviceId = checkbox.value;
@@ -710,7 +573,6 @@
         hasDamage.addEventListener('change', toggleDamageWrapper);
     }
 
-    calculateRegisteredMinibarTotal();
     calculateRoomMinibarTotal();
     toggleDamageWrapper();
 </script>

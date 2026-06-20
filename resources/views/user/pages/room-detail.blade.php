@@ -4,6 +4,21 @@
 
 @section('content')
 
+    @php
+        $now = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
+        $checkInLimitToday = $now->copy()->setTime(14, 0, 0);
+
+        $minOnlineCheckInDate = $now->greaterThanOrEqualTo($checkInLimitToday)
+            ? $now->copy()->addDay()->toDateString()
+            : $now->toDateString();
+
+        $minOnlineCheckOutDate = \Carbon\Carbon::parse($minOnlineCheckInDate)
+            ->addDay()
+            ->toDateString();
+
+        $onlineBookingClosedToday = $now->greaterThanOrEqualTo($checkInLimitToday);
+    @endphp
+
     <section class="page-header">
         <div class="container">
             <h1 class="display-6 fw-bold mb-1">
@@ -36,9 +51,19 @@
                     @endif
 
                     @if ($errors->any())
-                        <div class="alert alert-danger">
-                            Vui lòng kiểm tra lại thông tin đặt phòng.
-                        </div>
+                        @if ($errors->any())
+                            <div class="alert alert-danger">
+                                <div class="fw-semibold mb-1">
+                                    Vui lòng kiểm tra lại thông tin đặt phòng.
+                                </div>
+
+                                <ul class="mb-0">
+                                    @foreach ($errors->all() as $error)
+                                        <li>{{ $error }}</li>
+                                    @endforeach
+                                </ul>
+                            </div>
+                        @endif
                     @endif
 
                     <div class="room-gallery mb-4">
@@ -212,6 +237,13 @@
                                     Đặt phòng nhanh
                                 </h3>
 
+                                <div class="alert alert-info small mb-3">
+                                    Hệ thống giữ phòng theo khung giờ:
+                                    <strong>nhận phòng 14:00 - 15:00</strong>,
+                                    <strong>trả phòng trước 12:00</strong>.
+                                    Nếu đã quá 14:00 hôm nay, hệ thống sẽ tự chặn ngày hôm nay.
+                                </div>
+
                                 <form action="{{ route('bookings.confirm') }}" method="GET">
 
                                     <input type="hidden" name="room_category_id" value="{{ $roomCategory->id }}">
@@ -223,20 +255,33 @@
                                                 Nhận phòng
                                             </label>
 
-                                            <input type="date" name="check_in_date" class="form-control"
-                                                min="{{ date('Y-m-d') }}" required>
+                                            <input type="date" name="check_in_date" id="detail_check_in_date"
+                                                class="form-control js-online-check-in" min="{{ $minOnlineCheckInDate }}"
+                                                data-min-check-in="{{ $minOnlineCheckInDate }}"
+                                                value="{{ old('check_in_date') && old('check_in_date') >= $minOnlineCheckInDate ? old('check_in_date') : '' }}"
+                                                required>
                                         </div>
 
                                         <div class="col-6">
                                             <label class="form-label small">
                                                 Trả phòng
                                             </label>
-
-                                            <input type="date" name="check_out_date" class="form-control"
-                                                min="{{ date('Y-m-d', strtotime('+1 day')) }}" required>
+                                            <input type="date" name="check_out_date" id="detail_check_out_date"
+                                                class="form-control js-online-check-out" min="{{ $minOnlineCheckOutDate }}"
+                                                data-min-check-out="{{ $minOnlineCheckOutDate }}"
+                                                value="{{ old('check_out_date') && old('check_out_date') >= $minOnlineCheckOutDate ? old('check_out_date') : '' }}"
+                                                required>
                                         </div>
 
                                     </div>
+
+                                    @if ($onlineBookingClosedToday)
+                                        <div class="alert alert-warning small mb-3">
+                                            Hôm nay đã quá giờ nhận phòng online lúc 14:00.
+                                            Ngày nhận phòng sớm nhất có thể chọn là
+                                            <strong>{{ \Carbon\Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') }}</strong>.
+                                        </div>
+                                    @endif
 
                                     <div class="row g-2 mb-3">
 
@@ -289,23 +334,64 @@
 
                                 <script>
                                     document.addEventListener('DOMContentLoaded', function () {
+                                        const checkIn = document.getElementById('detail_check_in_date');
+                                        const checkOut = document.getElementById('detail_check_out_date');
 
-                                        const checkIn = document.querySelector('[name="check_in_date"]');
-                                        const checkOut = document.querySelector('[name="check_out_date"]');
+                                        const minCheckInDate = "{{ $minOnlineCheckInDate }}";
+                                        const defaultMinCheckOutDate = "{{ $minOnlineCheckOutDate }}";
 
-                                        checkIn.addEventListener('change', function () {
+                                        function addOneDay(dateString) {
+                                            const parts = dateString.split('-');
 
-                                            if (!this.value) return;
-
-                                            let date = new Date(this.value);
+                                            const date = new Date(
+                                                Number(parts[0]),
+                                                Number(parts[1]) - 1,
+                                                Number(parts[2])
+                                            );
 
                                             date.setDate(date.getDate() + 1);
 
-                                            let yyyy = date.getFullYear();
-                                            let mm = String(date.getMonth() + 1).padStart(2, '0');
-                                            let dd = String(date.getDate()).padStart(2, '0');
+                                            const yyyy = date.getFullYear();
+                                            const mm = String(date.getMonth() + 1).padStart(2, '0');
+                                            const dd = String(date.getDate()).padStart(2, '0');
 
-                                            let nextDay = `${yyyy}-${mm}-${dd}`;
+                                            return `${yyyy}-${mm}-${dd}`;
+                                        }
+
+                                        if (!checkIn || !checkOut) {
+                                            return;
+                                        }
+
+                                        checkIn.min = minCheckInDate;
+                                        checkOut.min = defaultMinCheckOutDate;
+
+                                        if (checkIn.value && checkIn.value < minCheckInDate) {
+                                            checkIn.value = '';
+                                        }
+
+                                        if (checkOut.value && checkOut.value < defaultMinCheckOutDate) {
+                                            checkOut.value = '';
+                                        }
+
+                                        if (checkIn.value) {
+                                            checkOut.min = addOneDay(checkIn.value);
+                                        }
+
+                                        checkIn.addEventListener('change', function () {
+                                            if (!this.value) {
+                                                checkOut.min = defaultMinCheckOutDate;
+                                                checkOut.value = '';
+                                                return;
+                                            }
+
+                                            if (this.value < minCheckInDate) {
+                                                this.value = '';
+                                                checkOut.value = '';
+                                                checkOut.min = defaultMinCheckOutDate;
+                                                return;
+                                            }
+
+                                            const nextDay = addOneDay(this.value);
 
                                             checkOut.min = nextDay;
 
@@ -314,6 +400,17 @@
                                             }
                                         });
 
+                                        checkOut.addEventListener('change', function () {
+                                            if (!checkIn.value) {
+                                                return;
+                                            }
+
+                                            const minCheckOutDate = addOneDay(checkIn.value);
+
+                                            if (this.value && this.value < minCheckOutDate) {
+                                                this.value = minCheckOutDate;
+                                            }
+                                        });
                                     });
                                 </script>
 
@@ -334,7 +431,7 @@
 
                                     <li class="mb-1">
                                         <i class="bx bx-time-five text-success me-1"></i>
-                                        Trả phòng trước 11:00
+                                        Trả phòng trước 12:00
                                     </li>
 
                                     <li class="mb-1">
@@ -430,5 +527,121 @@
 
         </div>
     </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.js-online-check-in').forEach(function (checkInInput) {
+                const form = checkInInput.closest('form');
+                if (!form) {
+                    return;
+                }
+
+                const checkOutInput = form.querySelector('.js-online-check-out');
+                const minCheckInDate = checkInInput.dataset.minCheckIn;
+
+                checkInInput.min = minCheckInDate;
+
+                if (checkInInput.value && checkInInput.value < minCheckInDate) {
+                    checkInInput.value = '';
+                }
+
+                if (typeof flatpickr !== 'undefined') {
+                    if (checkInInput._flatpickr) {
+                        checkInInput._flatpickr.destroy();
+                    }
+
+                    flatpickr(checkInInput, {
+                        locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
+                            ? flatpickr.l10ns.vn
+                            : 'default',
+                        dateFormat: 'Y-m-d',
+                        minDate: minCheckInDate,
+                        disableMobile: false,
+                        allowInput: false,
+                        onChange: function (selectedDates, dateStr) {
+                            syncCheckOutMinDate(dateStr);
+                        }
+                    });
+                }
+
+                function addOneDay(dateString) {
+                    const parts = dateString.split('-');
+
+                    const date = new Date(
+                        Number(parts[0]),
+                        Number(parts[1]) - 1,
+                        Number(parts[2])
+                    );
+
+                    date.setDate(date.getDate() + 1);
+
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+
+                    return `${year}-${month}-${day}`;
+                }
+
+                function syncCheckOutMinDate(checkInDate) {
+                    if (!checkOutInput || !checkInDate) {
+                        return;
+                    }
+
+                    const minCheckOutDate = addOneDay(checkInDate);
+
+                    checkOutInput.min = minCheckOutDate;
+                    checkOutInput.dataset.minCheckOut = minCheckOutDate;
+
+                    if (checkOutInput.value && checkOutInput.value < minCheckOutDate) {
+                        checkOutInput.value = minCheckOutDate;
+                    }
+
+                    if (typeof flatpickr !== 'undefined') {
+                        if (checkOutInput._flatpickr) {
+                            checkOutInput._flatpickr.destroy();
+                        }
+
+                        flatpickr(checkOutInput, {
+                            locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
+                                ? flatpickr.l10ns.vn
+                                : 'default',
+                            dateFormat: 'Y-m-d',
+                            minDate: minCheckOutDate,
+                            disableMobile: false,
+                            allowInput: false
+                        });
+                    }
+                }
+
+                if (checkInInput.value) {
+                    syncCheckOutMinDate(checkInInput.value);
+                } else if (checkOutInput) {
+                    const defaultMinCheckOutDate = checkOutInput.dataset.minCheckOut || checkOutInput.min;
+
+                    checkOutInput.min = defaultMinCheckOutDate;
+
+                    if (checkOutInput.value && checkOutInput.value < defaultMinCheckOutDate) {
+                        checkOutInput.value = '';
+                    }
+
+                    if (typeof flatpickr !== 'undefined') {
+                        if (checkOutInput._flatpickr) {
+                            checkOutInput._flatpickr.destroy();
+                        }
+
+                        flatpickr(checkOutInput, {
+                            locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
+                                ? flatpickr.l10ns.vn
+                                : 'default',
+                            dateFormat: 'Y-m-d',
+                            minDate: defaultMinCheckOutDate,
+                            disableMobile: false,
+                            allowInput: false
+                        });
+                    }
+                }
+            });
+        });
+    </script>
 
 @endsection

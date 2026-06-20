@@ -29,8 +29,7 @@ class ServiceController extends Controller
 
             'name' => 'required|max:100',
 
-            'type' => 'required|in:service,minibar,damage_fee,violation_fee',
-            
+            'type' => 'required|in:service,minibar,damage_fee,occupancy_fee,policy_violation_fee',
             'price' => 'required|numeric|min:0',
 
             'unit' => 'required|max:50',
@@ -70,7 +69,7 @@ class ServiceController extends Controller
 
             'name' => 'required|max:100',
 
-            'type' => 'required|in:service,minibar,damage_fee,violation_fee',
+            'type' => 'required|in:service,minibar,damage_fee,occupancy_fee,policy_violation_fee',
 
             'price' => 'required|numeric|min:0',
 

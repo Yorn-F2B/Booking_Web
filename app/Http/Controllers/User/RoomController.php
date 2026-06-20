@@ -6,30 +6,81 @@ use App\Http\Controllers\Controller;
 use App\Models\RoomCategory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Carbon\Carbon;
 
 class RoomController extends Controller
 {
+    private const ONLINE_CHECK_IN_TIME = '14:00:00';
+    private const ONLINE_CHECK_OUT_TIME = '12:00:00';
+    private const ONLINE_CHECK_IN_LABEL = '14:00';
+    private const EARLY_CHECK_IN_LABEL = '13:00';
+    private const ONLINE_CHECK_OUT_LABEL = '12:00';
+
     public function index(Request $request)
     {
+        $minOnlineCheckInDate = $this->getOnlineMinCheckInDate();
+        $minOnlineCheckOutDate = $this->getOnlineMinCheckOutDate($request->input('check_in_date'));
+        $onlineBookingClosedToday = $this->isOnlineBookingClosedToday();
+
+        $maxAdultCapacity = max(
+            1,
+            (int) RoomCategory::where('status', 'active')->max('adult_capacity')
+        );
+
+        $maxChildCapacity = max(
+            0,
+            (int) RoomCategory::where('status', 'active')->max('child_capacity')
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Nếu user chọn hạng phòng cụ thể:
+        | - Tự lấy sức chứa hạng đó làm số người lớn/trẻ em để lọc
+        | - Không bắt khách tự chọn số lượng nữa
+        |--------------------------------------------------------------------------
+        */
+        if ($request->filled('room_category_id')) {
+            $selectedCategory = RoomCategory::where('status', 'active')
+                ->find($request->input('room_category_id'));
+
+            if ($selectedCategory) {
+                $request->merge([
+                    'adult_count' => (int) $selectedCategory->adult_capacity,
+                    'child_count' => (int) $selectedCategory->child_capacity,
+                ]);
+            }
+        }
+
+        $hasSearchAttempt = $request->filled('check_in_date')
+            || $request->filled('check_out_date')
+            || $request->filled('adult_count')
+            || $request->filled('child_count')
+            || $request->filled('room_category_id');
+
+        $guestCountRule = $hasSearchAttempt ? 'required' : 'nullable';
+
         $validator = Validator::make($request->all(), [
-            'check_in_date' => 'nullable|required_with:check_out_date|date|after_or_equal:today',
+            'check_in_date' => 'nullable|required_with:check_out_date|date|after_or_equal:' . $minOnlineCheckInDate,
             'check_out_date' => 'nullable|required_with:check_in_date|date|after:check_in_date',
-            'adult_count' => 'nullable|integer|min:1|max:20',
-            'child_count' => 'nullable|integer|min:0|max:10',
+            'adult_count' => $guestCountRule . '|integer|min:1|max:' . $maxAdultCapacity,
+            'child_count' => $guestCountRule . '|integer|min:0|max:' . $maxChildCapacity,
             'room_category_id' => 'nullable|exists:room_categories,id',
         ], [
             'check_in_date.required_with' => 'Vui lòng chọn ngày nhận phòng.',
             'check_in_date.date' => 'Ngày nhận phòng không hợp lệ.',
-            'check_in_date.after_or_equal' => 'Ngày nhận phòng không được nhỏ hơn hôm nay.',
+            'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . self::ONLINE_CHECK_IN_LABEL . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
             'check_out_date.required_with' => 'Vui lòng chọn ngày trả phòng.',
             'check_out_date.date' => 'Ngày trả phòng không hợp lệ.',
             'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
+            'adult_count.required' => 'Vui lòng chọn số người lớn để lọc phòng.',
             'adult_count.integer' => 'Số người lớn không hợp lệ.',
             'adult_count.min' => 'Phải có ít nhất 1 người lớn.',
-            'adult_count.max' => 'Số người lớn quá lớn.',
+            'adult_count.max' => 'Số người lớn vượt quá sức chứa tối đa hiện có trong hệ thống là ' . $maxAdultCapacity . ' người.',
+
+            'child_count.required' => 'Vui lòng chọn số trẻ em để lọc phòng. Nếu không có trẻ em, hãy chọn 0.',
             'child_count.integer' => 'Số trẻ em không hợp lệ.',
             'child_count.min' => 'Số trẻ em không được âm.',
-            'child_count.max' => 'Số trẻ em quá lớn.',
+            'child_count.max' => 'Số trẻ em vượt quá sức chứa tối đa hiện có trong hệ thống là ' . $maxChildCapacity . ' trẻ em.',
             'room_category_id.exists' => 'Hạng phòng không tồn tại.',
         ]);
 
@@ -46,11 +97,11 @@ class RoomController extends Controller
         $checkOutDate = $data['check_out_date'] ?? null;
 
         $checkInAt = $checkInDate
-            ? $checkInDate . ' 14:00:00'
+            ? $checkInDate . ' ' . self::ONLINE_CHECK_IN_TIME
             : null;
 
         $checkOutAt = $checkOutDate
-            ? $checkOutDate . ' 11:00:00'
+            ? $checkOutDate . ' ' . self::ONLINE_CHECK_OUT_TIME
             : null;
 
         $hasFilter = $request->filled('check_in_date')
@@ -61,20 +112,18 @@ class RoomController extends Controller
 
         $hasDateFilter = $checkInDate && $checkOutDate;
 
-        $availableRoomCondition = function ($query) use ($checkInAt, $checkOutAt) {
-            $query->where('status', 'available');
+        $hasCompleteBookingSearch = $hasDateFilter
+            && !empty($data['adult_count'])
+            && array_key_exists('child_count', $data)
+            && $data['child_count'] !== null;
 
+        $availableRoomCondition = function ($query) use ($checkInAt, $checkOutAt) {
             if ($checkInAt && $checkOutAt) {
-                $query->whereDoesntHave('bookingRooms.booking', function ($bookingQuery) use ($checkInAt, $checkOutAt) {
-                    $bookingQuery->whereIn('status', [
-                        'pending',
-                        'confirmed',
-                        'checked_in',
-                    ])
-                        ->where('check_in_at', '<', $checkOutAt)
-                        ->where('check_out_at', '>', $checkInAt);
-                });
+                $query->availableForPeriod($checkInAt, $checkOutAt);
+                return;
             }
+
+            $query->whereNotIn('status', ['maintenance']);
         };
 
         $roomCategories = RoomCategory::with(['images', 'amenities'])
@@ -113,11 +162,20 @@ class RoomController extends Controller
             'searchData' => [
                 'check_in_date' => $checkInDate,
                 'check_out_date' => $checkOutDate,
+                'early_check_in_time' => self::EARLY_CHECK_IN_LABEL,
+                'check_in_time' => self::ONLINE_CHECK_IN_LABEL,
+                'check_out_time' => self::ONLINE_CHECK_OUT_LABEL,
                 'adult_count' => $data['adult_count'] ?? null,
                 'child_count' => $data['child_count'] ?? null,
                 'room_category_id' => $data['room_category_id'] ?? null,
             ],
             'hasFilter' => $hasFilter,
+            'hasCompleteBookingSearch' => $hasCompleteBookingSearch,
+            'maxAdultCapacity' => $maxAdultCapacity,
+            'maxChildCapacity' => $maxChildCapacity,
+            'minOnlineCheckInDate' => $minOnlineCheckInDate,
+            'minOnlineCheckOutDate' => $minOnlineCheckOutDate,
+            'onlineBookingClosedToday' => $onlineBookingClosedToday,
         ]);
     }
 
@@ -125,6 +183,45 @@ class RoomController extends Controller
     {
         $roomCategory->load(['images', 'amenities', 'rooms']);
 
-        return view('user.pages.room-detail', compact('roomCategory'));
+        $minOnlineCheckInDate = $this->getOnlineMinCheckInDate();
+        $minOnlineCheckOutDate = $this->getOnlineMinCheckOutDate($minOnlineCheckInDate);
+        $onlineBookingClosedToday = $this->isOnlineBookingClosedToday();
+
+        return view('user.pages.room-detail', compact(
+            'roomCategory',
+            'minOnlineCheckInDate',
+            'minOnlineCheckOutDate',
+            'onlineBookingClosedToday'
+        ));
+    }
+
+    private function getOnlineMinCheckInDate(): string
+    {
+        $now = Carbon::now('Asia/Ho_Chi_Minh');
+        $todayCheckInDeadline = $now->copy()->setTimeFromTimeString(self::ONLINE_CHECK_IN_TIME);
+
+        if ($now->greaterThanOrEqualTo($todayCheckInDeadline)) {
+            return $now->copy()->addDay()->toDateString();
+        }
+
+        return $now->toDateString();
+    }
+
+    private function getOnlineMinCheckOutDate(?string $checkInDate = null): string
+    {
+        $baseCheckInDate = $checkInDate ?: $this->getOnlineMinCheckInDate();
+
+        return Carbon::parse($baseCheckInDate, 'Asia/Ho_Chi_Minh')
+            ->addDay()
+            ->toDateString();
+    }
+
+    private function isOnlineBookingClosedToday(): bool
+    {
+        $now = Carbon::now('Asia/Ho_Chi_Minh');
+
+        return $now->greaterThanOrEqualTo(
+            $now->copy()->setTimeFromTimeString(self::ONLINE_CHECK_IN_TIME)
+        );
     }
 }
