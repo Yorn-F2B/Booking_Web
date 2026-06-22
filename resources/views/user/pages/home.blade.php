@@ -60,10 +60,6 @@
                     <div class="card booking-card border-0 shadow-lg">
                         <div class="card-body p-4">
                             <h2 class="h5 fw-bold mb-3">Tìm phòng trống</h2>
-                            <p class="small text-muted mb-3">
-                                Nhận phòng linh hoạt: <strong>13:00 - 14:00</strong> nếu phòng sẵn sàng · Trả phòng:
-                                <strong>trước 12:00</strong>
-                            </p>
 
                             @if ($onlineBookingClosedToday)
                                 <div class="alert alert-warning small mb-3">
@@ -82,7 +78,7 @@
                                             Nhận phòng
                                         </label>
 
-                                        <input type="date" name="check_in_date" id="home_check_in_date"
+                                        <input type="text" name="check_in_date" id="home_check_in_date"
                                             class="form-control js-online-check-in" min="{{ $minOnlineCheckInDate }}"
                                             data-min-check-in="{{ $minOnlineCheckInDate }}"
                                             value="{{ request('check_in_date') && request('check_in_date') >= $minOnlineCheckInDate ? request('check_in_date') : '' }}"
@@ -94,7 +90,7 @@
                                             Trả phòng
                                         </label>
 
-                                        <input type="date" name="check_out_date" id="home_check_out_date"
+                                        <input type="text" name="check_out_date" id="home_check_out_date"
                                             class="form-control js-online-check-out" min="{{ $minOnlineCheckOutDate }}"
                                             data-min-check-out="{{ $minOnlineCheckOutDate }}"
                                             value="{{ request('check_out_date') && request('check_out_date') >= $minOnlineCheckOutDate ? request('check_out_date') : '' }}"
@@ -599,6 +595,11 @@
         </div>
     </section>
 
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/vn.js"></script>
+
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             document.querySelectorAll('.js-online-check-in').forEach(function (checkInInput) {
@@ -623,11 +624,13 @@
 
                     flatpickr(checkInInput, {
                         locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
-                            ? flatpickr.l10ns.vn
+                            ? 'vn'
                             : 'default',
+                        altInput: true,
+                        altFormat: 'd/m/Y',
                         dateFormat: 'Y-m-d',
                         minDate: minCheckInDate,
-                        disableMobile: false,
+                        disableMobile: true,
                         allowInput: false,
                         onChange: function (selectedDates, dateStr) {
                             syncCheckOutMinDate(dateStr);
@@ -674,11 +677,13 @@
 
                         flatpickr(checkOutInput, {
                             locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
-                                ? flatpickr.l10ns.vn
+                                ? 'vn'
                                 : 'default',
+                            altInput: true,
+                            altFormat: 'd/m/Y',
                             dateFormat: 'Y-m-d',
                             minDate: minCheckOutDate,
-                            disableMobile: false,
+                            disableMobile: true,
                             allowInput: false
                         });
                     }
@@ -702,11 +707,13 @@
 
                         flatpickr(checkOutInput, {
                             locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
-                                ? flatpickr.l10ns.vn
+                                ? 'vn'
                                 : 'default',
+                            altInput: true,
+                            altFormat: 'd/m/Y',
                             dateFormat: 'Y-m-d',
                             minDate: defaultMinCheckOutDate,
-                            disableMobile: false,
+                            disableMobile: true,
                             allowInput: false
                         });
                     }

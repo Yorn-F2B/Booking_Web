@@ -15,6 +15,10 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
+use App\Models\BookingPayment;
+use App\Models\BookingLog;
+use App\Services\VnpayService;
+use App\Services\PromotionService;
 
 class BookingController extends Controller
 {
@@ -77,16 +81,18 @@ class BookingController extends Controller
 
         $customer = Customer::where('user_id', Auth::id())->first();
 
-        if (
-            $customer && $this->hasActiveBookingInDateRange(
+        if ($customer) {
+            $activeBooking = $this->findActiveBookingInDateRange(
                 $customer->id,
                 $checkInAt,
                 $checkOutAt
-            )
-        ) {
-            return back()
-                ->withInput()
-                ->with('error', 'Bạn đã có một booking đang hoạt động trong khoảng thời gian này. Nếu cần đặt thêm phòng hoặc đặt cho khách đoàn, vui lòng liên hệ lễ tân hoặc hotline để được hỗ trợ.');
+            );
+
+            if ($activeBooking) {
+                return redirect()
+                    ->route('bookings.show', $activeBooking)
+                    ->with('error', 'Bạn đã có một đơn phòng đang hoạt động trong khoảng thời gian này. Nếu đơn chưa thanh toán, vui lòng tiếp tục thanh toán hoặc hủy đơn trước khi đặt đơn mới.');
+            }
         }
 
         $availableRoom = $this->findAvailableRoom(
@@ -122,6 +128,15 @@ class BookingController extends Controller
             ->orderBy('name')
             ->get();
 
+        $availablePromotions = app(PromotionService::class)->availablePromotions([
+            'customer_id' => $customer?->id,
+            'subtotal_amount' => $estimatedTotal,
+            'check_in_at' => $checkInAt,
+            'check_out_at' => $checkOutAt,
+            'night_count' => $nightCount,
+            'room_quantity' => 1,
+        ], 'user');
+
         return view('user.pages.booking-confirm', [
             'bookingData' => $data,
             'roomCategory' => $roomCategory,
@@ -129,6 +144,7 @@ class BookingController extends Controller
             'nightCount' => $nightCount,
             'estimatedTotal' => $estimatedTotal,
             'services' => $services,
+            'availablePromotions' => $availablePromotions,
         ]);
     }
 
@@ -151,14 +167,20 @@ class BookingController extends Controller
             'address' => 'nullable|string|max:1000',
 
             'note' => 'nullable|string|max:1000',
+            'payment_type' => 'required|in:deposit_30,full_100',
 
             'services' => 'nullable|array',
             'services.*.service_id' => 'nullable|exists:services,id',
             'services.*.quantity' => 'nullable|integer|min:1',
             'services.*.note' => 'nullable|string|max:1000',
+
+            'promotion_codes' => 'nullable|array',
+            'promotion_codes.*' => 'nullable|string|max:50',
         ], [
             'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . self::ONLINE_CHECK_IN_LABEL . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
             'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
+            'payment_type.required' => 'Vui lòng chọn hình thức thanh toán.',
+            'payment_type.in' => 'Hình thức thanh toán không hợp lệ.',
         ]);
 
         $checkInAt = $data['check_in_date'] . ' ' . self::ONLINE_CHECK_IN_TIME;
@@ -222,7 +244,38 @@ class BookingController extends Controller
 
             $serviceItems = $this->prepareServiceItems($data['services'] ?? []);
             $serviceItemTotal = collect($serviceItems)->sum('total');
-            $estimatedTotal = ($roomCategory->price * $nightCount) + $serviceItemTotal;
+            $subtotalAmount = ($roomCategory->price * $nightCount) + $serviceItemTotal;
+
+            $promotionResult = app(PromotionService::class)->validateCodes(
+                $data['promotion_codes'] ?? [],
+                [
+                    'customer_id' => $customer->id,
+                    'subtotal_amount' => $subtotalAmount,
+                    'service_items' => $serviceItems,
+                    'check_in_at' => $checkInAt,
+                    'check_out_at' => $checkOutAt,
+                    'night_count' => $nightCount,
+                    'room_quantity' => 1,
+                ],
+                'user'
+            );
+
+            if (!$promotionResult['ok']) {
+                return [
+                    'promotion_error' => implode(' ', $promotionResult['messages']),
+                ];
+            }
+
+            $serviceItems = app(PromotionService::class)->mergeServiceItems(
+                $serviceItems,
+                $promotionResult['auto_service_items'] ?? []
+            );
+
+            $subtotalAmount = (float) $promotionResult['subtotal_amount'];
+            $moneyDiscountAmount = (float) ($promotionResult['money_discount_total'] ?? 0);
+            $serviceDiscountAmount = (float) ($promotionResult['service_discount_total'] ?? 0);
+            $discountAmount = (float) $promotionResult['discount_total'];
+            $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
 
             $booking = Booking::create([
                 'booking_code' => $this->generateBookingCode(),
@@ -241,22 +294,22 @@ class BookingController extends Controller
                 'child_count' => $data['child_count'] ?? 0,
                 'room_quantity' => 1,
                 'prefer_adjacent_rooms' => 0,
+                'subtotal_amount' => $subtotalAmount,
+                'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
                 'deposit_amount' => 0,
                 'payment_status' => 'unpaid',
-                'status' => 'confirmed',
+                'status' => 'pending',
                 'note' => $data['note'] ?? null,
             ]);
 
-            BookingRoom::create([
-                'booking_id' => $booking->id,
-                'room_id' => $availableRoom->id,
-                'adult_count' => $data['adult_count'],
-                'child_count' => $data['child_count'] ?? 0,
-                'price_at_booking' => $roomCategory->price,
-                'surcharge' => 0,
-                'surcharge_reason' => null,
-                'created_at' => now(),
+            // Auto add the main customer as the first guest in Guest Registration
+            $booking->guests()->create([
+                'full_name' => trim($customer->last_name . ' ' . $customer->first_name),
+                'cccd' => $customer->cccd,
+                'birthday' => $customer->birthday,
+                'gender' => $customer->gender,
+                'nationality' => $customer->nationality ?? 'Việt Nam',
             ]);
 
             foreach ($serviceItems as $item) {
@@ -274,23 +327,55 @@ class BookingController extends Controller
                 ]);
             }
 
-            $availableRoom->update([
-                'status' => 'reserved',
-            ]);
+            app(PromotionService::class)->storeUsages(
+                $booking,
+                $promotionResult['promotions'],
+                'user',
+                null,
+                Auth::id()
+            );
+
+            if ($promotionResult['promotions']->count() > 0) {
+                BookingLog::create([
+                    'booking_id' => $booking->id,
+                    'user_id' => Auth::id(),
+                    'action' => 'promotion_added',
+                    'description' => 'Khách áp dụng mã ưu đãi khi đặt phòng online: '
+                        . $promotionResult['promotions']->pluck('code')->implode(', ')
+                        . '. Giảm tiền: '
+                        . number_format($moneyDiscountAmount, 0, ',', '.')
+                        . 'đ, ưu đãi dịch vụ: '
+                        . number_format($serviceDiscountAmount, 0, ',', '.')
+                        . 'đ, tổng ưu đãi: '
+                        . number_format($discountAmount, 0, ',', '.')
+                        . 'đ.',
+                ]);
+            }
 
             return $booking;
         });
-        if ($booking === 'active_booking_exists') {
-            return redirect()
-                ->route('rooms', [
-                    'check_in_date' => $data['check_in_date'],
-                    'check_out_date' => $data['check_out_date'],
-                    'adult_count' => $data['adult_count'],
-                    'child_count' => $data['child_count'] ?? 0,
-                    'room_category_id' => $data['room_category_id'],
-                ])
+        if (is_array($booking) && isset($booking['promotion_error'])) {
+            return back()
                 ->withInput()
-                ->with('error', 'Bạn đã có một đơn đặt phòng đang hoạt động trong khoảng thời gian này. Nếu cần đặt thêm phòng hoặc đặt cho khách đoàn, vui lòng liên hệ lễ tân hoặc hotline để được hỗ trợ.');
+                ->with('error', $booking['promotion_error']);
+        }
+
+        if ($booking === 'active_booking_exists') {
+            $customer = Customer::where('user_id', Auth::id())->first();
+
+            $activeBooking = $customer
+                ? $this->findActiveBookingInDateRange($customer->id, $checkInAt, $checkOutAt)
+                : null;
+
+            if ($activeBooking) {
+                return redirect()
+                    ->route('bookings.show', $activeBooking)
+                    ->with('error', 'Bạn đã có một đơn phòng đang hoạt động trong khoảng thời gian này. Nếu đơn chưa thanh toán, vui lòng tiếp tục thanh toán hoặc hủy đơn trước khi đặt đơn mới.');
+            }
+
+            return redirect()
+                ->route('rooms')
+                ->with('error', 'Bạn đã có một đơn đặt phòng đang hoạt động. Vui lòng kiểm tra đơn phòng hiện tại trước khi đặt đơn mới.');
         }
 
         if (!$booking) {
@@ -308,9 +393,26 @@ class BookingController extends Controller
 
         event(new BookingCreatedRealtime($booking));
 
-        return redirect()
-            ->route('bookings.show', $booking)
-            ->with('success', 'Đặt phòng thành công. Booking của bạn đã được tạo.');
+        $paymentAmount = $this->calculateOnlinePaymentAmount($booking, $data['payment_type']);
+
+        if ($paymentAmount <= 0) {
+            return redirect()
+                ->route('bookings.show', $booking)
+                ->with('error', 'Số tiền thanh toán không hợp lệ. Vui lòng liên hệ lễ tân để được hỗ trợ.');
+        }
+
+        $payment = BookingPayment::create([
+            'booking_id' => $booking->id,
+            'provider' => 'vnpay',
+            'txn_ref' => $this->generatePaymentTxnRef($booking),
+            'amount' => $paymentAmount,
+            'status' => 'pending',
+            'payment_type' => $data['payment_type'],
+        ]);
+
+        return redirect()->away(
+            app(VnpayService::class)->createPaymentUrl($booking, $payment, $request)
+        );
     }
 
     public function cancel(Booking $booking)
@@ -356,6 +458,10 @@ class BookingController extends Controller
             'roomCategory',
             'bookingRooms.room',
             'serviceItems.service',
+            'bookingPromotions.user',
+            'bookingPromotions.serviceOffers',
+            'promotionServiceOffers',
+            'payments',
         ]);
 
         $availableServices = Service::where('status', 'active')
@@ -365,10 +471,37 @@ class BookingController extends Controller
             ->orderBy('name')
             ->get();
 
+        $latestPayment = BookingPayment::where('booking_id', $booking->id)
+            ->latest()
+            ->first();
+
+        $defaultPaymentType = $latestPayment->payment_type ?? 'deposit_30';
+
         return view(
             'user.pages.booking-detail',
-            compact('booking', 'availableServices')
+            compact('booking', 'availableServices', 'latestPayment', 'defaultPaymentType')
         );
+    }
+
+    public function current()
+    {
+        $customer = Customer::where('user_id', Auth::id())->first();
+
+        if (!$customer) {
+            return redirect()
+                ->route('rooms')
+                ->with('error', 'Bạn chưa có thông tin khách hàng. Vui lòng đặt phòng trước.');
+        }
+
+        $booking = $this->findCurrentActiveBookingForCustomer($customer->id);
+
+        if (!$booking) {
+            return redirect()
+                ->route('home')
+                ->with('error', 'Bạn chưa có đơn phòng đang hoạt động.');
+        }
+
+        return redirect()->route('bookings.show', $booking);
     }
 
 
@@ -381,12 +514,12 @@ class BookingController extends Controller
             abort(403);
         }
 
-        if (!in_array($booking->status, ['pending', 'confirmed', 'checked_in'])) {
-            return back()->with('error', 'Đơn này đã kết thúc hoặc đã hủy nên không thể thêm dịch vụ.');
+        if (!in_array($booking->status, ['confirmed', 'checked_in'])) {
+            return back()->with('error', 'Chỉ có thể tự thêm dịch vụ sau khi đơn đã thanh toán cọc/thanh toán đủ và được xác nhận.');
         }
 
-        if (in_array($booking->payment_status, ['paid', 'refunded'])) {
-            return back()->with('error', 'Đơn này đã thanh toán hoặc đã hoàn tiền nên không thể tự thêm dịch vụ. Vui lòng liên hệ lễ tân để được hỗ trợ.');
+        if ($booking->payment_status === 'paid') {
+            return back()->with('error', 'Đơn này đã thanh toán đủ nên không thể tự thêm dịch vụ. Vui lòng liên hệ lễ tân để được hỗ trợ.');
         }
 
         $data = $request->validate([
@@ -543,6 +676,11 @@ class BookingController extends Controller
 
     private function hasActiveBookingInDateRange($customerId, $checkInAt, $checkOutAt)
     {
+        return $this->findActiveBookingInDateRange($customerId, $checkInAt, $checkOutAt) !== null;
+    }
+
+    private function findActiveBookingInDateRange($customerId, $checkInAt, $checkOutAt)
+    {
         return Booking::where('customer_id', $customerId)
             ->whereIn('status', [
                 'pending',
@@ -552,7 +690,23 @@ class BookingController extends Controller
             ])
             ->where('check_in_at', '<', $checkOutAt)
             ->where('check_out_at', '>', $checkInAt)
-            ->exists();
+            ->orderByRaw("FIELD(status, 'checked_in', 'inspection_requested', 'confirmed', 'pending')")
+            ->latest()
+            ->first();
+    }
+
+    private function findCurrentActiveBookingForCustomer($customerId)
+    {
+        return Booking::where('customer_id', $customerId)
+            ->whereIn('status', [
+                'pending',
+                'confirmed',
+                'checked_in',
+                'inspection_requested',
+            ])
+            ->orderByRaw("FIELD(status, 'checked_in', 'inspection_requested', 'confirmed', 'pending')")
+            ->latest()
+            ->first();
     }
 
     private function getNightCount($checkInDate, $checkOutDate)
@@ -600,5 +754,33 @@ class BookingController extends Controller
         } while (Booking::where('booking_code', $code)->exists());
 
         return $code;
+    }
+
+    private function calculateOnlinePaymentAmount(Booking $booking, string $paymentType): float
+    {
+        $estimatedTotal = (float) $booking->estimated_total;
+        $currentPaid = (float) $booking->deposit_amount;
+        $remaining = max(0, $estimatedTotal - $currentPaid);
+
+        if ($paymentType === 'deposit_30') {
+            $depositTarget = round($estimatedTotal * 0.3, 0);
+
+            return max(0, min($depositTarget - $currentPaid, $remaining));
+        }
+
+        return $remaining;
+    }
+
+    private function generatePaymentTxnRef(Booking $booking): string
+    {
+        do {
+            $txnRef = $booking->booking_code
+                . now('Asia/Ho_Chi_Minh')->format('YmdHis')
+                . strtoupper(Str::random(5));
+
+            $txnRef = preg_replace('/[^A-Za-z0-9]/', '', $txnRef);
+        } while (BookingPayment::where('txn_ref', $txnRef)->exists());
+
+        return $txnRef;
     }
 }

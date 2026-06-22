@@ -62,4 +62,14 @@ class User extends Authenticatable
         return $this->role === 'housekeeping';
     }
 
+    public function customerChatConversations()
+    {
+        return $this->hasMany(ChatConversation::class, 'customer_id');
+    }
+
+    public function assignedChatConversations()
+    {
+        return $this->hasMany(ChatConversation::class, 'assigned_staff_id');
+    }
+
 }

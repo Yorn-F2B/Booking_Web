@@ -16,6 +16,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Services\PromotionService;
+use App\Models\Promotion;
 
 class BookingCreateController extends Controller
 {
@@ -38,7 +40,14 @@ class BookingCreateController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('admin.pages.bookings.create', compact('roomCategories', 'services'));
+        $availablePromotions = Promotion::with(['serviceOffers.service'])
+            ->where('status', 'active')
+            ->where('admin_can_apply', true)
+            ->orderByRaw("FIELD(promotion_type, 'normal_discount', 'event_discount', 'conditional_discount', 'support_discount')")
+            ->orderBy('code')
+            ->get();
+
+        return view('admin.pages.bookings.create', compact('roomCategories', 'services', 'availablePromotions'));
     }
 
     public function store(Request $request)
@@ -71,6 +80,10 @@ class BookingCreateController extends Controller
             'services.*.service_id' => 'nullable|exists:services,id',
             'services.*.quantity' => 'nullable|integer|min:1',
             'services.*.note' => 'nullable|string|max:1000',
+
+            'promotion_codes' => 'nullable|array',
+            'promotion_codes.*' => 'nullable|string|max:50',
+            'promotion_note' => 'nullable|string|max:1000',
         ], [
             'customer_name.required' => 'Vui lòng nhập họ tên khách hàng.',
             'customer_phone.required' => 'Vui lòng nhập số điện thoại khách hàng.',
@@ -225,19 +238,53 @@ class BookingCreateController extends Controller
             $checkOutAt
         );
 
-        $estimatedTotal = $roomTotal + $policyFeeAmount + $serviceItemTotal;
+        $subtotalAmount = $roomTotal + $policyFeeAmount + $serviceItemTotal;
         $depositAmount = (float) ($data['deposit_amount'] ?? 0);
 
-        if ($depositAmount > $estimatedTotal) {
+        if ($depositAmount > $subtotalAmount) {
             return back()
                 ->withInput()
-                ->with('error', 'Tiền cọc không được lớn hơn tổng tiền tạm tính.');
+                ->with('error', 'Tiền cọc không được lớn hơn tổng tiền tạm tính trước giảm giá.');
         }
 
         DB::beginTransaction();
 
         try {
             $customer = $this->createOrUpdateCustomer($data);
+
+            $promotionResult = app(PromotionService::class)->validateCodes(
+                $data['promotion_codes'] ?? [],
+                [
+                    'customer_id' => $customer->id,
+                    'subtotal_amount' => $subtotalAmount,
+                    'service_items' => $serviceItems,
+                    'check_in_at' => $checkInAt,
+                    'check_out_at' => $checkOutAt,
+                    'night_count' => $nightCount,
+                    'room_quantity' => $roomQuantity,
+                ],
+                'admin',
+                $data['promotion_note'] ?? null
+            );
+
+            if (!$promotionResult['ok']) {
+                throw new \Exception(implode(' ', $promotionResult['messages']));
+            }
+
+            $serviceItems = app(PromotionService::class)->mergeServiceItems(
+                $serviceItems,
+                $promotionResult['auto_service_items'] ?? []
+            );
+
+            $subtotalAmount = (float) $promotionResult['subtotal_amount'];
+            $moneyDiscountAmount = (float) ($promotionResult['money_discount_total'] ?? 0);
+            $serviceDiscountAmount = (float) ($promotionResult['service_discount_total'] ?? 0);
+            $discountAmount = (float) $promotionResult['discount_total'];
+            $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
+
+            if ($depositAmount > $estimatedTotal) {
+                throw new \Exception('Tiền cọc không được lớn hơn tổng tiền sau giảm giá.');
+            }
 
             $booking = Booking::create([
                 'booking_code' => $this->generateBookingCode(),
@@ -256,12 +303,23 @@ class BookingCreateController extends Controller
                 'child_count' => $data['child_count'] ?? 0,
                 'room_quantity' => $roomQuantity,
                 'prefer_adjacent_rooms' => $preferAdjacentRooms,
+                'subtotal_amount' => $subtotalAmount,
+                'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
                 'deposit_amount' => $depositAmount,
                 'payment_status' => $depositAmount > 0 ? 'partial' : 'unpaid',
                 'status' => $bookingMode === 'walk_in' ? 'checked_in' : 'confirmed',
                 'actual_check_in' => $bookingMode === 'walk_in' ? now('Asia/Ho_Chi_Minh') : null,
                 'note' => $data['note'] ?? null,
+            ]);
+
+            // Auto add the main customer as the first guest in Guest Registration (Khai báo lưu trú)
+            $booking->guests()->create([
+                'full_name' => trim($customer->last_name . ' ' . $customer->first_name),
+                'cccd' => $customer->cccd,
+                'birthday' => $customer->birthday,
+                'gender' => $customer->gender,
+                'nationality' => $customer->nationality ?? 'Việt Nam',
             ]);
 
             foreach ($availableRooms as $room) {
@@ -294,6 +352,31 @@ class BookingCreateController extends Controller
                 );
             }
 
+            app(PromotionService::class)->storeUsages(
+                $booking,
+                $promotionResult['promotions'],
+                'admin',
+                $data['promotion_note'] ?? null,
+                Auth::id()
+            );
+
+            if ($promotionResult['promotions']->count() > 0) {
+                $this->addBookingLog(
+                    $booking,
+                    'promotion_added',
+                    'Áp dụng mã ưu đãi khi tạo booking: '
+                    . $promotionResult['promotions']->pluck('code')->implode(', ')
+                    . '. Giảm tiền: '
+                    . number_format($moneyDiscountAmount, 0, ',', '.')
+                    . 'đ, ưu đãi dịch vụ: '
+                    . number_format($serviceDiscountAmount, 0, ',', '.')
+                    . 'đ, tổng ưu đãi: '
+                    . number_format($discountAmount, 0, ',', '.')
+                    . 'đ.'
+                    . (!empty($data['promotion_note']) ? ' Lý do: ' . $data['promotion_note'] : '')
+                );
+            }
+
             $roomNumbers = $availableRooms->pluck('room_number')->implode(', ');
             $bookingModeText = $bookingMode === 'advance' ? 'đặt trước' : 'ở ngay';
             $bookingTypeText = $bookingType === 'hourly' ? 'theo giờ' : 'qua đêm';
@@ -307,6 +390,7 @@ class BookingCreateController extends Controller
                 . ' - ' . $checkOutAt->format('d/m/Y H:i')
                 . ($policyFeeNote ? '. Chính sách giá: ' . $policyFeeNote : '')
                 . (!empty($inventoryWarning) ? '. ' . $inventoryWarning : '')
+                . ($discountAmount > 0 ? '. Ưu đãi giảm: ' . number_format($discountAmount, 0, ',', '.') . 'đ' : '')
                 . '. Tổng tiền tạm tính: ' . number_format($estimatedTotal, 0, ',', '.') . 'đ.'
             );
 
@@ -959,13 +1043,13 @@ class BookingCreateController extends Controller
         $serviceItems = $this->prepareServiceItems($request->services ?? []);
         $serviceItemTotal = collect($serviceItems)->sum('total');
 
-        $estimatedTotal = $roomTotal + $policyFeeAmount + $serviceItemTotal;
+        $subtotalAmount = $roomTotal + $policyFeeAmount + $serviceItemTotal;
         $depositAmount = (float) ($request->deposit_amount ?? 0);
 
-        if ($depositAmount > $estimatedTotal) {
+        if ($depositAmount > $subtotalAmount) {
             return redirect()
                 ->route('admin.bookings.create')
-                ->with('error', 'Tiền cọc không được lớn hơn tổng tiền tạm tính.');
+                ->with('error', 'Tiền cọc không được lớn hơn tổng tiền tạm tính trước giảm giá.');
         }
 
         DB::beginTransaction();
@@ -978,6 +1062,40 @@ class BookingCreateController extends Controller
                 'customer_email' => $request->customer_email,
                 'customer_address' => $request->customer_address,
             ]);
+
+            $promotionResult = app(PromotionService::class)->validateCodes(
+                $request->promotion_codes ?? [],
+                [
+                    'customer_id' => $customer->id,
+                    'subtotal_amount' => $subtotalAmount,
+                    'service_items' => $serviceItems,
+                    'check_in_at' => $checkInAt,
+                    'check_out_at' => $checkOutAt,
+                    'night_count' => $nightCount,
+                    'room_quantity' => $roomQuantity,
+                ],
+                'admin',
+                $request->promotion_note
+            );
+
+            if (!$promotionResult['ok']) {
+                throw new \Exception(implode(' ', $promotionResult['messages']));
+            }
+
+            $serviceItems = app(PromotionService::class)->mergeServiceItems(
+                $serviceItems,
+                $promotionResult['auto_service_items'] ?? []
+            );
+
+            $subtotalAmount = (float) $promotionResult['subtotal_amount'];
+            $moneyDiscountAmount = (float) ($promotionResult['money_discount_total'] ?? 0);
+            $serviceDiscountAmount = (float) ($promotionResult['service_discount_total'] ?? 0);
+            $discountAmount = (float) $promotionResult['discount_total'];
+            $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
+
+            if ($depositAmount > $estimatedTotal) {
+                throw new \Exception('Tiền cọc không được lớn hơn tổng tiền sau giảm giá.');
+            }
 
             $booking = Booking::create([
                 'booking_code' => $this->generateBookingCode(),
@@ -996,6 +1114,8 @@ class BookingCreateController extends Controller
                 'child_count' => $request->child_count ?? 0,
                 'room_quantity' => $roomQuantity,
                 'prefer_adjacent_rooms' => $request->boolean('prefer_adjacent_rooms'),
+                'subtotal_amount' => $subtotalAmount,
+                'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
                 'deposit_amount' => $depositAmount,
                 'payment_status' => $depositAmount > 0 ? 'partial' : 'unpaid',
@@ -1033,6 +1153,31 @@ class BookingCreateController extends Controller
                 );
             }
 
+            app(PromotionService::class)->storeUsages(
+                $booking,
+                $promotionResult['promotions'],
+                'admin',
+                $request->promotion_note,
+                Auth::id()
+            );
+
+            if ($promotionResult['promotions']->count() > 0) {
+                $this->addBookingLog(
+                    $booking,
+                    'promotion_added',
+                    'Áp dụng mã ưu đãi khi tạo booking từ gợi ý phòng: '
+                    . $promotionResult['promotions']->pluck('code')->implode(', ')
+                    . '. Giảm tiền: '
+                    . number_format($moneyDiscountAmount, 0, ',', '.')
+                    . 'đ, ưu đãi dịch vụ: '
+                    . number_format($serviceDiscountAmount, 0, ',', '.')
+                    . 'đ, tổng ưu đãi: '
+                    . number_format($discountAmount, 0, ',', '.')
+                    . 'đ.'
+                    . (!empty($request->promotion_note) ? ' Lý do: ' . $request->promotion_note : '')
+                );
+            }
+
             $roomNumbers = $rooms
                 ->sortBy('room_number')
                 ->pluck('room_number')
@@ -1049,6 +1194,7 @@ class BookingCreateController extends Controller
                 . '. Thời gian: ' . $checkInAt->format('d/m/Y H:i')
                 . ' - ' . $checkOutAt->format('d/m/Y H:i')
                 . ($policyFeeNote ? '. Chính sách giá: ' . $policyFeeNote : '')
+                . ($discountAmount > 0 ? '. Ưu đãi giảm: ' . number_format($discountAmount, 0, ',', '.') . 'đ' : '')
                 . '. Tổng tiền tạm tính: ' . number_format($estimatedTotal, 0, ',', '.') . 'đ.'
             );
 

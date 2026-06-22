@@ -7,6 +7,8 @@ use App\Http\Controllers\User\RoomController;
 use App\Models\RoomCategory;
 use App\Http\Controllers\BookingController;
 use Carbon\Carbon;
+use App\Http\Controllers\Payment\VnpayController;
+use App\Http\Controllers\ChatController;
 
 /*
 |--------------------------------------------------------------------------
@@ -76,6 +78,21 @@ Route::get('/contact', function () {
 
 /*
 |--------------------------------------------------------------------------
+| CHAT ROUTES
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/chat/messages', [ChatController::class, 'messages'])
+    ->name('chat.messages');
+
+Route::post('/chat/send', [ChatController::class, 'send'])
+    ->name('chat.send');
+
+Route::post('/chat/close', [ChatController::class, 'close'])
+    ->name('chat.close');
+
+/*
+|--------------------------------------------------------------------------
 | USER SETTINGS
 |--------------------------------------------------------------------------
 */
@@ -107,6 +124,9 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])
         ->name('profile.destroy');
 
+    Route::get('/bookings/current', [BookingController::class, 'current'])
+        ->name('bookings.current');
+
     Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel'])
         ->name('bookings.cancel');
 
@@ -126,6 +146,23 @@ Route::middleware('auth')->group(function () {
 */
 
 require __DIR__ . '/auth.php';
+
+/*
+|--------------------------------------------------------------------------
+| PAYMENT ROUTES
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/payment/vnpay/return', [VnpayController::class, 'return'])
+    ->name('payment.vnpay.return');
+
+Route::get('/payment/vnpay/ipn', [VnpayController::class, 'ipn'])
+    ->name('payment.vnpay.ipn');
+
+Route::middleware('auth')->group(function () {
+    Route::post('/payment/vnpay/{booking}', [VnpayController::class, 'create'])
+        ->name('payment.vnpay.create');
+});
 
 Route::get('/bookings/confirm', [BookingController::class, 'confirm'])
     ->name('bookings.confirm');

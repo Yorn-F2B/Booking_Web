@@ -88,7 +88,7 @@
     $currentCheckInDate = old('check_in_date', $searchData['check_in_date'] ?? '');
 @endphp
 
-<input type="date"
+<input type="text"
        name="check_in_date"
        id="rooms_check_in_date"
        class="form-control js-online-check-in"
@@ -106,7 +106,7 @@
     $currentCheckOutDate = old('check_out_date', $searchData['check_out_date'] ?? '');
 @endphp
 
-<input type="date"
+<input type="text"
        name="check_out_date"
        id="rooms_check_out_date"
        class="form-control js-online-check-out"
@@ -386,6 +386,11 @@
         </div>
     </main>
 
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/vn.js"></script>
+
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         document.querySelectorAll('.js-online-check-in').forEach(function (checkInInput) {
@@ -410,11 +415,13 @@
 
                 flatpickr(checkInInput, {
                     locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
-                        ? flatpickr.l10ns.vn
+                        ? 'vn'
                         : 'default',
+                    altInput: true,
+                    altFormat: 'd/m/Y',
                     dateFormat: 'Y-m-d',
                     minDate: minCheckInDate,
-                    disableMobile: false,
+                    disableMobile: true,
                     allowInput: false,
                     onChange: function (selectedDates, dateStr) {
                         syncCheckOutMinDate(dateStr);
@@ -461,11 +468,13 @@
 
                     flatpickr(checkOutInput, {
                         locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
-                            ? flatpickr.l10ns.vn
+                            ? 'vn'
                             : 'default',
+                        altInput: true,
+                        altFormat: 'd/m/Y',
                         dateFormat: 'Y-m-d',
                         minDate: minCheckOutDate,
-                        disableMobile: false,
+                        disableMobile: true,
                         allowInput: false
                     });
                 }
@@ -489,11 +498,13 @@
 
                     flatpickr(checkOutInput, {
                         locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
-                            ? flatpickr.l10ns.vn
+                            ? 'vn'
                             : 'default',
+                        altInput: true,
+                        altFormat: 'd/m/Y',
                         dateFormat: 'Y-m-d',
                         minDate: defaultMinCheckOutDate,
-                        disableMobile: false,
+                        disableMobile: true,
                         allowInput: false
                     });
                 }

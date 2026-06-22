@@ -49,6 +49,76 @@
                 </div>
             @endif
 
+            @if ($booking->status == 'pending' && $booking->payment_status == 'unpaid')
+                @php
+                    $deposit30Amount = round((float) $booking->estimated_total * 0.3);
+                    $fullAmount = (float) $booking->estimated_total;
+                    $selectedPaymentType = old('payment_type', $defaultPaymentType ?? 'deposit_30');
+                @endphp
+
+                <div class="alert alert-warning border-0 shadow-sm mb-4">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+                        <div>
+                            <div class="fw-bold mb-1">
+                                Đơn này chưa thanh toán
+                            </div>
+
+                            <div class="small">
+                                Booking đã được tạo tạm thời nhưng chưa giữ phòng cụ thể. Vui lòng thanh toán cọc hoặc thanh toán đủ qua VNPay để hệ thống gán phòng còn trống và xác nhận đơn.
+                            </div>
+
+                            @if (!empty($latestPayment))
+                                <div class="small text-muted mt-2">
+                                    Giao dịch gần nhất:
+                                    {{ number_format((float) $latestPayment->amount, 0, ',', '.') }}đ
+                                    -
+                                    @if ($latestPayment->status == 'pending')
+                                        đang chờ thanh toán
+                                    @elseif ($latestPayment->status == 'failed')
+                                        không thành công
+                                    @elseif ($latestPayment->status == 'success')
+                                        thành công
+                                    @else
+                                        {{ $latestPayment->status }}
+                                    @endif
+                                </div>
+                            @endif
+                        </div>
+
+                        <form action="{{ route('payment.vnpay.create', $booking->id) }}" method="POST" style="min-width: 280px;">
+                            @csrf
+
+                            <div class="border rounded-3 p-3 bg-white mb-2">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="radio" name="payment_type"
+                                        id="continueDeposit30" value="deposit_30"
+                                        {{ $selectedPaymentType == 'deposit_30' ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="continueDeposit30">
+                                        Cọc 30%
+                                        <strong>{{ number_format($deposit30Amount, 0, ',', '.') }}đ</strong>
+                                    </label>
+                                </div>
+
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="payment_type"
+                                        id="continueFull100" value="full_100"
+                                        {{ $selectedPaymentType == 'full_100' ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="continueFull100">
+                                        Thanh toán 100%
+                                        <strong>{{ number_format($fullAmount, 0, ',', '.') }}đ</strong>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="bx bx-credit-card me-1"></i>
+                                Tiếp tục thanh toán VNPay
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            @endif
+
             <div class="row g-4">
 
                 <div class="col-lg-8">
@@ -68,7 +138,9 @@
                             </div>
 
                             <div>
-                                @if ($booking->status == 'pending')
+                                @if ($booking->status == 'pending' && $booking->payment_status == 'unpaid')
+                                    <span class="badge text-bg-warning">Chờ thanh toán</span>
+                                @elseif ($booking->status == 'pending')
                                     <span class="badge text-bg-warning">Chờ xác nhận</span>
                                 @elseif ($booking->status == 'confirmed')
                                     <span class="badge text-bg-primary">Đã xác nhận</span>
@@ -135,6 +207,18 @@
                                         <td>{{ $booking->prefer_adjacent_rooms ? 'Có' : 'Không' }}</td>
                                     </tr>
 
+                                    @if ((float) ($booking->discount_amount ?? 0) > 0)
+                                        <tr>
+                                            <th>Tổng trước ưu đãi</th>
+                                            <td>{{ number_format((float) ($booking->subtotal_amount ?? ($booking->estimated_total + $booking->discount_amount)), 0, ',', '.') }}đ</td>
+                                        </tr>
+
+                                        <tr>
+                                            <th>Ưu đãi đã áp dụng</th>
+                                            <td class="text-success fw-bold">-{{ number_format((float) $booking->discount_amount, 0, ',', '.') }}đ</td>
+                                        </tr>
+                                    @endif
+
                                     <tr>
                                         <th>Tổng tiền tạm tính</th>
                                         <td>{{ number_format($booking->estimated_total, 0, ',', '.') }}đ</td>
@@ -155,7 +239,7 @@
                                             @elseif ($booking->payment_status == 'paid')
                                                 Đã thanh toán
                                             @else
-                                                Đã hoàn tiền
+                                                Không xác định
                                             @endif
                                         </td>
                                     </tr>
@@ -174,9 +258,68 @@
                     </div>
 
 
+
+
+                    @if (($booking->bookingPromotions ?? collect())->count() > 0)
+                        <div class="settings-section mb-4">
+                            <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                                <div>
+                                    <h3 class="h6 fw-bold mb-1">
+                                        Mã ưu đãi đã áp dụng
+                                    </h3>
+                                    <p class="text-muted small mb-0">
+                                        Các mã bên dưới đã được tính vào tổng tiền của đơn. Một số mã có thể do khách sạn áp dụng để hỗ trợ trải nghiệm của bạn.
+                                    </p>
+                                </div>
+                                <span class="badge text-bg-success">
+                                    -{{ number_format((float) $booking->bookingPromotions->sum('discount_amount'), 0, ',', '.') }}đ
+                                </span>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-bordered align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Mã</th>
+                                            <th>Loại</th>
+                                            <th>Nguồn áp dụng</th>
+                                            <th class="text-end">Số tiền giảm</th>
+                                            <th>Ghi chú</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach ($booking->bookingPromotions as $bookingPromotion)
+                                            <tr>
+                                                <td class="fw-bold">{{ $bookingPromotion->code_snapshot }}</td>
+                                                <td>{{ $bookingPromotion->type_label }}</td>
+                                                <td>
+                                                    @if ($bookingPromotion->applied_channel == 'admin')
+                                                        Khách sạn hỗ trợ
+                                                    @else
+                                                        Khách tự chọn
+                                                    @endif
+                                                </td>
+                                                <td class="text-end text-success fw-bold">
+                                                    -{{ number_format((float) $bookingPromotion->discount_amount, 0, ',', '.') }}đ
+                                                </td>
+                                                <td class="small text-muted">
+                                                    @if ($bookingPromotion->applied_channel == 'admin' && $bookingPromotion->promotion_type_snapshot == \App\Models\Promotion::TYPE_SUPPORT)
+                                                        Mã hỗ trợ được khách sạn áp dụng cho đơn này.
+                                                    @else
+                                                        {{ $bookingPromotion->note ?: '---' }}
+                                                    @endif
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    @endif
+
                     @php
-                        $canCustomerAddService = in_array($booking->status, ['pending', 'confirmed', 'checked_in'])
-                            && !in_array($booking->payment_status, ['paid', 'refunded']);
+                        $canCustomerAddService = in_array($booking->status, ['confirmed', 'checked_in'])
+                            && $booking->payment_status !== 'paid';
                     @endphp
 
                     <div class="settings-section mb-4">
@@ -256,8 +399,7 @@
                             @endif
                         @else
                             <div class="alert alert-light border mb-0 small">
-                                Chỉ có thể tự thêm dịch vụ khi đơn còn ở trạng thái chờ xác nhận, đã xác nhận hoặc đang lưu trú,
-                                và đơn chưa thanh toán hoàn tất.
+                                Chỉ có thể tự thêm dịch vụ sau khi đơn đã thanh toán cọc/thanh toán đủ và được xác nhận.
                             </div>
                         @endif
 
@@ -355,6 +497,12 @@
                         <h3 class="h6 fw-bold mb-3">
                             Phòng đã được gán
                         </h3>
+
+                        @if ($booking->status == 'pending' && $booking->payment_status == 'unpaid')
+                            <div class="alert alert-warning small mb-3">
+                                Đơn này chưa thanh toán nên khách sạn chưa gán phòng cụ thể. Sau khi thanh toán cọc/thanh toán đủ thành công, hệ thống sẽ tự động gán phòng còn trống.
+                            </div>
+                        @endif
 
                         @forelse ($booking->bookingRooms as $bookingRoom)
 

@@ -90,16 +90,6 @@
                                     Kiểm tra
                                 </button>
                             </div>
-
-                            <div class="col-md-12">
-                                <div class="alert alert-info mb-0 small">
-                                    Nhập đúng khoảng thời gian khách muốn ở: từ ngày/giờ nhận đến ngày/giờ trả.
-                                    Hệ thống sẽ kiểm tra giao thời gian với booking đang giữ phòng/đang ở và cộng thêm
-                                    <strong>{{ $searchData['cleaning_buffer_minutes'] ?? ($uiData['cleaning_buffer_minutes'] ?? 60) }} phút</strong>
-                                    dọn phòng sau giờ trả để tránh bán trùng sát giờ.
-                                </div>
-                            </div>
-
                         </div>
                     </form>
                 </div>

@@ -13,6 +13,7 @@
             'completed' => 'Hoàn tất',
             'cancelled' => 'Đã hủy',
             'canceled' => 'Đã hủy',
+            'no_show' => 'No-show',
         ];
 
         $bookingStatusClasses = [
@@ -24,6 +25,7 @@
             'completed' => 'status-done',
             'cancelled' => 'status-cancelled',
             'canceled' => 'status-cancelled',
+            'no_show' => 'status-cancelled',
         ];
 
         $paymentStatusLabels = [
@@ -106,12 +108,37 @@
         $earlyCheckInMinutes = 0;
         $earlyCheckInFinalTotalPreview = 0;
         $isEarlyCheckInNow = false;
+        $isBeforeBookingDateNow = false;
+        $beforeBookingDateMessage = '';
+        $stayDateChangeCheckInDateDefault = $nowVnForCheckInFlow->toDateString();
+        $stayDateChangeCheckInTimeDefault = $nowVnForCheckInFlow->format('H:i');
+        $stayDateChangeCheckOutDateDefault = $bookingCheckInAtForFlow
+            ? $bookingCheckInAtForFlow->copy()->addDay()->toDateString()
+            : $nowVnForCheckInFlow->copy()->addDay()->toDateString();
+        $stayDateChangeCheckOutTimeDefault = $booking->check_out_at
+            ? \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')->format('H:i')
+            : '12:00';
+
+        if ($booking->check_out_at) {
+            $stayDateChangeCheckOutDateDefault = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')->toDateString();
+        }
+
+        if (
+            $booking->status == 'confirmed'
+            && $booking->booking_type != 'hourly'
+            && $bookingCheckInAtForFlow
+            && $nowVnForCheckInFlow->toDateString() < $bookingCheckInAtForFlow->toDateString()
+        ) {
+            $isBeforeBookingDateNow = true;
+            $beforeBookingDateMessage = 'Khách đang đến trước ngày booking. Đây là đổi ngày lưu trú / mở rộng kỳ ở / tạo booking mới, không phải check-in sớm trong cùng ngày.';
+        }
 
         if (
             $booking->status == 'confirmed'
             && $booking->booking_type != 'hourly'
             && $bookingCheckInAtForFlow
             && $standardCheckInAt
+            && $nowVnForCheckInFlow->isSameDay($bookingCheckInAtForFlow)
             && $nowVnForCheckInFlow->lessThan($standardCheckInAt)
         ) {
             $isEarlyCheckInNow = true;
@@ -130,32 +157,21 @@
                     * max(1, (int) $booking->room_quantity);
             }
 
-            if ($nowVnForCheckInFlow->toDateString() < $bookingCheckInAtForFlow->toDateString()) {
-                $earlyExtraNights = max(
-                    1,
-                    $nowVnForCheckInFlow->copy()->startOfDay()
-                        ->diffInDays($bookingCheckInAtForFlow->copy()->startOfDay())
-                );
-                $earlyCheckInPercent = 100 * $earlyExtraNights;
-                $earlyCheckInPolicyText = 'Nhận trước ngày check-in ' . $earlyExtraNights
-                    . ' ngày, tính thêm ' . $earlyExtraNights . ' đêm.';
-            } else {
-                $earlyCheckInMinutesOfDay = ((int) $nowVnForCheckInFlow->format('H')) * 60
-                    + ((int) $nowVnForCheckInFlow->format('i'));
+            $earlyCheckInMinutesOfDay = ((int) $nowVnForCheckInFlow->format('H')) * 60
+                + ((int) $nowVnForCheckInFlow->format('i'));
 
-                if ($earlyCheckInMinutesOfDay < 360) {
-                    $earlyCheckInPercent = 100;
-                    $earlyCheckInPolicyText = 'Check-in trước 06:00, phụ thu 100% giá 1 đêm.';
-                } elseif ($earlyCheckInMinutesOfDay < 540) {
-                    $earlyCheckInPercent = 50;
-                    $earlyCheckInPolicyText = 'Check-in từ 06:00 đến trước 09:00, phụ thu 50% giá 1 đêm.';
-                } elseif ($earlyCheckInMinutesOfDay < 660) {
-                    $earlyCheckInPercent = 20;
-                    $earlyCheckInPolicyText = 'Check-in từ 09:00 đến trước 11:00, phụ thu 20% giá 1 đêm.';
-                } else {
-                    $earlyCheckInPercent = 0;
-                    $earlyCheckInPolicyText = 'Check-in từ 11:00 đến trước 14:00, miễn phí nếu phòng đã sẵn sàng.';
-                }
+            if ($earlyCheckInMinutesOfDay < 360) {
+                $earlyCheckInPercent = 100;
+                $earlyCheckInPolicyText = 'Check-in sớm cùng ngày trước 06:00, phụ thu 100% giá 1 đêm.';
+            } elseif ($earlyCheckInMinutesOfDay < 540) {
+                $earlyCheckInPercent = 50;
+                $earlyCheckInPolicyText = 'Check-in sớm cùng ngày từ 06:00 đến trước 09:00, phụ thu 50% giá 1 đêm.';
+            } elseif ($earlyCheckInMinutesOfDay < 660) {
+                $earlyCheckInPercent = 20;
+                $earlyCheckInPolicyText = 'Check-in sớm cùng ngày từ 09:00 đến trước 11:00, phụ thu 20% giá 1 đêm.';
+            } else {
+                $earlyCheckInPercent = 0;
+                $earlyCheckInPolicyText = 'Check-in sớm cùng ngày từ 11:00 đến trước 14:00, miễn phí nếu phòng đã sẵn sàng.';
             }
 
             $earlyCheckInFeePreview = round(($earlyCheckInBasePrice * $earlyCheckInPercent) / 100, 0);
@@ -270,7 +286,21 @@
             }
         }
 
-        $finalTotal = $roomTotal + $serviceItemTotal + $approvedInspectionTotal + $checkoutLateFeePreview;
+        $promotionDiscountTotal = (float) ($booking->discount_amount ?? 0);
+
+        if ($promotionDiscountTotal <= 0 && isset($booking->bookingPromotions)) {
+            $promotionDiscountTotal = (float) $booking->bookingPromotions->sum('discount_amount');
+        }
+
+        $promotionMoneyDiscountTotal = isset($booking->bookingPromotions)
+            ? (float) $booking->bookingPromotions->sum('money_discount_amount')
+            : $promotionDiscountTotal;
+
+        $promotionServiceDiscountTotal = isset($booking->bookingPromotions)
+            ? (float) $booking->bookingPromotions->sum('service_discount_amount')
+            : 0;
+
+        $finalTotal = max(0, $roomTotal + $serviceItemTotal + $approvedInspectionTotal + $checkoutLateFeePreview - $promotionDiscountTotal);
         $remainingTotal = max(0, $finalTotal - (float) $booking->deposit_amount);
 
         $currentAdultCapacity = $booking->bookingRooms->sum(function ($bookingRoom) {
@@ -334,17 +364,49 @@
         $lateShowCheckOutAt = $booking->check_out_at
             ? \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')
             : null;
-        $lateShowNoShowLimitAt = $lateShowCheckInAt
-            ? $lateShowCheckInAt->copy()->setTime(18, 0, 0)
-            : null;
-        $lateShowIsAfterNoShowLimit = $lateShowNoShowLimitAt
-            && $lateShowNowVn->greaterThanOrEqualTo($lateShowNoShowLimitAt);
-        $lateShowIsPastStayTime = $lateShowCheckOutAt
-            && $lateShowNowVn->greaterThanOrEqualTo($lateShowCheckOutAt);
+
         $lateShowEstimatedTotal = (float) $booking->estimated_total;
         $lateShowDepositAmount = (float) $booking->deposit_amount;
         $lateShowIsFullPaidOrFullDeposit = $booking->payment_status === 'paid'
             || ($lateShowEstimatedTotal > 0 && $lateShowDepositAmount >= $lateShowEstimatedTotal);
+
+        $lateShowNightCount = 1;
+        if ($lateShowCheckInAt && $lateShowCheckOutAt) {
+            $lateShowNightCount = max(
+                1,
+                $lateShowCheckInAt->copy()->startOfDay()
+                    ->diffInDays($lateShowCheckOutAt->copy()->startOfDay())
+            );
+        }
+
+        $lateShowNoShowLimitAt = null;
+        if ($lateShowCheckInAt && $lateShowCheckOutAt) {
+            if ($lateShowIsFullPaidOrFullDeposit) {
+                $lateShowNoShowLimitAt = $lateShowCheckOutAt->copy();
+            } elseif ($booking->booking_type == 'hourly') {
+                $lateShowNoShowLimitAt = $lateShowCheckInAt->copy()->addMinutes(30);
+            } elseif ($lateShowNightCount <= 1) {
+                $lateShowNoShowLimitAt = $lateShowCheckInAt->copy()->setTime(18, 0, 0);
+            } else {
+                $lateShowNoShowLimitAt = $lateShowCheckInAt->copy()->addDay();
+            }
+        }
+
+        $lateShowIsAfterNoShowLimit = $lateShowNoShowLimitAt
+            && $lateShowNowVn->greaterThanOrEqualTo($lateShowNoShowLimitAt);
+        $lateShowIsPastStayTime = $lateShowCheckOutAt
+            && $lateShowNowVn->greaterThanOrEqualTo($lateShowCheckOutAt);
+        $lateShowIsCheckInTooLate = $booking->status == 'confirmed'
+            && $lateShowCheckInAt
+            && !$lateShowIsFullPaidOrFullDeposit
+            && $lateShowNoShowLimitAt
+            && $lateShowNowVn->greaterThanOrEqualTo($lateShowNoShowLimitAt);
+        $canCancelNoShowNow = $booking->status == 'confirmed'
+            && $lateShowNoShowLimitAt
+            && $lateShowNowVn->greaterThanOrEqualTo($lateShowNoShowLimitAt);
+
+        $disableCheckInSubmitNow = $isBeforeBookingDateNow || $lateShowIsPastStayTime || $lateShowIsCheckInTooLate;
+
         $lateShowHours = 0;
         $showLateCheckInWarning = false;
         $lateShowAlertClass = 'alert-info';
@@ -352,7 +414,17 @@
         $lateShowMessage = '';
         $lateShowSubMessage = '';
 
-        if (
+        if ($booking->status == 'confirmed' && $isBeforeBookingDateNow) {
+            $showLateCheckInWarning = true;
+            $lateShowAlertClass = 'alert-danger';
+            $lateShowTitle = 'Khách đến trước ngày booking';
+            $lateShowMessage = 'Không check-in trực tiếp vào booking hiện tại. Cần đổi ngày lưu trú, mở rộng kỳ ở hoặc tạo booking mới.';
+            $lateShowSubMessage = 'Booking hiện bắt đầu lúc '
+                . ($lateShowCheckInAt ? $lateShowCheckInAt->format('d/m/Y H:i') : '---')
+                . ', hiện tại là '
+                . $lateShowNowVn->format('d/m/Y H:i')
+                . '.';
+        } elseif (
             $booking->status == 'confirmed'
             && $lateShowCheckInAt
             && $lateShowNowVn->greaterThan($lateShowCheckInAt)
@@ -364,8 +436,8 @@
             if ($lateShowIsPastStayTime) {
                 $lateShowAlertClass = 'alert-danger';
                 $lateShowTitle = 'Booking đã quá thời gian lưu trú';
-                $lateShowMessage = 'Không nên check-in booking cũ vì đã qua giờ trả phòng dự kiến.';
-                $lateShowSubMessage = 'Nếu khách vẫn muốn ở, hãy tạo booking mới theo thời gian thực tế.';
+                $lateShowMessage = 'Không được check-in booking cũ vì đã qua giờ trả phòng dự kiến.';
+                $lateShowSubMessage = 'Nếu khách vẫn muốn ở, hãy hủy/no-show booking cũ và tạo booking mới.';
             } elseif ($lateShowIsFullPaidOrFullDeposit) {
                 $lateShowAlertClass = 'alert-info';
                 $lateShowTitle = 'Khách check-in muộn nhưng đã thanh toán/cọc 100%';
@@ -373,14 +445,22 @@
                 $lateShowSubMessage = 'Booking vẫn giữ phòng đến ' . ($lateShowCheckOutAt ? $lateShowCheckOutAt->format('d/m/Y H:i') : 'giờ trả phòng dự kiến') . '.';
             } elseif (!$lateShowIsAfterNoShowLimit) {
                 $lateShowAlertClass = 'alert-warning';
-                $lateShowTitle = 'Khách check-in muộn';
-                $lateShowMessage = 'Khách cọc một phần/chưa thanh toán đủ và đang đến muộn trước 18:00. Cho check-in nếu khách đến, không phụ thu.';
-                $lateShowSubMessage = 'Đến 18:00 nếu khách chưa đến thì lễ tân nên gọi xác nhận.';
+                $lateShowTitle = 'Khách check-in muộn trong hạn giữ phòng';
+                if ($booking->booking_type == 'hourly') {
+                    $lateShowMessage = 'Khách đặt theo giờ và vẫn trong hạn giữ phòng tạm thời. Cho check-in nếu khách đến, không phụ thu check-in muộn.';
+                } elseif ($lateShowNightCount <= 1) {
+                    $lateShowMessage = 'Booking 1 đêm, cọc một phần/chưa thanh toán đủ. Giữ phòng đến 18:00 cùng ngày check-in. Trong hạn này cho check-in, không phụ thu.';
+                } else {
+                    $lateShowMessage = 'Booking nhiều đêm, cọc một phần/chưa thanh toán đủ. Giữ phòng tối đa 1 ngày từ giờ check-in. Trong hạn này cho check-in, không phụ thu.';
+                }
+                $lateShowSubMessage = 'Hạn giữ phòng: ' . ($lateShowNoShowLimitAt ? $lateShowNoShowLimitAt->format('d/m/Y H:i') : '---') . '.';
             } else {
                 $lateShowAlertClass = 'alert-danger';
-                $lateShowTitle = 'Đã quá 18:00 - cần xử lý no-show';
-                $lateShowMessage = 'Booking cọc một phần/chưa thanh toán đủ đã quá mốc giữ phòng 18:00.';
-                $lateShowSubMessage = 'Lễ tân cần gọi khách. Nếu khách không đến hoặc không liên lạc được thì hủy no-show để giữ cọc và mở bán lại phòng.';
+                $lateShowTitle = 'Đã quá hạn giữ phòng - hủy/no-show';
+                $lateShowMessage = 'Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng. Không được check-in booking này nữa.';
+                $lateShowSubMessage = 'Hạn giữ phòng: '
+                    . ($lateShowNoShowLimitAt ? $lateShowNoShowLimitAt->format('d/m/Y H:i') : '---')
+                    . '. Hủy/no-show để giữ cọc nếu có và mở bán lại phòng.';
             }
         }
     @endphp
@@ -859,6 +939,38 @@
             color: var(--ink);
             font-size: 14px;
         }
+
+        .promotion-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .promotion-card {
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 12px;
+            background: #fff;
+        }
+
+        .promotion-code {
+            font-weight: 800;
+            letter-spacing: 0.03em;
+            color: var(--ink);
+        }
+
+        .promotion-meta {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .promotion-summary-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+
     </style>
 
     <div class="admin-wrapper booking-detail-page">
@@ -911,8 +1023,12 @@
                                 Check-in dự kiến:
                                 <strong>{{ $lateShowCheckInAt?->format('d/m/Y H:i') }}</strong> ·
                                 Hiện tại:
-                                <strong>{{ $lateShowNowVn->format('d/m/Y H:i') }}</strong> ·
-                                Trễ khoảng <strong>{{ $lateShowHours }} giờ</strong>.
+                                <strong>{{ $lateShowNowVn->format('d/m/Y H:i') }}</strong>
+                                @if ($isBeforeBookingDateNow)
+                                    · Đến sớm khác ngày booking
+                                @elseif ($lateShowHours > 0)
+                                    · Trễ khoảng <strong>{{ $lateShowHours }} giờ</strong>
+                                @endif
                             </div>
                             <div class="small mt-1">{{ $lateShowMessage }}</div>
                             @if ($lateShowSubMessage)
@@ -998,19 +1114,6 @@
                                         </div>
                                     </div>
 
-                                    <div class="soft-note mb-3">
-                                        <div class="fw-bold mb-1">Chính sách check-in sớm</div>
-                                        Cho nhận phòng sớm khi phòng đã sẵn sàng hoặc còn phòng sạch cùng hạng để đổi.
-                                        Nếu phòng chưa sạch và không còn phòng thay thế, khách cần đợi buồng phòng xử lý xong.
-
-                                        <div class="action-policy-grid">
-                                            <div class="policy-chip"><strong>&lt; 06:00</strong>100% giá 1 đêm</div>
-                                            <div class="policy-chip"><strong>06:00–09:00</strong>50% giá 1 đêm</div>
-                                            <div class="policy-chip"><strong>09:00–11:00</strong>20% giá 1 đêm</div>
-                                            <div class="policy-chip"><strong>11:00–14:00</strong>Miễn phí nếu phòng sẵn sàng</div>
-                                        </div>
-                                    </div>
-
                                     @if ($roomsNotReadyForCheckIn->count() > 0)
                                         <div class="alert alert-warning small mb-3">
                                             <div class="fw-bold mb-1">Phòng gán hiện tại chưa sẵn sàng</div>
@@ -1038,6 +1141,65 @@
                                                 </button>
                                             </div>
                                         </form>
+                                    @endif
+
+                                    @if ($isBeforeBookingDateNow)
+                                        <div class="alert alert-danger small mb-3">
+                                            <div class="fw-bold mb-1">Khách đến trước ngày booking</div>
+                                            Booking hiện bắt đầu lúc
+                                            <strong>{{ $bookingCheckInAtForFlow?->format('d/m/Y H:i') }}</strong>,
+                                            còn hiện tại là
+                                            <strong>{{ $nowVnForCheckInFlow->format('d/m/Y H:i') }}</strong>.
+                                            Không check-in trực tiếp. Hãy đổi ngày lưu trú, mở rộng kỳ ở hoặc tạo booking mới.
+                                        </div>
+
+                                        <details class="compact-panel mb-3" open>
+                                            <summary>Đổi ngày lưu trú cho khách đến sớm khác ngày</summary>
+                                            <div class="compact-panel-body">
+                                                <form action="{{ route('admin.bookings.change-stay-dates', $booking->id) }}"
+                                                    method="POST"
+                                                    onsubmit="return confirm('Xác nhận đổi ngày lưu trú? Hệ thống sẽ kiểm tra trùng phòng và tính lại tiền phòng theo số đêm mới.')">
+                                                    @csrf
+                                                    @method('PATCH')
+
+                                                    <div class="soft-note mb-3">
+                                                        Mặc định hệ thống gợi ý nhận từ thời điểm hiện tại và giữ ngày trả cũ.
+                                                        Nếu khách chỉ muốn dời nguyên 1 đêm, sửa lại ngày trả phòng cho phù hợp.
+                                                    </div>
+
+                                                    <div class="row g-2">
+                                                        <div class="col-md-3">
+                                                            <label class="form-label small">Ngày nhận mới</label>
+                                                            <input type="date" name="new_check_in_date" class="form-control"
+                                                                value="{{ old('new_check_in_date', $stayDateChangeCheckInDateDefault) }}"
+                                                                required>
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <label class="form-label small">Giờ nhận mới</label>
+                                                            <input type="time" name="new_check_in_time" class="form-control"
+                                                                value="{{ old('new_check_in_time', $stayDateChangeCheckInTimeDefault) }}"
+                                                                required>
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <label class="form-label small">Ngày trả mới</label>
+                                                            <input type="date" name="new_check_out_date" class="form-control"
+                                                                value="{{ old('new_check_out_date', $stayDateChangeCheckOutDateDefault) }}"
+                                                                required>
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <label class="form-label small">Giờ trả mới</label>
+                                                            <input type="time" name="new_check_out_time" class="form-control"
+                                                                value="{{ old('new_check_out_time', $stayDateChangeCheckOutTimeDefault) }}"
+                                                                required>
+                                                        </div>
+                                                    </div>
+
+                                                    <button type="submit" class="btn btn-outline-primary w-100 mt-3">
+                                                        Kiểm tra trùng phòng và đổi ngày lưu trú
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </details>
                                     @endif
 
                                     <form action="{{ route('admin.bookings.check-in', $booking->id) }}" method="POST"
@@ -1102,7 +1264,7 @@
                                         @if ($isEarlyCheckInNow)
                                             <div class="soft-note mb-3">
                                                 Khách đang đến sớm khoảng <strong>{{ $earlyCheckInDurationText }}</strong>.
-                                                Khi bấm <strong>Xác nhận check-in</strong>, hệ thống sẽ hiện bảng báo giá phụ thu.
+                                                Nếu phòng sẵn sàng, khi bấm <strong>Xác nhận check-in</strong>, hệ thống sẽ hiện bảng báo giá phụ thu nếu có.
                                             </div>
                                         @endif
 
@@ -1182,94 +1344,44 @@
                                             </div>
                                         </div>
 
-                                        @php
-                                            $nowVn = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
-                                            $checkInAt = $booking->check_in_at
-                                                ? \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')
-                                                : null;
-                                            $checkOutAt = $booking->check_out_at
-                                                ? \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')
-                                                : null;
+                                        @if ($booking->check_in_at && $lateShowHours > 0)
+                                            <div class="alert {{ $lateShowAlertClass }} small">
+                                                <div class="fw-bold mb-1">{{ $lateShowTitle }}</div>
 
-                                            $lateMinutes = 0;
-
-                                            if ($checkInAt && $nowVn->greaterThan($checkInAt)) {
-                                                $lateMinutes = $checkInAt->diffInMinutes($nowVn);
-                                            }
-
-                                            $lateHours = $lateMinutes > 0 ? round($lateMinutes / 60, 2) : 0;
-
-                                            $estimatedTotalForLate = (float) $booking->estimated_total;
-                                            $depositAmountForLate = (float) $booking->deposit_amount;
-
-                                            $isFullPaidOrFullDeposit = $booking->payment_status === 'paid'
-                                                || ($estimatedTotalForLate > 0 && $depositAmountForLate >= $estimatedTotalForLate);
-
-                                            $noShowLimitAt = $checkInAt ? $checkInAt->copy()->setTime(18, 0, 0) : null;
-                                            $isAfterNoShowLimit = $noShowLimitAt && $nowVn->greaterThanOrEqualTo($noShowLimitAt);
-                                            $isPastStayTime = $checkOutAt && $nowVn->greaterThanOrEqualTo($checkOutAt);
-
-                                            $latePolicyText = 'Đúng giờ hoặc chưa đến mốc check-in, không xử lý check-in muộn.';
-
-                                            if ($lateHours > 0) {
-                                                if ($isPastStayTime) {
-                                                    $latePolicyText = 'Đã quá thời gian lưu trú của booking, không nên check-in booking cũ. Vui lòng tạo booking mới nếu khách vẫn muốn ở.';
-                                                } elseif ($isFullPaidOrFullDeposit) {
-                                                    $latePolicyText = 'Khách đã thanh toán/cọc 100%, được check-in bất kỳ giờ nào trong thời gian lưu trú. Không phụ thu check-in muộn.';
-                                                } elseif (!$isAfterNoShowLimit) {
-                                                    $latePolicyText = 'Khách cọc một phần và đến trước 18:00, cho check-in bình thường. Không phụ thu vì khách sạn giữ phòng đến mốc 18:00.';
-                                                } else {
-                                                    $latePolicyText = 'Đã sau 18:00. Nếu khách không đến hoặc không liên lạc được thì hủy no-show. Nếu khách đã xác nhận vẫn đến/đang có mặt tại quầy thì có thể tick xác nhận để check-in, không phụ thu.';
-                                                }
-                                            }
-                                        @endphp
-
-                                        @if ($booking->check_in_at && $lateHours > 0)
-                                            <div
-                                                class="alert {{ $isPastStayTime ? 'alert-danger' : ($isAfterNoShowLimit && !$isFullPaidOrFullDeposit ? 'alert-warning' : 'alert-info') }} small">
-                                                <div class="fw-bold mb-1">Khách check-in muộn</div>
-
-                                                Khách đang trễ khoảng <strong>{{ $lateHours }} giờ</strong>
-                                                so với mốc check-in <strong>{{ $checkInAt?->format('H:i') }}</strong>.
+                                                Khách đang trễ khoảng <strong>{{ $lateShowHours }} giờ</strong>
+                                                so với mốc check-in
+                                                <strong>{{ $lateShowCheckInAt?->format('d/m/Y H:i') }}</strong>.
                                                 <br>
+                                                <strong>Chính sách:</strong> {{ $lateShowMessage }}
 
-                                                <strong>Chính sách:</strong> {{ $latePolicyText }}
-
-                                                @if ($isFullPaidOrFullDeposit)
+                                                @if ($lateShowSubMessage)
                                                     <br>
-                                                    <span class="text-muted">
-                                                        Booking đã thanh toán/cọc đủ nên khách sạn vẫn giữ phòng trong toàn bộ thời gian
-                                                        lưu trú:
-                                                        {{ $checkInAt?->format('d/m/Y H:i') }} →
-                                                        {{ $checkOutAt?->format('d/m/Y H:i') }}.
-                                                    </span>
-                                                @elseif (!$isPastStayTime && !$isAfterNoShowLimit)
-                                                    <br>
-                                                    <span class="text-muted">
-                                                        Trước 18:00 chưa xử lý no-show. Lễ tân có thể check-in nếu khách đến.
-                                                    </span>
-                                                @elseif (!$isPastStayTime && $isAfterNoShowLimit)
-                                                    <hr class="my-2">
-                                                    <strong class="text-danger">Đã qua mốc 18:00:</strong>
-                                                    Gọi khách trước khi xử lý. Nếu không liên lạc được hoặc khách báo không đến, dùng
-                                                    nút hủy no-show bên dưới.
+                                                    <span class="text-muted">{{ $lateShowSubMessage }}</span>
                                                 @endif
                                             </div>
-
-                                            @if (!$isPastStayTime && $isAfterNoShowLimit && !$isFullPaidOrFullDeposit)
-                                                <div class="form-check mb-3">
-                                                    <input type="checkbox" name="late_arrival_action" value="confirm_arriving"
-                                                        class="form-check-input" id="lateArrivalConfirm">
-                                                    <label class="form-check-label" for="lateArrivalConfirm">
-                                                        Khách đã xác nhận vẫn đến hoặc đang có mặt tại quầy, tiếp tục check-in sau 18:00
-                                                    </label>
-                                                </div>
-                                            @endif
                                         @endif
 
-                                        <button type="submit" class="btn btn-success w-100">
+                                        @if ($isBeforeBookingDateNow)
+                                            <div class="alert alert-danger small">
+                                                Khách đến trước ngày booking nên nút check-in trực tiếp đã bị khóa.
+                                                Hãy đổi ngày lưu trú ở khung phía trên rồi mới check-in.
+                                            </div>
+                                        @elseif ($lateShowIsPastStayTime)
+                                            <div class="alert alert-danger small">
+                                                Booking đã quá giờ trả phòng dự kiến nên không thể check-in booking cũ.
+                                                Hãy hủy/no-show và tạo booking mới nếu khách vẫn muốn ở.
+                                            </div>
+                                        @elseif ($lateShowIsCheckInTooLate)
+                                            <div class="alert alert-danger small">
+                                                Khách đã quá hạn giữ phòng
+                                                <strong>{{ $lateShowNoShowLimitAt?->format('d/m/Y H:i') }}</strong>.
+                                                Không phát sinh phụ thu check-in muộn; quá hạn thì hủy/no-show, không hoàn cọc.
+                                            </div>
+                                        @endif
+
+                                        <button type="submit" class="btn btn-success w-100" @disabled($disableCheckInSubmitNow)>
                                             <i class="bx bx-log-in-circle me-1"></i>
-                                            Xác nhận check-in
+                                            {{ $disableCheckInSubmitNow ? 'Không thể check-in trực tiếp' : 'Xác nhận check-in' }}
                                         </button>
                                     </form>
 
@@ -1337,14 +1449,14 @@
                                         </div>
                                     @endif
 
-                                    @if ($booking->check_in_at && $isAfterNoShowLimit && !$isFullPaidOrFullDeposit && !$isPastStayTime)
+                                    @if ($canCancelNoShowNow)
                                         <form action="{{ route('admin.bookings.cancel-late-arrival', $booking->id) }}" method="POST"
                                             class="mt-2"
-                                            onsubmit="return confirm('Xác nhận hủy no-show? Chỉ dùng khi đã sau 18:00, khách chưa đến hoặc không liên lạc được. Hệ thống sẽ giữ cọc nếu có và mở bán lại phòng.')">
+                                            onsubmit="return confirm('Xác nhận hủy/no-show? Chỉ dùng khi booking đã quá hạn giữ phòng. Hệ thống sẽ giữ cọc/tiền đã thu nếu có và mở bán lại phòng.')">
                                             @csrf
                                             @method('PATCH')
                                             <button type="submit" class="btn btn-outline-danger w-100">
-                                                Hủy no-show sau 18:00, giữ cọc và mở bán lại phòng
+                                                Hủy/no-show quá hạn giữ phòng, giữ cọc và mở bán lại phòng
                                             </button>
                                         </form>
                                     @endif
@@ -1567,6 +1679,19 @@
                                                             </td>
                                                         </tr>
                                                     @endif
+                                                    @if ($promotionDiscountTotal > 0)
+                                                        <tr>
+                                                            <td>
+                                                                Mã ưu đãi đã áp dụng
+                                                                <div class="small text-muted">
+                                                                    Giảm tiền: {{ number_format($promotionMoneyDiscountTotal, 0, ',', '.') }}đ · Dịch vụ: {{ number_format($promotionServiceDiscountTotal, 0, ',', '.') }}đ
+                                                                </div>
+                                                            </td>
+                                                            <td class="text-end fw-bold text-success">
+                                                                -{{ number_format($promotionDiscountTotal, 0, ',', '.') }}đ
+                                                            </td>
+                                                        </tr>
+                                                    @endif
                                                     <tr>
                                                         <td>Tiền cọc</td>
                                                         <td class="text-end fw-bold">
@@ -1628,6 +1753,353 @@
                             @endif
                         </div>
                     </section>
+
+                    <!-- Guest Registration Section -->
+                    <details class="compact-panel mb-3">
+                        <summary>
+                            <span>Khai báo khách lưu trú</span>
+                            <span class="badge-clean status-muted">
+                                {{ $booking->guests->count() }} khách · mở để khai báo
+                            </span>
+                        </summary>
+
+                        <div class="compact-panel-body">
+                            <p class="text-muted small mb-3">Khai báo danh sách người đi cùng trong booking này.</p>
+                            @if ($booking->guests->count() > 0)
+                                <div class="table-responsive mb-3">
+                                    <table class="table table-sm table-clean align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Họ và tên</th>
+                                                <th>CCCD/Passport</th>
+                                                <th>Ngày sinh</th>
+                                                <th>Giới tính</th>
+                                                <th>Quốc tịch</th>
+                                                <th class="text-end">Hành động</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($booking->guests as $guest)
+                                                <tr>
+                                                    <td class="fw-bold">{{ $guest->full_name }}</td>
+                                                    <td>{{ $guest->cccd ?: '---' }}</td>
+                                                    <td>{{ $guest->birthday ? $guest->birthday->format('d/m/Y') : '---' }}</td>
+                                                    <td>
+                                                        @if ($guest->gender == 'male') Nam
+                                                        @elseif ($guest->gender == 'female') Nữ
+                                                        @elseif ($guest->gender == 'other') Khác
+                                                        @else --- @endif
+                                                    </td>
+                                                    <td>{{ $guest->nationality ?: '---' }}</td>
+                                                    <td class="text-end">
+                                                        <form action="{{ route('admin.bookings.guests.destroy', [$booking->id, $guest->id]) }}" method="POST" class="d-inline-block" onsubmit="return confirm('Bạn có chắc chắn muốn xóa khách này khỏi danh sách?')">
+                                                            @csrf
+                                                            @method('DELETE')
+                                                            <button type="submit" class="btn btn-sm btn-outline-danger">Xóa</button>
+                                                        </form>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @endif
+
+                            <form action="{{ route('admin.bookings.guests.store', $booking->id) }}" method="POST">
+                                @csrf
+                                <div class="row g-2 mb-3">
+                                    <div class="col-md-3">
+                                        <label class="form-label small">Họ và tên <span class="text-danger">*</span></label>
+                                        <input type="text" name="full_name" class="form-control form-control-sm" required>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">CCCD/Passport</label>
+                                        <input type="text" name="cccd" class="form-control form-control-sm">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Ngày sinh</label>
+                                        <input type="date" name="birthday" class="form-control form-control-sm">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Giới tính</label>
+                                        <select name="gender" class="form-select form-select-sm">
+                                            <option value="">-- Chọn --</option>
+                                            <option value="male">Nam</option>
+                                            <option value="female">Nữ</option>
+                                            <option value="other">Khác</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Quốc tịch</label>
+                                        <input type="text" name="nationality" class="form-control form-control-sm">
+                                    </div>
+                                    <div class="col-md-1 d-flex align-items-end">
+                                        <button type="submit" class="btn btn-sm btn-primary w-100">+</button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </details>
+                    
+                    <details class="compact-panel mb-3">
+                        <summary>
+                            <span>Mã ưu đãi / hỗ trợ khách</span>
+                            <span class="badge-clean status-muted">
+                                {{ $booking->bookingPromotions->count() }} mã đã áp dụng · mở để xem/thêm
+                            </span>
+                        </summary>
+
+                        <div class="compact-panel-body">
+                            @php
+                                $promotionTypeDisplayConfig = [
+                                    'normal_discount' => [
+                                        'label' => 'Mã thường',
+                                        'badge' => 'bg-primary',
+                                        'hint' => 'Mã phổ thông, dùng cho giảm giá trực tiếp hoặc tặng/giảm dịch vụ cơ bản.',
+                                    ],
+                                    'event_discount' => [
+                                        'label' => 'Mã sự kiện',
+                                        'badge' => 'bg-success',
+                                        'hint' => 'Mã theo chiến dịch, mùa lễ, combo hoặc chương trình bán hàng.',
+                                    ],
+                                    'conditional_discount' => [
+                                        'label' => 'Mã điều kiện',
+                                        'badge' => 'bg-warning text-dark',
+                                        'hint' => 'Mã chỉ áp dụng khi booking đạt điều kiện như tổng tiền, số đêm, số phòng hoặc lịch sử khách.',
+                                    ],
+                                    'support_discount' => [
+                                        'label' => 'Mã hỗ trợ khách',
+                                        'badge' => 'bg-danger',
+                                        'hint' => 'Dùng cho nghiệp vụ hỗ trợ: khách đến sớm, phòng chưa sẵn sàng, cần đổi phòng/đổi hạng, khách chờ lâu hoặc có phát sinh bất tiện. Không tách riêng từng loại hỗ trợ.',
+                                    ],
+                                ];
+
+                                $availablePromotionGroups = collect($availablePromotions ?? collect())->groupBy('promotion_type');
+                            @endphp
+
+                            @if ($booking->bookingPromotions->count() > 0)
+                                <div class="table-responsive mb-3">
+                                    <table class="table table-sm table-clean align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Mã</th>
+                                                <th>Loại</th>
+                                                <th>Kênh</th>
+                                                <th>Người áp dụng</th>
+                                                <th class="text-end">Giảm tiền</th>
+                                                <th class="text-end">Ưu đãi DV</th>
+                                                <th class="text-end">Tổng</th>
+                                                <th>Ghi chú</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($booking->bookingPromotions as $bookingPromotion)
+                                                <tr>
+                                                    <td class="fw-bold">{{ $bookingPromotion->code_snapshot }}</td>
+                                                    <td>
+                                                        @php
+                                                            $appliedTypeConfig = $promotionTypeDisplayConfig[$bookingPromotion->promotion_type_snapshot] ?? [
+                                                                'label' => $bookingPromotion->type_label,
+                                                                'badge' => 'bg-secondary',
+                                                            ];
+                                                        @endphp
+                                                        <span class="badge {{ $appliedTypeConfig['badge'] }}">
+                                                            {{ $appliedTypeConfig['label'] }}
+                                                        </span>
+                                                    </td>
+                                                    <td>{{ $bookingPromotion->applied_channel == 'admin' ? 'Admin' : 'User' }}</td>
+                                                    <td>{{ $bookingPromotion->user->name ?? 'Khách/User' }}</td>
+                                                    <td class="text-end text-success fw-bold">
+                                                        -{{ number_format((float) ($bookingPromotion->money_discount_amount ?? $bookingPromotion->discount_amount), 0, ',', '.') }}đ
+                                                    </td>
+                                                    <td class="text-end text-success fw-bold">
+                                                        -{{ number_format((float) ($bookingPromotion->service_discount_amount ?? 0), 0, ',', '.') }}đ
+                                                    </td>
+                                                    <td class="text-end text-success fw-bold">
+                                                        -{{ number_format((float) $bookingPromotion->discount_amount, 0, ',', '.') }}đ
+                                                    </td>
+                                                    <td class="small text-muted">
+                                                        {{ $bookingPromotion->note ?: '---' }}
+                                                        @if ($bookingPromotion->serviceOffers->count() > 0)
+                                                            <div class="mt-1">
+                                                                @foreach ($bookingPromotion->serviceOffers as $offerSnapshot)
+                                                                    <span class="badge bg-success-subtle text-success border me-1">
+                                                                        {{ $offerSnapshot->service_name_snapshot }} x{{ $offerSnapshot->quantity }}: -{{ number_format((float) $offerSnapshot->discount_amount, 0, ',', '.') }}đ
+                                                                    </span>
+                                                                @endforeach
+                                                            </div>
+                                                        @endif
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @else
+                                <div class="soft-note mb-3">
+                                    Booking này chưa áp dụng mã ưu đãi nào.
+                                </div>
+                            @endif
+
+                            @if (in_array($booking->status, ['pending', 'confirmed', 'checked_in']) && $booking->payment_status != 'paid')
+                                @if (($availablePromotions ?? collect())->count() > 0)
+                                    <form action="{{ route('admin.bookings.promotions.store', $booking->id) }}"
+                                        method="POST"
+                                        data-booking-promotion-form>
+                                        @csrf
+
+                                        @foreach ($promotionTypeDisplayConfig as $promotionType => $typeConfig)
+                                            @php
+                                                $groupPromotions = $availablePromotionGroups->get($promotionType, collect());
+                                            @endphp
+
+                                            @if ($groupPromotions->count() > 0)
+                                                <div class="mb-3">
+                                                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                                        <div>
+                                                            <div class="fw-bold">
+                                                                {{ $typeConfig['label'] }}
+                                                                <span class="badge {{ $typeConfig['badge'] }} ms-1">
+                                                                    {{ $groupPromotions->count() }}
+                                                                </span>
+                                                            </div>
+                                                            <div class="promotion-meta">
+                                                                {{ $typeConfig['hint'] }}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="promotion-list">
+                                                        @foreach ($groupPromotions as $promotion)
+                                                            @php
+                                                                $promotionDiscountText = $promotion->discount_type == 'percent'
+                                                                    ? rtrim(rtrim(number_format((float) $promotion->discount_value, 2, ',', '.'), '0'), ',') . '%'
+                                                                    : number_format((float) $promotion->discount_value, 0, ',', '.') . 'đ';
+
+                                                                if ($promotion->discount_type == 'percent' && (float) $promotion->max_discount_amount > 0) {
+                                                                    $promotionDiscountText .= ' - tối đa ' . number_format((float) $promotion->max_discount_amount, 0, ',', '.') . 'đ';
+                                                                }
+                                                            @endphp
+
+                                                            <label class="promotion-card mb-0">
+                                                                <div class="form-check">
+                                                                    <input type="checkbox"
+                                                                        name="promotion_codes[]"
+                                                                        value="{{ $promotion->code }}"
+                                                                        class="form-check-input booking-promotion-check"
+                                                                        data-type="{{ $promotion->promotion_type }}"
+                                                                        data-requires-note="{{ $promotion->requires_note || $promotion->promotion_type == 'support_discount' ? 1 : 0 }}">
+
+                                                                    <div class="ms-1">
+                                                                        <div class="d-flex justify-content-between align-items-start gap-2">
+                                                                            <div>
+                                                                                <div class="promotion-code">{{ $promotion->code }}</div>
+                                                                                <div class="fw-semibold">{{ $promotion->name }}</div>
+                                                                            </div>
+                                                                            <span class="badge {{ $typeConfig['badge'] }}">{{ $typeConfig['label'] }}</span>
+                                                                        </div>
+                                                                        <div class="promotion-meta mt-1">
+                                                                            Giảm {{ $promotionDiscountText }}
+                                                                            @if ((float) $promotion->min_booking_amount > 0)
+                                                                                · Đơn từ {{ number_format((float) $promotion->min_booking_amount, 0, ',', '.') }}đ
+                                                                            @endif
+                                                                            @if ((int) $promotion->min_nights > 0)
+                                                                                · Từ {{ (int) $promotion->min_nights }} đêm
+                                                                            @endif
+                                                                            @if ((int) $promotion->min_rooms > 0)
+                                                                                · Từ {{ (int) $promotion->min_rooms }} phòng
+                                                                            @endif
+                                                                            @if ($promotion->requires_note || $promotion->promotion_type == 'support_discount')
+                                                                                · Cần nhập lý do
+                                                                            @endif
+                                                                        </div>
+
+                                                                        @if ($promotion->serviceOffers->count() > 0)
+                                                                            <div class="promotion-meta mt-1 text-success">
+                                                                                Dịch vụ ưu đãi:
+                                                                                {{ $promotion->serviceOffers->map(fn ($offer) => $offer->offer_label)->implode(' · ') }}
+                                                                            </div>
+                                                                        @endif
+                                                                    </div>
+                                                                </div>
+                                                            </label>
+                                                        @endforeach
+                                                    </div>
+                                                </div>
+                                            @endif
+                                        @endforeach
+
+                                        <div class="mb-3">
+                                            <label class="form-label small">
+                                                Lý do áp mã hỗ trợ / ghi chú lịch sử
+                                                <span class="text-danger" id="bookingPromotionNoteRequiredMark" style="display:none">*</span>
+                                            </label>
+                                            <textarea name="promotion_note" id="bookingPromotionNote" rows="3" class="form-control"
+                                                placeholder="Ví dụ: khách đến sớm, hạng phòng cũ chưa sẵn sàng nên hỗ trợ đổi hạng và tặng dịch vụ."></textarea>
+                                            <div class="promotion-meta mt-1">
+                                                Bắt buộc nếu chọn mã hỗ trợ khách hoặc mã có cấu hình yêu cầu lý do.
+                                            </div>
+                                        </div>
+
+                                        <button type="submit" class="btn btn-gold">
+                                            Áp dụng mã đã chọn
+                                        </button>
+                                    </form>
+
+                                    <script>
+                                        document.addEventListener('DOMContentLoaded', function () {
+                                            const promotionForm = document.querySelector('[data-booking-promotion-form]');
+                                            const noteInput = document.getElementById('bookingPromotionNote');
+                                            const requiredMark = document.getElementById('bookingPromotionNoteRequiredMark');
+                                            const checks = document.querySelectorAll('.booking-promotion-check');
+
+                                            function hasRequiredNotePromotion() {
+                                                return Array.from(checks).some(function (checkbox) {
+                                                    return checkbox.checked && checkbox.dataset.requiresNote === '1';
+                                                });
+                                            }
+
+                                            function refreshNoteRequiredState() {
+                                                const required = hasRequiredNotePromotion();
+
+                                                if (noteInput) {
+                                                    noteInput.required = required;
+                                                }
+
+                                                if (requiredMark) {
+                                                    requiredMark.style.display = required ? 'inline' : 'none';
+                                                }
+                                            }
+
+                                            checks.forEach(function (checkbox) {
+                                                checkbox.addEventListener('change', refreshNoteRequiredState);
+                                            });
+
+                                            if (promotionForm) {
+                                                promotionForm.addEventListener('submit', function (event) {
+                                                    if (hasRequiredNotePromotion() && noteInput && noteInput.value.trim() === '') {
+                                                        event.preventDefault();
+                                                        noteInput.focus();
+                                                        alert('Vui lòng nhập lý do khi áp mã hỗ trợ khách.');
+                                                    }
+                                                });
+                                            }
+
+                                            refreshNoteRequiredState();
+                                        });
+                                    </script>
+                                @else
+                                    <div class="soft-note mb-0">
+                                        Hiện không còn mã nào phù hợp để áp dụng thêm cho booking này.
+                                    </div>
+                                @endif
+                            @else
+                                <div class="soft-note mb-0">
+                                    Booking đã thanh toán đủ hoặc đã kết thúc nên không thể áp thêm mã.
+                                </div>
+                            @endif
+                        </div>
+                    </details>
 
                     @if ($canManageBookingRooms)
                         <details class="compact-panel">

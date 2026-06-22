@@ -4,6 +4,71 @@
 
 @section('content')
 
+    <style>
+        .promotion-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .promotion-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 14px;
+            background: #fff;
+            transition: 0.15s ease;
+        }
+
+        .promotion-card:hover {
+            border-color: #c7a14a;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        .promotion-code {
+            font-weight: 800;
+            letter-spacing: 0.03em;
+        }
+
+        .promotion-meta {
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .promotion-collapsible {
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            background: #f9fafb;
+            overflow: hidden;
+        }
+
+        .promotion-collapsible > summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            font-weight: 700;
+        }
+
+        .promotion-collapsible > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .promotion-collapsible .promotion-collapsible-body {
+            border-top: 1px solid #e5e7eb;
+            padding: 14px;
+            background: #ffffff;
+        }
+
+        .promotion-selected-hint {
+            font-size: 13px;
+            color: #6b7280;
+            font-weight: 500;
+        }
+
+    </style>
+
     <section class="page-header">
         <div class="container">
             <h1 class="display-6 fw-bold mb-1">
@@ -226,6 +291,124 @@
                             </div>
                         </div>
 
+                        <div class="card border-0 shadow-sm mb-4">
+                            <div class="card-body">
+
+                                <h2 class="h5 fw-bold mb-3">
+                                    Mã ưu đãi có thể áp dụng
+                                </h2>
+
+                                <p class="text-muted small mb-3">
+                                    Bạn có thể chọn nhiều mã nếu các mã cho phép dùng chung. Mã hỗ trợ chỉ do khách sạn áp dụng, không hiển thị tại đây.
+                                </p>
+
+                                @if (($availablePromotions ?? collect())->count() > 0)
+                                    <details class="promotion-collapsible" {{ !empty(old('promotion_codes', [])) ? 'open' : '' }}>
+                                        <summary>
+                                            <span>
+                                                Có {{ ($availablePromotions ?? collect())->count() }} mã phù hợp
+                                                <span class="promotion-selected-hint d-block" id="selectedPromotionCountText">
+                                                    Chưa chọn mã nào
+                                                </span>
+                                            </span>
+                                            <span class="badge text-bg-light border">Bấm để xem / chọn</span>
+                                        </summary>
+
+                                        <div class="promotion-collapsible-body">
+                                            <div class="promotion-list">
+                                                @foreach ($availablePromotions as $promotion)
+                                                    @php
+                                                        $promotionTypeLabel = match ($promotion->promotion_type) {
+                                                            'normal_discount' => 'Mã thường',
+                                                            'event_discount' => 'Mã sự kiện',
+                                                            'conditional_discount' => 'Mã điều kiện',
+                                                            default => 'Mã ưu đãi',
+                                                        };
+
+                                                        $promotionBadgeClass = match ($promotion->promotion_type) {
+                                                            'normal_discount' => 'bg-primary',
+                                                            'event_discount' => 'bg-success',
+                                                            'conditional_discount' => 'bg-warning text-dark',
+                                                            default => 'bg-secondary',
+                                                        };
+
+                                                        $promotionDiscountText = $promotion->discount_type == 'percent'
+                                                            ? rtrim(rtrim(number_format((float) $promotion->discount_value, 2, ',', '.'), '0'), ',') . '%'
+                                                            : number_format((float) $promotion->discount_value, 0, ',', '.') . 'đ';
+
+                                                        if ($promotion->discount_type == 'percent' && (float) $promotion->max_discount_amount > 0) {
+                                                            $promotionDiscountText .= ' - tối đa ' . number_format((float) $promotion->max_discount_amount, 0, ',', '.') . 'đ';
+                                                        }
+
+                                                        $promotionServiceOffersJson = $promotion->serviceOffers->map(function ($offer) {
+                                                            return [
+                                                                'service_id' => $offer->service_id,
+                                                                'service_name' => $offer->service->name ?? 'Dịch vụ',
+                                                                'service_unit' => $offer->service->unit ?? '',
+                                                                'service_price' => (float) ($offer->service->price ?? 0),
+                                                                'service_type' => $offer->service->type ?? 'service',
+                                                                'discount_type' => $offer->discount_type,
+                                                                'discount_value' => (float) $offer->discount_value,
+                                                                'quantity' => (int) $offer->quantity,
+                                                                'auto_add_service' => (bool) $offer->auto_add_service,
+                                                            ];
+                                                        })->values()->toArray();
+                                                    @endphp
+
+                                                    <label class="promotion-card mb-0">
+                                                        <div class="form-check">
+                                                            <input type="checkbox"
+                                                                name="promotion_codes[]"
+                                                                value="{{ $promotion->code }}"
+                                                                class="form-check-input promotion-check"
+                                                                data-code="{{ $promotion->code }}"
+                                                                data-discount-type="{{ $promotion->discount_type }}"
+                                                                data-discount-value="{{ (float) $promotion->discount_value }}"
+                                                                data-max-discount="{{ (float) $promotion->max_discount_amount }}"
+                                                                data-service-offers='@json($promotionServiceOffersJson)'
+                                                                @checked(in_array($promotion->code, old('promotion_codes', [])))>
+
+                                                            <div class="ms-1">
+                                                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                                                    <div>
+                                                                        <div class="promotion-code">{{ $promotion->code }}</div>
+                                                                        <div class="fw-semibold">{{ $promotion->name }}</div>
+                                                                    </div>
+                                                                    <span class="badge {{ $promotionBadgeClass }}">{{ $promotionTypeLabel }}</span>
+                                                                </div>
+
+                                                                <div class="promotion-meta mt-1">
+                                                                    Giảm {{ $promotionDiscountText }}
+                                                                    @if ((float) $promotion->min_booking_amount > 0)
+                                                                        · Đơn từ {{ number_format((float) $promotion->min_booking_amount, 0, ',', '.') }}đ
+                                                                    @endif
+                                                                    @if ((int) $promotion->min_nights > 0)
+                                                                        · Từ {{ (int) $promotion->min_nights }} đêm
+                                                                    @endif
+                                                                </div>
+
+                                                                @if ($promotion->serviceOffers->count() > 0)
+                                                                    <div class="promotion-meta mt-1 text-success">
+                                                                        Dịch vụ ưu đãi:
+                                                                        {{ $promotion->serviceOffers->map(fn ($offer) => $offer->offer_label)->implode(' · ') }}
+                                                                    </div>
+                                                                @endif
+                                                            </div>
+                                                        </div>
+                                                    </label>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    </details>
+                                @else
+                                    <div class="alert alert-light border mb-0">
+                                        Hiện chưa có mã ưu đãi phù hợp với đơn này.
+                                    </div>
+                                @endif
+
+                            </div>
+                        </div>
+
                         <div class="card border-0 shadow-sm">
                             <div class="card-body">
 
@@ -252,10 +435,8 @@
                                 </h2>
 
                                 <div class="alert alert-info small mb-3">
-                                    Hệ thống kiểm tra và giữ phòng theo giờ thật:
-                                    <strong>14:00</strong> ngày nhận phòng đến
-                                    <strong>12:00</strong> ngày trả phòng.
-                                    Khách có thể nhận từ <strong>13:00</strong> nếu phòng đã sẵn sàng.
+                                    Giờ nhận phòng <strong>12:00 - 14:00</strong> <br>
+                                    Giờ trả phòng <strong>12:00</strong>
                                 </div>
 
                                 <div class="mb-3">
@@ -328,6 +509,18 @@
                                     </div>
                                 </div>
 
+                                <div class="mb-3">
+                                    <div class="small text-muted">
+                                        Mã ưu đãi
+                                    </div>
+                                    <div class="fw-bold text-success" id="selectedPromotionDiscountText">
+                                        -0đ
+                                    </div>
+                                    <div class="small text-muted" id="selectedPromotionBreakdownText">
+                                        Chưa áp dụng ưu đãi.
+                                    </div>
+                                </div>
+
                                 <hr>
 
                                 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -341,9 +534,45 @@
                                     </span>
                                 </div>
 
+                                <div class="border rounded-3 p-3 mb-3 bg-light">
+                                    <div class="fw-bold mb-2">
+                                        Chọn hình thức thanh toán
+                                    </div>
+
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="radio" name="payment_type"
+                                            id="paymentDeposit30" value="deposit_30" checked>
+                                        <label class="form-check-label" for="paymentDeposit30">
+                                            Cọc 30%
+                                            <strong id="depositAmountPreview">
+                                                {{ number_format(round($estimatedTotal * 0.3), 0, ',', '.') }}đ
+                                            </strong>
+                                        </label>
+                                    </div>
+
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="payment_type" id="paymentFull100"
+                                            value="full_100">
+                                        <label class="form-check-label" for="paymentFull100">
+                                            Thanh toán 100%
+                                            <strong id="fullAmountPreview">
+                                                {{ number_format($estimatedTotal, 0, ',', '.') }}đ
+                                            </strong>
+                                        </label>
+                                    </div>
+
+                                    @error('payment_type')
+                                        <div class="text-danger small mt-2">{{ $message }}</div>
+                                    @enderror
+
+                                    <div class="small text-muted mt-2">
+                                        Chính sách: đã cọc hoặc đã thanh toán thì khi hủy booking sẽ không hoàn tiền.
+                                    </div>
+                                </div>
+
                                 <button type="submit" class="btn btn-primary w-100 py-2">
                                     <i class="bx bx-check-circle me-1"></i>
-                                    Xác nhận đặt phòng
+                                    Thanh toán
                                 </button>
 
                                 <a href="{{ route('rooms', [
@@ -386,7 +615,12 @@
             const selectedServiceInputs = document.getElementById('selectedServiceInputs');
 
             const selectedServiceTotalText = document.getElementById('selectedServiceTotalText');
+            const selectedPromotionDiscountText = document.getElementById('selectedPromotionDiscountText');
+            const selectedPromotionBreakdownText = document.getElementById('selectedPromotionBreakdownText');
             const finalEstimatedTotalText = document.getElementById('finalEstimatedTotalText');
+            const depositAmountPreview = document.getElementById('depositAmountPreview');
+            const promotionChecks = document.querySelectorAll('.promotion-check');
+            const fullAmountPreview = document.getElementById('fullAmountPreview');
 
             const selectedServices = new Map();
 
@@ -410,6 +644,99 @@
                 return parseFloat(finalEstimatedTotalText.dataset.roomTotal || 0);
             }
 
+            function getSelectedServiceQuantity(serviceId) {
+                const key = String(serviceId);
+                return selectedServices.has(key)
+                    ? Math.max(0, parseInt(selectedServices.get(key).quantity || 0))
+                    : 0;
+            }
+
+            function parseServiceOffers(checkbox) {
+                try {
+                    return JSON.parse(checkbox.dataset.serviceOffers || '[]');
+                } catch (error) {
+                    return [];
+                }
+            }
+
+            function calculatePromotionTotals(roomTotal, serviceTotal) {
+                let autoServiceTotal = 0;
+                let serviceDiscount = 0;
+                const autoServiceNames = [];
+
+                promotionChecks.forEach(function (checkbox) {
+                    if (!checkbox.checked) {
+                        return;
+                    }
+
+                    parseServiceOffers(checkbox).forEach(function (offer) {
+                        const price = parseFloat(offer.service_price || 0);
+                        const offerQuantity = Math.max(1, parseInt(offer.quantity || 1));
+                        let applicableQuantity = Math.min(offerQuantity, getSelectedServiceQuantity(offer.service_id));
+                        const missingQuantity = Math.max(0, offerQuantity - applicableQuantity);
+
+                        if (missingQuantity > 0 && offer.auto_add_service) {
+                            autoServiceTotal += price * missingQuantity;
+                            applicableQuantity += missingQuantity;
+                            autoServiceNames.push((offer.service_name || 'Dịch vụ') + ' x' + missingQuantity);
+                        }
+
+                        if (applicableQuantity <= 0 || price <= 0) {
+                            return;
+                        }
+
+                        const originalAmount = price * applicableQuantity;
+                        let discountAmount = 0;
+
+                        if (offer.discount_type === 'percent') {
+                            discountAmount = Math.round(originalAmount * parseFloat(offer.discount_value || 0) / 100);
+                        } else {
+                            discountAmount = parseFloat(offer.discount_value || 0) * applicableQuantity;
+                        }
+
+                        serviceDiscount += Math.min(Math.max(0, discountAmount), originalAmount);
+                    });
+                });
+
+                const subtotal = roomTotal + serviceTotal + autoServiceTotal;
+                let moneyDiscount = 0;
+
+                promotionChecks.forEach(function (checkbox) {
+                    if (!checkbox.checked) {
+                        return;
+                    }
+
+                    const discountType = checkbox.dataset.discountType;
+                    const discountValue = parseFloat(checkbox.dataset.discountValue || 0);
+                    const maxDiscount = parseFloat(checkbox.dataset.maxDiscount || 0);
+                    let amount = 0;
+
+                    if (discountType === 'percent') {
+                        amount = Math.round(subtotal * discountValue / 100);
+
+                        if (maxDiscount > 0) {
+                            amount = Math.min(amount, maxDiscount);
+                        }
+                    } else {
+                        amount = discountValue;
+                    }
+
+                    moneyDiscount += Math.max(0, amount);
+                });
+
+                const totalDiscount = Math.min(subtotal, moneyDiscount + serviceDiscount);
+
+                return {
+                    subtotal: subtotal,
+                    autoServiceTotal: autoServiceTotal,
+                    autoServiceNames: autoServiceNames,
+                    moneyDiscount: Math.min(moneyDiscount, subtotal),
+                    serviceDiscount: Math.min(serviceDiscount, subtotal),
+                    totalDiscount: totalDiscount,
+                    finalTotal: Math.max(0, subtotal - totalDiscount),
+                };
+            }
+
             function renderSelectedServices() {
                 if (!selectedServiceTableBody || !selectedServiceInputs) {
                     return;
@@ -428,37 +755,37 @@
                     const row = document.createElement('tr');
 
                     row.innerHTML = `
-                                        <td class="fw-bold">${service.name}</td>
-                                        <td>
-                                            <span class="badge ${service.type === 'minibar' ? 'bg-warning text-dark' : 'bg-primary'}">
-                                                ${getTypeLabel(service.type)}
-                                            </span>
-                                        </td>
-                                        <td>${formatMoney(service.price)} / ${service.unit}</td>
-                                        <td>
-                                            <input type="number" class="form-control form-control-sm selected-service-quantity"
-                                                value="${service.quantity}" min="1" data-service-id="${serviceId}">
-                                        </td>
-                                        <td class="fw-bold text-danger">${formatMoney(total)}</td>
-                                        <td>
-                                            <input type="text" class="form-control form-control-sm selected-service-note"
-                                                value="${service.note}" data-service-id="${serviceId}" placeholder="Ghi chú">
-                                        </td>
-                                        <td class="text-end">
-                                            <button type="button" class="btn btn-sm btn-outline-danger remove-service-button"
-                                                data-service-id="${serviceId}">
-                                                Xóa
-                                            </button>
-                                        </td>
-                                    `;
+                                                    <td class="fw-bold">${service.name}</td>
+                                                    <td>
+                                                        <span class="badge ${service.type === 'minibar' ? 'bg-warning text-dark' : 'bg-primary'}">
+                                                            ${getTypeLabel(service.type)}
+                                                        </span>
+                                                    </td>
+                                                    <td>${formatMoney(service.price)} / ${service.unit}</td>
+                                                    <td>
+                                                        <input type="number" class="form-control form-control-sm selected-service-quantity"
+                                                            value="${service.quantity}" min="1" data-service-id="${serviceId}">
+                                                    </td>
+                                                    <td class="fw-bold text-danger">${formatMoney(total)}</td>
+                                                    <td>
+                                                        <input type="text" class="form-control form-control-sm selected-service-note"
+                                                            value="${service.note}" data-service-id="${serviceId}" placeholder="Ghi chú">
+                                                    </td>
+                                                    <td class="text-end">
+                                                        <button type="button" class="btn btn-sm btn-outline-danger remove-service-button"
+                                                            data-service-id="${serviceId}">
+                                                            Xóa
+                                                        </button>
+                                                    </td>
+                                                `;
 
                     selectedServiceTableBody.appendChild(row);
 
                     selectedServiceInputs.insertAdjacentHTML('beforeend', `
-                                        <input type="hidden" name="services[${index}][service_id]" value="${serviceId}">
-                                        <input type="hidden" name="services[${index}][quantity]" value="${service.quantity}">
-                                        <input type="hidden" name="services[${index}][note]" value="${service.note}">
-                                    `);
+                                                    <input type="hidden" name="services[${index}][service_id]" value="${serviceId}">
+                                                    <input type="hidden" name="services[${index}][quantity]" value="${service.quantity}">
+                                                    <input type="hidden" name="services[${index}][note]" value="${service.note}">
+                                                `);
 
                     index++;
                 });
@@ -478,7 +805,42 @@
                 }
 
                 if (finalEstimatedTotalText) {
-                    finalEstimatedTotalText.innerText = formatMoney(getRoomTotal() + serviceTotal);
+                    const totals = calculatePromotionTotals(getRoomTotal(), serviceTotal);
+                    const finalTotal = totals.finalTotal;
+
+                    if (selectedPromotionDiscountText) {
+                        selectedPromotionDiscountText.innerText = '-' + formatMoney(totals.totalDiscount);
+                    }
+
+                    if (selectedPromotionBreakdownText) {
+                        const parts = [];
+
+                        if (totals.moneyDiscount > 0) {
+                            parts.push('Giảm tiền ' + formatMoney(totals.moneyDiscount));
+                        }
+
+                        if (totals.serviceDiscount > 0) {
+                            parts.push('Ưu đãi dịch vụ ' + formatMoney(totals.serviceDiscount));
+                        }
+
+                        if (totals.autoServiceTotal > 0) {
+                            parts.push('Tự thêm ' + totals.autoServiceNames.join(', '));
+                        }
+
+                        selectedPromotionBreakdownText.innerText = parts.length > 0
+                            ? parts.join(' · ')
+                            : 'Chưa áp dụng ưu đãi.';
+                    }
+
+                    finalEstimatedTotalText.innerText = formatMoney(finalTotal);
+
+                    if (depositAmountPreview) {
+                        depositAmountPreview.innerText = formatMoney(Math.round(finalTotal * 0.3));
+                    }
+
+                    if (fullAmountPreview) {
+                        fullAmountPreview.innerText = formatMoney(finalTotal);
+                    }
                 }
             }
 
@@ -531,6 +893,10 @@
                 renderSelectedServices();
             }
 
+            promotionChecks.forEach(function (checkbox) {
+                checkbox.addEventListener('change', renderSelectedServices);
+            });
+
             if (addServiceButton) {
                 addServiceButton.addEventListener('click', addSelectedService);
             }
@@ -574,6 +940,29 @@
             }
 
             renderSelectedServices();
+
+
+            function updateSelectedPromotionCountText() {
+                const text = document.getElementById('selectedPromotionCountText');
+                if (!text) {
+                    return;
+                }
+
+                const selected = Array.from(document.querySelectorAll('.promotion-check:checked'))
+                    .map(function (checkbox) {
+                        return checkbox.dataset.code || checkbox.value;
+                    });
+
+                text.innerText = selected.length > 0
+                    ? 'Đang chọn: ' + selected.join(', ')
+                    : 'Chưa chọn mã nào';
+            }
+
+            updateSelectedPromotionCountText();
+            document.querySelectorAll('.promotion-check').forEach(function (checkbox) {
+                checkbox.addEventListener('change', updateSelectedPromotionCountText);
+            });
+
         });
     </script>
 

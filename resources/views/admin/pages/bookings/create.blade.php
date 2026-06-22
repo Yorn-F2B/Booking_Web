@@ -61,6 +61,89 @@
             gap: 10px;
         }
 
+
+        .promotion-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .promotion-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 12px;
+            background: #ffffff;
+            transition: 0.15s ease;
+        }
+
+        .promotion-card:hover {
+            border-color: #d4af37;
+            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+        }
+
+        .promotion-card .form-check-input {
+            margin-top: 4px;
+        }
+
+        .promotion-code {
+            font-weight: 800;
+            letter-spacing: 0.03em;
+            color: #111827;
+        }
+
+        .promotion-meta {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .promotion-total-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+
+        .promotion-total-row strong {
+            font-size: 16px;
+        }
+
+        .promotion-collapsible {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            background: #f8fafc;
+            overflow: hidden;
+        }
+
+        .promotion-collapsible > summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 13px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            font-weight: 800;
+        }
+
+        .promotion-collapsible > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .promotion-collapsible-body {
+            border-top: 1px solid #e5e7eb;
+            padding: 14px;
+            background: #fff;
+        }
+
+        .promotion-selected-hint {
+            display: block;
+            margin-top: 2px;
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+
         @media (max-width: 767px) {
             .hourly-preview-grid {
                 grid-template-columns: 1fr;
@@ -581,6 +664,192 @@
                             </div>
 
                         </div>
+
+                        <div class="booking-form-card">
+
+                            <h5>Mã ưu đãi</h5>
+
+                            <p class="booking-help-text">
+                                Hệ thống có 4 loại mã: mã thường, mã sự kiện, mã điều kiện và mã hỗ trợ khách.
+                                Trường hợp khách đến sớm, hạng phòng cũ chưa sẵn sàng, cần đổi phòng/đổi hạng kèm ưu đãi
+                                thì chọn mã thuộc loại <strong>mã hỗ trợ khách</strong>, không tạo thêm loại riêng.
+                            </p>
+
+                            @php
+                                $promotionTypeDisplayConfig = [
+                                    'normal_discount' => [
+                                        'label' => 'Mã thường',
+                                        'badge' => 'bg-primary',
+                                        'hint' => 'Mã phổ thông dùng cho giảm tiền hoặc tặng/giảm dịch vụ cơ bản.',
+                                    ],
+                                    'event_discount' => [
+                                        'label' => 'Mã sự kiện',
+                                        'badge' => 'bg-success',
+                                        'hint' => 'Mã theo chiến dịch, mùa lễ, combo hoặc chương trình bán hàng.',
+                                    ],
+                                    'conditional_discount' => [
+                                        'label' => 'Mã điều kiện',
+                                        'badge' => 'bg-warning text-dark',
+                                        'hint' => 'Mã chỉ áp dụng khi booking đạt điều kiện về tổng tiền, số đêm, số phòng hoặc lịch sử khách.',
+                                    ],
+                                    'support_discount' => [
+                                        'label' => 'Mã hỗ trợ khách',
+                                        'badge' => 'bg-danger',
+                                        'hint' => 'Dùng cho nghiệp vụ hỗ trợ như khách đến sớm, phòng chưa sẵn sàng, đổi phòng/đổi hạng, khách chờ lâu hoặc phát sinh bất tiện.',
+                                    ],
+                                ];
+
+                                $availablePromotionGroups = collect($availablePromotions ?? collect())->groupBy('promotion_type');
+                            @endphp
+
+                            @if (($availablePromotions ?? collect())->count() > 0)
+                                <details class="promotion-collapsible" {{ !empty(old('promotion_codes', [])) ? 'open' : '' }}>
+                                    <summary>
+                                        <span>
+                                            Có {{ ($availablePromotions ?? collect())->count() }} mã có thể áp dụng
+                                            <span class="promotion-selected-hint" id="adminSelectedPromotionCountText">
+                                                Chưa chọn mã nào
+                                            </span>
+                                        </span>
+                                        <span class="badge bg-light text-dark border">Bấm để xem / chọn</span>
+                                    </summary>
+
+                                    <div class="promotion-collapsible-body">
+                                        @foreach ($promotionTypeDisplayConfig as $promotionType => $typeConfig)
+                                            @php
+                                                $groupPromotions = $availablePromotionGroups->get($promotionType, collect());
+                                            @endphp
+
+                                            @if ($groupPromotions->count() > 0)
+                                                <div class="mb-3">
+                                                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                                        <div>
+                                                            <div class="fw-bold">
+                                                                {{ $typeConfig['label'] }}
+                                                                <span class="badge {{ $typeConfig['badge'] }} ms-1">
+                                                                    {{ $groupPromotions->count() }}
+                                                                </span>
+                                                            </div>
+                                                            <div class="promotion-meta">
+                                                                {{ $typeConfig['hint'] }}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="promotion-list">
+                                                        @foreach ($groupPromotions as $promotion)
+                                                            @php
+                                                                $promotionDiscountText = $promotion->discount_type == 'percent'
+                                                                    ? rtrim(rtrim(number_format((float) $promotion->discount_value, 2, ',', '.'), '0'), ',') . '%'
+                                                                    : number_format((float) $promotion->discount_value, 0, ',', '.') . 'đ';
+
+                                                                if ($promotion->discount_type == 'percent' && (float) $promotion->max_discount_amount > 0) {
+                                                                    $promotionDiscountText .= ' - tối đa ' . number_format((float) $promotion->max_discount_amount, 0, ',', '.') . 'đ';
+                                                                }
+                                                            @endphp
+
+                                                            <label class="promotion-card mb-0">
+                                                                <div class="form-check">
+                                                                    <input type="checkbox"
+                                                                        name="promotion_codes[]"
+                                                                        value="{{ $promotion->code }}"
+                                                                        class="form-check-input promotion-check"
+                                                                        data-code="{{ $promotion->code }}"
+                                                                        data-type="{{ $promotion->promotion_type }}"
+                                                                        data-requires-note="{{ $promotion->requires_note || $promotion->promotion_type == 'support_discount' ? 1 : 0 }}"
+                                                                        data-discount-type="{{ $promotion->discount_type }}"
+                                                                        data-discount-value="{{ (float) $promotion->discount_value }}"
+                                                                        data-max-discount="{{ (float) $promotion->max_discount_amount }}"
+                                                                        data-service-offers='@json($promotion->serviceOffers->map(function ($offer) {
+                                                                            return [
+                                                                                'service_id' => $offer->service_id,
+                                                                                'service_name' => $offer->service->name ?? 'Dịch vụ',
+                                                                                'service_unit' => $offer->service->unit ?? '',
+                                                                                'service_price' => (float) ($offer->service->price ?? 0),
+                                                                                'service_type' => $offer->service->type ?? 'service',
+                                                                                'discount_type' => $offer->discount_type,
+                                                                                'discount_value' => (float) $offer->discount_value,
+                                                                                'quantity' => (int) $offer->quantity,
+                                                                                'auto_add_service' => (bool) $offer->auto_add_service,
+                                                                            ];
+                                                                        })->values())'
+                                                                        @checked(in_array($promotion->code, old('promotion_codes', [])))>
+
+                                                                    <div class="ms-1">
+                                                                        <div class="d-flex justify-content-between align-items-start gap-2">
+                                                                            <div>
+                                                                                <div class="promotion-code">{{ $promotion->code }}</div>
+                                                                                <div class="fw-semibold">{{ $promotion->name }}</div>
+                                                                            </div>
+                                                                            <span class="badge {{ $typeConfig['badge'] }}">{{ $typeConfig['label'] }}</span>
+                                                                        </div>
+
+                                                                        <div class="promotion-meta mt-1">
+                                                                            Giảm {{ $promotionDiscountText }}
+                                                                            @if ((float) $promotion->min_booking_amount > 0)
+                                                                                · Đơn từ {{ number_format((float) $promotion->min_booking_amount, 0, ',', '.') }}đ
+                                                                            @endif
+                                                                            @if ((int) $promotion->min_nights > 0)
+                                                                                · Từ {{ (int) $promotion->min_nights }} đêm
+                                                                            @endif
+                                                                            @if ((int) $promotion->min_rooms > 0)
+                                                                                · Từ {{ (int) $promotion->min_rooms }} phòng
+                                                                            @endif
+                                                                            @if ($promotion->requires_note || $promotion->promotion_type == 'support_discount')
+                                                                                · Cần nhập lý do
+                                                                            @endif
+                                                                        </div>
+
+                                                                        @if ($promotion->serviceOffers->count() > 0)
+                                                                            <div class="promotion-meta mt-1 text-success">
+                                                                                Dịch vụ ưu đãi:
+                                                                                {{ $promotion->serviceOffers->map(fn ($offer) => $offer->offer_label)->implode(' · ') }}
+                                                                            </div>
+                                                                        @endif
+                                                                    </div>
+                                                                </div>
+                                                            </label>
+                                                        @endforeach
+                                                    </div>
+                                                </div>
+                                            @endif
+                                        @endforeach
+
+                                        <div class="mt-3">
+                                            <label class="form-label">
+                                                Lý do hỗ trợ nếu chọn mã hỗ trợ khách
+                                                <span class="text-danger" id="promotionNoteRequiredMark" style="display:none">*</span>
+                                            </label>
+                                            <textarea name="promotion_note" id="promotionNote" rows="3" class="form-control"
+                                                placeholder="Ví dụ: khách đến sớm nhưng hạng phòng chưa sẵn, hỗ trợ đổi hạng và tặng dịch vụ.">{{ old('promotion_note') }}</textarea>
+                                            <div class="booking-help-text mt-1">
+                                                Bắt buộc khi chọn mã hỗ trợ khách hoặc mã được cấu hình yêu cầu lý do.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <div class="booking-total-box mt-3">
+                                    <div class="promotion-total-row">
+                                        <span>Tổng trước giảm</span>
+                                        <strong id="promotionSubtotalText">0đ</strong>
+                                    </div>
+                                    <div class="promotion-total-row text-success">
+                                        <span>Ưu đãi</span>
+                                        <strong id="promotionDiscountText">-0đ</strong>
+                                    </div>
+                                    <div class="promotion-total-row text-danger">
+                                        <span>Sau ưu đãi</span>
+                                        <strong id="promotionFinalText">0đ</strong>
+                                    </div>
+                                </div>
+                            @else
+                                <div class="alert alert-light border mb-0">
+                                    Chưa có mã ưu đãi đang hoạt động.
+                                </div>
+                            @endif
+
+                        </div>
                         <div class="booking-form-card">
 
                             <h5>Tóm tắt xử lý</h5>
@@ -655,6 +924,11 @@
 
             const serviceRows = document.querySelectorAll('.service-row');
             const serviceTotalText = document.getElementById('serviceTotalText');
+
+            const promotionChecks = document.querySelectorAll('.promotion-check');
+            const promotionSubtotalText = document.getElementById('promotionSubtotalText');
+            const promotionDiscountText = document.getElementById('promotionDiscountText');
+            const promotionFinalText = document.getElementById('promotionFinalText');
 
             const hourlyPreviewWrapper = document.getElementById('hourlyPreviewWrapper');
             const hourlyPreviewBox = document.getElementById('hourlyPreviewBox');
@@ -761,6 +1035,117 @@
                 }
 
                 return total;
+            }
+
+            function getSelectedServiceQuantity(serviceId) {
+                let quantity = 0;
+
+                serviceRows.forEach(function (row) {
+                    const checkbox = row.querySelector('.service-check');
+                    const quantityInput = row.querySelector('.service-quantity');
+
+                    if (!checkbox || !quantityInput || !checkbox.checked) {
+                        return;
+                    }
+
+                    if (String(checkbox.value) === String(serviceId)) {
+                        quantity += Math.max(1, parseInt(quantityInput.value || 1));
+                    }
+                });
+
+                return quantity;
+            }
+
+            function parseServiceOffers(checkbox) {
+                try {
+                    return JSON.parse(checkbox.dataset.serviceOffers || '[]');
+                } catch (error) {
+                    return [];
+                }
+            }
+
+            function calculatePromotionTotals(roomTotal, serviceTotal) {
+                let autoServiceTotal = 0;
+                let serviceDiscount = 0;
+
+                promotionChecks.forEach(function (checkbox) {
+                    if (!checkbox.checked) {
+                        return;
+                    }
+
+                    parseServiceOffers(checkbox).forEach(function (offer) {
+                        const price = parseFloat(offer.service_price || 0);
+                        const offerQuantity = Math.max(1, parseInt(offer.quantity || 1));
+                        let applicableQuantity = Math.min(offerQuantity, getSelectedServiceQuantity(offer.service_id));
+                        const missingQuantity = Math.max(0, offerQuantity - applicableQuantity);
+
+                        if (missingQuantity > 0 && offer.auto_add_service) {
+                            autoServiceTotal += price * missingQuantity;
+                            applicableQuantity += missingQuantity;
+                        }
+
+                        if (applicableQuantity <= 0 || price <= 0) {
+                            return;
+                        }
+
+                        const originalAmount = price * applicableQuantity;
+                        let discountAmount = 0;
+
+                        if (offer.discount_type === 'percent') {
+                            discountAmount = Math.round(originalAmount * parseFloat(offer.discount_value || 0) / 100);
+                        } else {
+                            discountAmount = parseFloat(offer.discount_value || 0) * applicableQuantity;
+                        }
+
+                        serviceDiscount += Math.min(Math.max(0, discountAmount), originalAmount);
+                    });
+                });
+
+                const subtotal = roomTotal + serviceTotal + autoServiceTotal;
+                let moneyDiscount = 0;
+
+                promotionChecks.forEach(function (checkbox) {
+                    if (!checkbox.checked) {
+                        return;
+                    }
+
+                    const discountType = checkbox.dataset.discountType;
+                    const discountValue = parseFloat(checkbox.dataset.discountValue || 0);
+                    const maxDiscount = parseFloat(checkbox.dataset.maxDiscount || 0);
+                    let amount = 0;
+
+                    if (discountType === 'percent') {
+                        amount = Math.round(subtotal * discountValue / 100);
+
+                        if (maxDiscount > 0) {
+                            amount = Math.min(amount, maxDiscount);
+                        }
+                    } else {
+                        amount = discountValue;
+                    }
+
+                    moneyDiscount += Math.max(0, amount);
+                });
+
+                const totalDiscount = Math.min(subtotal, moneyDiscount + serviceDiscount);
+
+                if (promotionSubtotalText) {
+                    promotionSubtotalText.innerText = formatMoney(subtotal);
+                }
+
+                if (promotionDiscountText) {
+                    promotionDiscountText.innerText = '-' + formatMoney(totalDiscount);
+                }
+
+                if (promotionFinalText) {
+                    promotionFinalText.innerText = formatMoney(Math.max(0, subtotal - totalDiscount));
+                }
+
+                return {
+                    subtotal: subtotal,
+                    totalDiscount: totalDiscount,
+                    finalTotal: Math.max(0, subtotal - totalDiscount),
+                };
             }
 
             function calculateNightCount() {
@@ -1342,7 +1727,9 @@
                     }
                 }
 
-                const total = roomTotal + serviceTotal;
+                const promotionTotals = calculatePromotionTotals(roomTotal, serviceTotal);
+                const total = promotionTotals.finalTotal;
+
                 estimatedTotalText.innerText = formatMoney(total);
 
                 if (roomTotal <= 0 && serviceTotal > 0) {
@@ -1429,6 +1816,69 @@
             }
 
             refreshBookingForm();
+
+
+            function updateAdminSelectedPromotionCountText() {
+                const text = document.getElementById('adminSelectedPromotionCountText');
+                if (!text) {
+                    return;
+                }
+
+                const selected = Array.from(document.querySelectorAll('.promotion-check:checked'))
+                    .map(function (checkbox) {
+                        return checkbox.dataset.code || checkbox.value;
+                    });
+
+                text.innerText = selected.length > 0
+                    ? 'Đang chọn: ' + selected.join(', ')
+                    : 'Chưa chọn mã nào';
+            }
+
+            function hasRequiredNotePromotion() {
+                return Array.from(document.querySelectorAll('.promotion-check:checked')).some(function (checkbox) {
+                    return checkbox.dataset.requiresNote === '1';
+                });
+            }
+
+            function updatePromotionNoteRequirement() {
+                const noteInput = document.getElementById('promotionNote');
+                const requiredMark = document.getElementById('promotionNoteRequiredMark');
+                const required = hasRequiredNotePromotion();
+
+                if (noteInput) {
+                    noteInput.required = required;
+                }
+
+                if (requiredMark) {
+                    requiredMark.style.display = required ? 'inline' : 'none';
+                }
+            }
+
+            const bookingForm = document.querySelector('form');
+
+            if (bookingForm) {
+                bookingForm.addEventListener('submit', function (event) {
+                    const noteInput = document.getElementById('promotionNote');
+
+                    if (hasRequiredNotePromotion() && noteInput && noteInput.value.trim() === '') {
+                        event.preventDefault();
+                        noteInput.focus();
+                        alert('Vui lòng nhập lý do khi chọn mã hỗ trợ khách.');
+                    }
+                });
+            }
+
+            updateAdminSelectedPromotionCountText();
+            updatePromotionNoteRequirement();
+
+            promotionChecks.forEach(function (checkbox) {
+                checkbox.addEventListener('change', function () {
+                    updateAdminSelectedPromotionCountText();
+                    updatePromotionNoteRequirement();
+                    refreshBookingForm();
+                });
+            });
+
         });
     </script>
 
