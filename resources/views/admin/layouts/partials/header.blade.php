@@ -55,6 +55,12 @@
                 Dịch vụ
             </a>
 
+            <a href="{{ route('admin.promotions.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.promotions.*') ? 'active' : '' }}">
+                <i class="bx bx-purchase-tag"></i>
+                Mã khuyến mãi
+            </a>
+
             <a href="{{ route('amenities.index') }}"
                 class="admin-nav-link {{ request()->routeIs('amenities.*') ? 'active' : '' }}">
                 <i class="bx bx-star"></i>
@@ -73,6 +79,14 @@
                 class="admin-nav-link {{ request()->routeIs('admin.bookings.*') ? 'active' : '' }}">
                 <i class="bx bx-calendar-check"></i>
                 Đặt phòng
+            </a>
+        @endif
+
+        @if ($isSuperAdmin || $isManager || $isReceptionist)
+            <a href="{{ route('admin.chats.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.chats.*') ? 'active' : '' }}">
+                <i class="bx bx-message-rounded-dots"></i>
+                Tin nhắn khách hàng
             </a>
         @endif
 

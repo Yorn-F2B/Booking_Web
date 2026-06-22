@@ -14,11 +14,13 @@ Route::middleware('role:super_admin,manager')->group(function () {
     require __DIR__ . '/admin/room-categories.php';
     require __DIR__ . '/admin/rooms.php';
     require __DIR__ . '/admin/services.php';
+    require __DIR__ . '/admin/promotions.php';
     require __DIR__ . '/admin/amenities.php';
 });
 
 Route::middleware('role:super_admin,manager,receptionist')->group(function () {
     require __DIR__ . '/admin/bookings.php';
+    require __DIR__ . '/admin/chats.php';
 });
 
 Route::middleware('role:super_admin,manager,housekeeping')->group(function () {

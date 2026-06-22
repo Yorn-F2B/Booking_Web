@@ -11,6 +11,8 @@ use App\Models\BookingLog;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Service;
 use App\Models\BookingServiceItem;
+use App\Models\Promotion;
+use App\Services\PromotionService;
 use Carbon\Carbon;
 
 class BookingController extends Controller
@@ -81,6 +83,9 @@ class BookingController extends Controller
             'bookingRooms.room',
             'roomInspections.items',
             'serviceItems.service',
+            'bookingPromotions.user',
+            'bookingPromotions.serviceOffers',
+            'promotionServiceOffers',
             'logs.user',
         ]);
 
@@ -126,6 +131,31 @@ class BookingController extends Controller
             ->orderBy('name')
             ->get();
 
+        $nightCount = max(
+            1,
+            Carbon::parse($booking->check_in_date, 'Asia/Ho_Chi_Minh')
+                ->diffInDays(Carbon::parse($booking->check_out_date, 'Asia/Ho_Chi_Minh'))
+        );
+
+        $promotionSubtotal = (float) ($booking->subtotal_amount ?? 0);
+
+        if ($promotionSubtotal <= 0) {
+            $promotionSubtotal = (float) $booking->estimated_total + (float) ($booking->discount_amount ?? 0);
+        }
+
+        $availablePromotions = app(PromotionService::class)->availablePromotions([
+            'customer_id' => $booking->customer_id,
+            'subtotal_amount' => $promotionSubtotal,
+            'check_in_at' => $booking->check_in_at,
+            'check_out_at' => $booking->check_out_at,
+            'night_count' => $nightCount,
+            'room_quantity' => $booking->room_quantity,
+        ], 'admin')->reject(function ($promotion) use ($booking) {
+            return $booking->bookingPromotions
+                ->pluck('code_snapshot')
+                ->contains($promotion->code);
+        })->values();
+
         return view('admin.pages.bookings.show', compact(
             'booking',
             'availableRooms',
@@ -137,7 +167,196 @@ class BookingController extends Controller
             'availableServices',
             'approvedInspectionTotal',
             'approvedMinibarTotal',
+            'availablePromotions',
         ));
+    }
+
+    public function applyPromotions(Request $request, Booking $booking)
+    {
+        if (!in_array($booking->status, ['pending', 'confirmed', 'checked_in'])) {
+            return back()->with('error', 'Chỉ có thể thêm mã cho booking đang chờ, đã xác nhận hoặc đang ở.');
+        }
+
+        if ($booking->payment_status === 'paid') {
+            return back()->with('error', 'Booking đã thanh toán đủ nên không thể áp thêm mã giảm giá.');
+        }
+
+        $data = $request->validate([
+            'promotion_codes' => 'required|array|min:1',
+            'promotion_codes.*' => 'required|string|max:50',
+            'promotion_note' => 'nullable|string|max:1000',
+        ], [
+            'promotion_codes.required' => 'Vui lòng chọn ít nhất một mã ưu đãi.',
+            'promotion_codes.min' => 'Vui lòng chọn ít nhất một mã ưu đãi.',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            $booking->load(['bookingPromotions', 'serviceItems']);
+
+            $selectedCodes = collect($data['promotion_codes'])
+                ->filter()
+                ->map(fn ($code) => strtoupper(trim((string) $code)))
+                ->unique()
+                ->values();
+
+            $existingCodes = $booking->bookingPromotions
+                ->pluck('code_snapshot')
+                ->map(fn ($code) => strtoupper(trim((string) $code)))
+                ->values();
+
+            $duplicatedCodes = $selectedCodes->intersect($existingCodes);
+
+            if ($duplicatedCodes->isNotEmpty()) {
+                throw new \Exception('Booking đã áp dụng mã: ' . $duplicatedCodes->implode(', ') . '.');
+            }
+
+            $nightCount = max(
+                1,
+                Carbon::parse($booking->check_in_date, 'Asia/Ho_Chi_Minh')
+                    ->diffInDays(Carbon::parse($booking->check_out_date, 'Asia/Ho_Chi_Minh'))
+            );
+
+            $currentDiscount = (float) ($booking->discount_amount ?? 0);
+            $subtotalAmount = (float) ($booking->subtotal_amount ?? 0);
+
+            if ($subtotalAmount <= 0) {
+                $subtotalAmount = (float) $booking->estimated_total + $currentDiscount;
+            }
+
+            $promotionServiceItems = $booking->serviceItems
+                ->filter(function ($item) {
+                    return !in_array($item->billing_status, ['unused', 'cancelled']);
+                })
+                ->map(function ($item) {
+                    return [
+                        'service_id' => $item->service_id,
+                        'name' => $item->name,
+                        'type' => $item->type,
+                        'unit_price' => (float) $item->unit_price,
+                        'quantity' => (int) $item->quantity,
+                        'used_quantity' => (int) $item->used_quantity,
+                        'billing_status' => $item->billing_status,
+                        'total' => (float) $item->total,
+                        'note' => $item->note,
+                    ];
+                })
+                ->values()
+                ->all();
+
+            $promotionResult = app(PromotionService::class)->validateCodes(
+                $selectedCodes->all(),
+                [
+                    'customer_id' => $booking->customer_id,
+                    'subtotal_amount' => $subtotalAmount,
+                    'service_items' => $promotionServiceItems,
+                    'check_in_at' => $booking->check_in_at,
+                    'check_out_at' => $booking->check_out_at,
+                    'night_count' => $nightCount,
+                    'room_quantity' => $booking->room_quantity,
+                ],
+                'admin',
+                $data['promotion_note'] ?? null
+            );
+
+            if (!$promotionResult['ok']) {
+                throw new \Exception(implode(' ', $promotionResult['messages']));
+            }
+
+            foreach (($promotionResult['auto_service_items'] ?? []) as $autoServiceItem) {
+                $this->upsertPromotionServiceItem($booking, $autoServiceItem);
+            }
+
+            $subtotalAmount = (float) $promotionResult['subtotal_amount'];
+            $addedMoneyDiscount = (float) ($promotionResult['money_discount_total'] ?? 0);
+            $addedServiceDiscount = (float) ($promotionResult['service_discount_total'] ?? 0);
+            $addedDiscount = (float) $promotionResult['discount_total'];
+            $newDiscount = $currentDiscount + $addedDiscount;
+            $newTotal = max(0, $subtotalAmount - $newDiscount);
+
+            if ((float) $booking->deposit_amount > $newTotal) {
+                throw new \Exception('Không thể áp mã vì tiền cọc hiện tại lớn hơn tổng tiền sau giảm.');
+            }
+
+            $booking->update([
+                'subtotal_amount' => $subtotalAmount,
+                'discount_amount' => $newDiscount,
+                'estimated_total' => $newTotal,
+            ]);
+
+            app(PromotionService::class)->storeUsages(
+                $booking,
+                $promotionResult['promotions'],
+                'admin',
+                $data['promotion_note'] ?? null,
+                Auth::id()
+            );
+
+            $this->addBookingLog(
+                $booking,
+                'promotion_added',
+                'Áp dụng mã ưu đãi sau khi tạo booking: '
+                . $selectedCodes->implode(', ')
+                . '. Giảm tiền thêm: '
+                . number_format($addedMoneyDiscount, 0, ',', '.')
+                . 'đ, ưu đãi dịch vụ thêm: '
+                . number_format($addedServiceDiscount, 0, ',', '.')
+                . 'đ, tổng ưu đãi thêm: '
+                . number_format($addedDiscount, 0, ',', '.')
+                . 'đ.'
+                . (!empty($data['promotion_note']) ? ' Lý do: ' . $data['promotion_note'] : '')
+            );
+
+            DB::commit();
+
+            return back()->with('success', 'Đã áp dụng mã ưu đãi vào booking.');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return back()->with('error', 'Không thể áp mã: ' . $e->getMessage());
+        }
+    }
+
+    private function upsertPromotionServiceItem(Booking $booking, array $item): void
+    {
+        if (empty($item['service_id'])) {
+            return;
+        }
+
+        $existingItem = BookingServiceItem::where('booking_id', $booking->id)
+            ->where('service_id', $item['service_id'])
+            ->where('billing_status', 'confirmed')
+            ->first();
+
+        if ($existingItem) {
+            $existingItem->quantity = (int) $existingItem->quantity + (int) $item['quantity'];
+            $existingItem->used_quantity = (int) $existingItem->used_quantity + (int) $item['used_quantity'];
+            $existingItem->total = (float) $existingItem->total + (float) $item['total'];
+
+            $extraNote = trim((string) ($item['note'] ?? ''));
+            if ($extraNote !== '') {
+                $existingItem->note = trim((string) ($existingItem->note ?? '')) !== ''
+                    ? $existingItem->note . '; ' . $extraNote
+                    : $extraNote;
+            }
+
+            $existingItem->save();
+            return;
+        }
+
+        BookingServiceItem::create([
+            'booking_id' => $booking->id,
+            'service_id' => $item['service_id'],
+            'name' => $item['name'],
+            'type' => $item['type'],
+            'unit_price' => $item['unit_price'],
+            'quantity' => $item['quantity'],
+            'used_quantity' => $item['used_quantity'],
+            'billing_status' => $item['billing_status'],
+            'total' => $item['total'],
+            'note' => $item['note'],
+        ]);
     }
 
     public function edit(Booking $booking)
@@ -299,6 +518,13 @@ class BookingController extends Controller
             }
 
             if ($totalAdded > 0) {
+                $oldSubtotal = (float) ($booking->subtotal_amount ?? 0);
+
+                if ($oldSubtotal <= 0) {
+                    $oldSubtotal = (float) $booking->estimated_total + (float) ($booking->discount_amount ?? 0);
+                }
+
+                $booking->subtotal_amount = $oldSubtotal + $totalAdded;
                 $booking->estimated_total += $totalAdded;
                 $booking->save();
             }
@@ -362,6 +588,13 @@ class BookingController extends Controller
             ]);
 
             if ($difference != 0) {
+                $oldSubtotal = (float) ($booking->subtotal_amount ?? 0);
+
+                if ($oldSubtotal <= 0) {
+                    $oldSubtotal = (float) $booking->estimated_total + (float) ($booking->discount_amount ?? 0);
+                }
+
+                $booking->subtotal_amount = max(0, $oldSubtotal + $difference);
                 $booking->estimated_total = max(0, (float) $booking->estimated_total + $difference);
                 $booking->save();
             }
@@ -400,6 +633,13 @@ class BookingController extends Controller
 
             $bookingServiceItem->delete();
 
+            $oldSubtotal = (float) ($booking->subtotal_amount ?? 0);
+
+            if ($oldSubtotal <= 0) {
+                $oldSubtotal = (float) $booking->estimated_total + (float) ($booking->discount_amount ?? 0);
+            }
+
+            $booking->subtotal_amount = max(0, $oldSubtotal - $total);
             $booking->estimated_total = max(0, (float) $booking->estimated_total - $total);
             $booking->save();
 

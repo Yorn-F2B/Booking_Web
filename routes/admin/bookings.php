@@ -62,6 +62,9 @@ Route::patch('bookings/{booking}/check-in', [BookingLifecycleController::class, 
 Route::patch('bookings/{booking}/priority-cleaning', [BookingLifecycleController::class, 'requestPriorityCleaning'])
     ->name('admin.bookings.priority-cleaning');
 
+Route::patch('bookings/{booking}/change-stay-dates', [BookingLifecycleController::class, 'changeStayDates'])
+    ->name('admin.bookings.change-stay-dates');
+
 Route::patch('bookings/{booking}/cancel-late-arrival', [BookingLifecycleController::class, 'cancelLateArrival'])
     ->name('admin.bookings.cancel-late-arrival');
 
@@ -79,6 +82,9 @@ Route::patch('bookings/{booking}/extend-stay', [BookingLifecycleController::clas
 
 Route::post('bookings/hourly-inventory-check', [BookingCreateController::class, 'checkHourlyInventory'])
     ->name('admin.bookings.hourly-inventory-check');
+
+Route::post('bookings/{booking}/promotions', [BookingController::class, 'applyPromotions'])
+    ->name('admin.bookings.promotions.store');
 
 Route::post('bookings/{booking}/service-items', [BookingController::class, 'storeServiceItem'])
     ->name('admin.bookings.service-items.store');

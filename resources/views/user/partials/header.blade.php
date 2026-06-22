@@ -76,6 +76,14 @@
                         {{-- USER --}}
                         @if (Auth::user()->role === 'customer')
                             <li class="nav-item">
+                                <a class="nav-link {{ request()->routeIs('bookings.current') || request()->routeIs('bookings.show') ? 'active' : '' }}"
+                                    href="{{ route('bookings.current') }}" title="Đơn phòng">
+                                    <i class="bx bx-receipt me-1"></i>
+                                    Đơn phòng
+                                </a>
+                            </li>
+
+                            <li class="nav-item">
                                 <a class="nav-link {{ request()->is('user-settings') ? 'active' : '' }}"
                                     href="{{ url('user-settings') }}" title="Tài khoản">
                                     <i class="bx bx-user-circle" style="font-size:1.25rem;vertical-align:middle"></i>

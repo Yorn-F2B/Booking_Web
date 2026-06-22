@@ -14,6 +14,8 @@ class Booking extends Model
     public const EARLY_CHECK_IN_TIME = '13:00:00';
     public const STANDARD_CHECK_IN_TIME = '14:00:00';
     public const DEFAULT_CLEANING_BUFFER_MINUTES = 60;
+    public const LATE_ARRIVAL_ONE_NIGHT_HOLD_TIME = '18:00:00';
+    public const LATE_ARRIVAL_MULTI_NIGHT_HOLD_DAYS = 1;
 
     protected $fillable = [
         'booking_code',
@@ -33,6 +35,8 @@ class Booking extends Model
         'child_count',
         'room_quantity',
         'prefer_adjacent_rooms',
+        'subtotal_amount',
+        'discount_amount',
         'estimated_total',
         'deposit_amount',
         'payment_status',
@@ -84,5 +88,38 @@ class Booking extends Model
     public function logs()
     {
         return $this->hasMany(BookingLog::class)->latest();
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(BookingPayment::class);
+    }
+
+    public function bookingPromotions()
+    {
+        return $this->hasMany(BookingPromotion::class);
+    }
+
+    public function promotionServiceOffers()
+    {
+        return $this->hasMany(BookingPromotionServiceOffer::class);
+    }
+
+    public function promotions()
+    {
+        return $this->belongsToMany(Promotion::class, 'booking_promotions')
+            ->withPivot([
+                'code_snapshot',
+                'promotion_type_snapshot',
+                'discount_type_snapshot',
+                'discount_value_snapshot',
+                'money_discount_amount',
+                'service_discount_amount',
+                'discount_amount',
+                'applied_by',
+                'applied_channel',
+                'note',
+            ])
+            ->withTimestamps();
     }
 }

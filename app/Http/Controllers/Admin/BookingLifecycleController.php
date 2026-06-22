@@ -41,7 +41,6 @@ class BookingLifecycleController extends Controller
             'extra_fee_notes' => 'nullable|array',
             'extra_fee_notes.*' => 'nullable|string|max:1000',
 
-            'late_arrival_action' => 'nullable|in:confirm_arriving',
             'early_check_in_action' => 'nullable|in:accept_fee',
         ]);
 
@@ -57,6 +56,12 @@ class BookingLifecycleController extends Controller
 
         if ($booking->bookingRooms->count() == 0) {
             return back()->with('error', 'Booking này chưa được gán phòng nên không thể check-in.');
+        }
+
+        try {
+            $this->guardCheckInArrivalTime($booking, $actualCheckInAt);
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
         }
 
         $currentAdultCapacity = $booking->bookingRooms->reduce(
@@ -1138,6 +1143,231 @@ class BookingLifecycleController extends Controller
         );
     }
 
+
+    public function changeStayDates(Request $request, Booking $booking)
+    {
+        if (!in_array($booking->status, ['pending', 'confirmed'])) {
+            return back()->with('error', 'Chỉ booking chờ xác nhận hoặc đã xác nhận mới được đổi ngày lưu trú.');
+        }
+
+        if (!$booking->check_in_at || !$booking->check_out_at) {
+            return back()->with('error', 'Booking chưa có đủ thời gian nhận/trả phòng nên không thể đổi ngày.');
+        }
+
+        $data = $request->validate([
+            'new_check_in_date' => 'required|date',
+            'new_check_in_time' => 'nullable|date_format:H:i',
+            'new_check_out_date' => 'required|date',
+            'new_check_out_time' => 'nullable|date_format:H:i',
+        ], [
+            'new_check_in_date.required' => 'Vui lòng chọn ngày nhận phòng mới.',
+            'new_check_in_date.date' => 'Ngày nhận phòng mới không hợp lệ.',
+            'new_check_in_time.date_format' => 'Giờ nhận phòng mới phải theo định dạng 24 giờ, ví dụ 07:00 hoặc 14:00.',
+            'new_check_out_date.required' => 'Vui lòng chọn ngày trả phòng mới.',
+            'new_check_out_date.date' => 'Ngày trả phòng mới không hợp lệ.',
+            'new_check_out_time.date_format' => 'Giờ trả phòng mới phải theo định dạng 24 giờ, ví dụ 12:00 hoặc 14:00.',
+        ]);
+
+        $oldCheckInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
+        $oldCheckOutAt = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh');
+
+        $newCheckInTime = $data['new_check_in_time'] ?? $oldCheckInAt->format('H:i');
+        $newCheckOutTime = $data['new_check_out_time'] ?? $oldCheckOutAt->format('H:i');
+
+        $newCheckInAt = \Carbon\Carbon::parse($data['new_check_in_date'] . ' ' . $newCheckInTime . ':00', 'Asia/Ho_Chi_Minh');
+        $newCheckOutAt = \Carbon\Carbon::parse($data['new_check_out_date'] . ' ' . $newCheckOutTime . ':00', 'Asia/Ho_Chi_Minh');
+
+        if ($newCheckOutAt->lessThanOrEqualTo($newCheckInAt)) {
+            return back()->with('error', 'Thời gian trả phòng mới phải sau thời gian nhận phòng mới.');
+        }
+
+        if ($newCheckOutAt->lessThanOrEqualTo(\Carbon\Carbon::now('Asia/Ho_Chi_Minh'))) {
+            return back()->with('error', 'Thời gian trả phòng mới phải sau thời điểm hiện tại.');
+        }
+
+        $booking->load([
+            'bookingRooms.room.category',
+            'roomCategory',
+        ]);
+
+        if ($booking->bookingRooms->count() == 0) {
+            return back()->with('error', 'Booking này chưa được gán phòng nên không thể đổi ngày lưu trú tự động.');
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $oldNightCount = max(
+                1,
+                $oldCheckInAt->copy()->startOfDay()->diffInDays($oldCheckOutAt->copy()->startOfDay())
+            );
+            $newNightCount = max(
+                1,
+                $newCheckInAt->copy()->startOfDay()->diffInDays($newCheckOutAt->copy()->startOfDay())
+            );
+
+            $oneNightRoomTotal = $booking->bookingRooms->sum(function ($bookingRoom) {
+                return (float) $bookingRoom->price_at_booking;
+            });
+
+            if ($oneNightRoomTotal <= 0) {
+                $oneNightRoomTotal = (float) ($booking->roomCategory->price ?? 0)
+                    * max(1, (int) $booking->room_quantity);
+            }
+
+            $roomDelta = round(($oneNightRoomTotal * $newNightCount) - ($oneNightRoomTotal * $oldNightCount), 0);
+            $usedReplacementRoomIds = [];
+            $currentRoomIds = $booking->bookingRooms
+                ->pluck('room_id')
+                ->filter()
+                ->values()
+                ->toArray();
+            $roomChangeMessages = [];
+
+            foreach ($booking->bookingRooms as $bookingRoom) {
+                $room = $bookingRoom->room;
+
+                if (!$room) {
+                    throw new \Exception('Có phòng trong booking không còn tồn tại. Vui lòng kiểm tra lại dữ liệu gán phòng.');
+                }
+
+                $conflictBookingRoom = $this->findConflictBookingRoom(
+                    $room->id,
+                    $booking->id,
+                    $newCheckInAt,
+                    $newCheckOutAt->copy()->addMinutes($booking->cleaning_buffer_minutes ?? 60)
+                );
+
+                if (!$conflictBookingRoom) {
+                    $room->update([
+                        'status' => $booking->status === 'confirmed' ? 'reserved' : $room->status,
+                    ]);
+
+                    continue;
+                }
+
+                $replacementRoom = Room::where('room_category_id', $room->room_category_id)
+                    ->where('status', 'available')
+                    ->whereNotIn('id', array_merge($currentRoomIds, $usedReplacementRoomIds))
+                    ->availableForPeriod(
+                        $newCheckInAt,
+                        $newCheckOutAt,
+                        $booking->id,
+                        $booking->cleaning_buffer_minutes ?? 60
+                    )
+                    ->with('category')
+                    ->orderBy('floor_number')
+                    ->orderBy('room_number')
+                    ->first();
+
+                if (!$replacementRoom) {
+                    $conflictBooking = $conflictBookingRoom->booking;
+
+                    throw new \Exception(
+                        'Không thể đổi ngày lưu trú. Phòng '
+                        . ($room->room_number ?? '---')
+                        . ' bị trùng với booking '
+                        . ($conflictBooking->booking_code ?? '')
+                        . ' từ '
+                        . \Carbon\Carbon::parse($conflictBooking->check_in_at, 'Asia/Ho_Chi_Minh')->format('d/m/Y H:i')
+                        . ' đến '
+                        . \Carbon\Carbon::parse($conflictBooking->check_out_at, 'Asia/Ho_Chi_Minh')->format('d/m/Y H:i')
+                        . ', và không còn phòng trống cùng hạng để đổi.'
+                    );
+                }
+
+                $oldRoomNumber = $room->room_number;
+                $newRoomNumber = $replacementRoom->room_number;
+
+                $bookingRoom->update([
+                    'room_id' => $replacementRoom->id,
+                    'surcharge_reason' => trim(
+                        ($bookingRoom->surcharge_reason ? $bookingRoom->surcharge_reason . ' | ' : '')
+                        . 'Đổi từ phòng '
+                        . $oldRoomNumber
+                        . ' sang phòng '
+                        . $newRoomNumber
+                        . ' khi đổi ngày lưu trú do phòng cũ bị trùng lịch.'
+                    ),
+                ]);
+
+                $room->update([
+                    'status' => 'available',
+                ]);
+
+                $replacementRoom->update([
+                    'status' => $booking->status === 'confirmed' ? 'reserved' : $replacementRoom->status,
+                ]);
+
+                $usedReplacementRoomIds[] = $replacementRoom->id;
+                $roomChangeMessages[] = 'Đổi phòng ' . $oldRoomNumber . ' → ' . $newRoomNumber . ' cùng hạng do trùng lịch.';
+            }
+
+            $oldNote = $booking->note ? $booking->note . "\n" : '';
+            $roomChangeText = count($roomChangeMessages) > 0
+                ? ' ' . implode(' ', $roomChangeMessages)
+                : '';
+
+            $booking->check_in_date = $newCheckInAt->toDateString();
+            $booking->check_out_date = $newCheckOutAt->toDateString();
+            $booking->check_in_at = $newCheckInAt;
+            $booking->check_out_at = $newCheckOutAt;
+            $booking->subtotal_amount = max(0, (float) $booking->subtotal_amount + $roomDelta);
+            $booking->estimated_total = max(0, (float) $booking->estimated_total + $roomDelta);
+            $booking->late_arrival_fee = 0;
+            $booking->late_arrival_hours = null;
+            $booking->late_arrival_policy = null;
+            $booking->note = $oldNote
+                . now('Asia/Ho_Chi_Minh')->format('d/m/Y H:i')
+                . ' - Đổi ngày lưu trú từ '
+                . $oldCheckInAt->format('d/m/Y H:i')
+                . ' → '
+                . $oldCheckOutAt->format('d/m/Y H:i')
+                . ' sang '
+                . $newCheckInAt->format('d/m/Y H:i')
+                . ' → '
+                . $newCheckOutAt->format('d/m/Y H:i')
+                . '. Chênh lệch tiền phòng: '
+                . number_format($roomDelta, 0, ',', '.')
+                . 'đ.'
+                . $roomChangeText;
+
+            $booking->save();
+
+            $this->addBookingLog(
+                $booking,
+                'change_stay_dates',
+                'Đổi ngày lưu trú từ '
+                . $oldCheckInAt->format('d/m/Y H:i')
+                . ' → '
+                . $oldCheckOutAt->format('d/m/Y H:i')
+                . ' sang '
+                . $newCheckInAt->format('d/m/Y H:i')
+                . ' → '
+                . $newCheckOutAt->format('d/m/Y H:i')
+                . '. Chênh lệch tiền phòng: '
+                . number_format($roomDelta, 0, ',', '.')
+                . 'đ.'
+                . $roomChangeText
+            );
+
+            DB::commit();
+
+            return back()->with(
+                'success',
+                'Đã đổi ngày lưu trú thành công. Chênh lệch tiền phòng: '
+                . number_format($roomDelta, 0, ',', '.')
+                . 'đ.'
+                . $roomChangeText
+            );
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return back()->with('error', 'Có lỗi khi đổi ngày lưu trú: ' . $e->getMessage());
+        }
+    }
+
+
     public function requestInspection(Booking $booking)
     {
         if ($booking->status !== 'checked_in') {
@@ -1696,6 +1926,105 @@ class BookingLifecycleController extends Controller
             });
     }
 
+
+    private function guardCheckInArrivalTime(Booking $booking, \Carbon\Carbon $actualCheckInAt): void
+    {
+        if (!$booking->check_in_at || !$booking->check_out_at) {
+            return;
+        }
+
+        $plannedCheckInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
+        $plannedCheckOutAt = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh');
+
+        if ($actualCheckInAt->greaterThanOrEqualTo($plannedCheckOutAt)) {
+            throw new \Exception(
+                'Booking đã quá thời gian lưu trú '
+                . $plannedCheckInAt->format('d/m/Y H:i')
+                . ' → '
+                . $plannedCheckOutAt->format('d/m/Y H:i')
+                . '. Không được check-in booking cũ. Vui lòng hủy/no-show và tạo booking mới nếu khách vẫn muốn ở.'
+            );
+        }
+
+        if (
+            $booking->booking_type !== 'hourly'
+            && $actualCheckInAt->toDateString() < $plannedCheckInAt->toDateString()
+        ) {
+            throw new \Exception(
+                'Khách đến trước ngày booking. Booking bắt đầu lúc '
+                . $plannedCheckInAt->format('d/m/Y H:i')
+                . ', hiện tại là '
+                . $actualCheckInAt->format('d/m/Y H:i')
+                . '. Đây không phải check-in sớm trong cùng ngày. Vui lòng dùng chức năng Đổi ngày lưu trú hoặc tạo booking mới trước khi check-in.'
+            );
+        }
+
+        if ($actualCheckInAt->greaterThan($plannedCheckInAt) && !$this->isBookingFullyPaid($booking)) {
+            $holdLimitAt = $this->getLateArrivalHoldLimitAt($booking);
+
+            if ($holdLimitAt && $actualCheckInAt->greaterThanOrEqualTo($holdLimitAt)) {
+                throw new \Exception(
+                    'Khách đã quá hạn giữ phòng '
+                    . $holdLimitAt->format('d/m/Y H:i')
+                    . '. Không phụ thu check-in muộn trong hạn; nhưng quá hạn thì không được check-in. Vui lòng hủy/no-show để giữ cọc nếu có và mở bán lại phòng.'
+                );
+            }
+        }
+    }
+
+    private function getBookingNightCountFromTimes(Booking $booking): int
+    {
+        if (!$booking->check_in_at || !$booking->check_out_at) {
+            return $this->getNightCount($booking);
+        }
+
+        $checkInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')->startOfDay();
+        $checkOutAt = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')->startOfDay();
+
+        return max(1, $checkInAt->diffInDays($checkOutAt));
+    }
+
+    private function isBookingFullyPaid(Booking $booking): bool
+    {
+        $estimatedTotal = (float) $booking->estimated_total;
+        $depositAmount = (float) $booking->deposit_amount;
+
+        return $booking->payment_status === 'paid'
+            || ($estimatedTotal > 0 && $depositAmount >= $estimatedTotal);
+    }
+
+    private function getLateArrivalHoldLimitAt(Booking $booking): ?\Carbon\Carbon
+    {
+        if (!$booking->check_in_at || !$booking->check_out_at) {
+            return null;
+        }
+
+        $checkInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
+        $checkOutAt = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh');
+
+        if ($this->isBookingFullyPaid($booking)) {
+            return $checkOutAt;
+        }
+
+        if ($booking->booking_type === 'hourly') {
+            return $checkInAt->copy()->addMinutes(30);
+        }
+
+        $nightCount = $this->getBookingNightCountFromTimes($booking);
+
+        if ($nightCount <= 1) {
+            [$holdHour, $holdMinute] = array_map(
+                'intval',
+                explode(':', Booking::LATE_ARRIVAL_ONE_NIGHT_HOLD_TIME)
+            );
+
+            return $checkInAt->copy()->setTime($holdHour, $holdMinute, 0);
+        }
+
+        return $checkInAt->copy()->addDays(Booking::LATE_ARRIVAL_MULTI_NIGHT_HOLD_DAYS);
+    }
+
+
     private function handleLateArrivalFee(Booking $booking, array $data): string
     {
         if (!$booking->check_in_at || !$booking->check_out_at) {
@@ -1712,26 +2041,22 @@ class BookingLifecycleController extends Controller
 
         if ($nowVn->greaterThanOrEqualTo($checkOutAt)) {
             throw new \Exception(
-                'Không thể check-in vì đã quá thời gian lưu trú của booking. '
+                'Không thể check-in vì booking đã quá thời gian lưu trú. '
                 . 'Giờ trả phòng dự kiến là '
                 . $checkOutAt->format('d/m/Y H:i')
-                . '. Vui lòng tạo booking mới nếu khách vẫn muốn ở.'
+                . '. Vui lòng hủy/no-show booking cũ và tạo booking mới nếu khách vẫn muốn ở.'
             );
         }
 
         $lateMinutes = $checkInAt->diffInMinutes($nowVn);
         $lateHours = round($lateMinutes / 60, 2);
-
-        $noShowLimitAt = $checkInAt->copy()->setTime(18, 0, 0);
-
-        $estimatedTotal = (float) $booking->estimated_total;
-        $depositAmount = (float) $booking->deposit_amount;
-
-        $isFullPaidOrFullDeposit = $booking->payment_status === 'paid'
-            || ($estimatedTotal > 0 && $depositAmount >= $estimatedTotal);
+        $holdLimitAt = $this->getLateArrivalHoldLimitAt($booking);
+        $isFullPaidOrFullDeposit = $this->isBookingFullyPaid($booking);
+        $nightCount = $this->getBookingNightCountFromTimes($booking);
 
         if ($isFullPaidOrFullDeposit) {
-            $policy = 'Khách đã thanh toán/cọc 100%, được check-in muộn bất kỳ thời điểm nào trong thời gian lưu trú. Không phụ thu check-in muộn.';
+            $policy = 'Khách đã thanh toán/cọc 100%, được check-in muộn bất kỳ thời điểm nào trong thời gian lưu trú. Không phụ thu check-in muộn. Giữ nguyên giờ trả phòng '
+                . $checkOutAt->format('d/m/Y H:i') . '.';
 
             $booking->late_arrival_fee = 0;
             $booking->late_arrival_hours = $lateHours;
@@ -1740,8 +2065,20 @@ class BookingLifecycleController extends Controller
             return $policy;
         }
 
-        if ($nowVn->lessThan($noShowLimitAt)) {
-            $policy = 'Khách cọc một phần và đến muộn trước 18:00, cho check-in bình thường. Không phụ thu vì khách sạn vẫn giữ phòng đến mốc 18:00.';
+        if ($holdLimitAt && $nowVn->lessThan($holdLimitAt)) {
+            if ($booking->booking_type === 'hourly') {
+                $policy = 'Khách đặt theo giờ và đến muộn nhưng vẫn trong hạn giữ phòng đến '
+                    . $holdLimitAt->format('d/m/Y H:i')
+                    . '. Cho check-in bình thường, không phụ thu check-in muộn.';
+            } elseif ($nightCount <= 1) {
+                $policy = 'Booking 1 đêm, khách cọc một phần/chưa thanh toán đủ và đến muộn trước mốc giữ phòng '
+                    . $holdLimitAt->format('H:i d/m/Y')
+                    . '. Cho check-in bình thường, không phụ thu check-in muộn.';
+            } else {
+                $policy = 'Booking nhiều đêm, khách cọc một phần/chưa thanh toán đủ và vẫn trong hạn giữ phòng 1 ngày đến '
+                    . $holdLimitAt->format('d/m/Y H:i')
+                    . '. Cho check-in bình thường, không phụ thu check-in muộn. Giữ nguyên ngày trả phòng ban đầu.';
+            }
 
             $booking->late_arrival_fee = 0;
             $booking->late_arrival_hours = $lateHours;
@@ -1750,21 +2087,11 @@ class BookingLifecycleController extends Controller
             return $policy;
         }
 
-        if (($data['late_arrival_action'] ?? null) !== 'confirm_arriving') {
-            throw new \Exception(
-                'Đã sau 18:00. Với booking chỉ cọc một phần, lễ tân cần gọi xác nhận khách còn đến hay không. '
-                . 'Nếu khách không đến hoặc không liên lạc được, hãy hủy no-show để giữ cọc và mở bán lại phòng. '
-                . 'Nếu khách đã xác nhận vẫn đến hoặc đang có mặt tại quầy, hãy tick xác nhận rồi check-in.'
-            );
-        }
-
-        $policy = 'Khách cọc một phần và check-in sau 18:00. Lễ tân đã xác nhận khách vẫn đến/khách đang có mặt tại quầy. Cho check-in, không phụ thu check-in muộn.';
-
-        $booking->late_arrival_fee = 0;
-        $booking->late_arrival_hours = $lateHours;
-        $booking->late_arrival_policy = $policy;
-
-        return $policy;
+        throw new \Exception(
+            'Khách đã quá hạn giữ phòng '
+            . ($holdLimitAt ? $holdLimitAt->format('d/m/Y H:i') : '')
+            . '. Không được check-in booking này nữa. Vui lòng hủy/no-show để giữ cọc nếu có và mở bán lại phòng; nếu khách vẫn muốn ở thì tạo booking mới.'
+        );
     }
 
     public function cancelLateArrival(Booking $booking)
@@ -1773,19 +2100,26 @@ class BookingLifecycleController extends Controller
             return back()->with('error', 'Chỉ có thể hủy no-show với booking đã xác nhận nhưng khách chưa check-in.');
         }
 
-        if (!$booking->check_in_at) {
-            return back()->with('error', 'Booking này chưa có giờ nhận phòng dự kiến.');
+        if (!$booking->check_in_at || !$booking->check_out_at) {
+            return back()->with('error', 'Booking này chưa có đủ giờ nhận/trả phòng dự kiến.');
         }
 
         $nowVn = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
         $checkInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
+        $holdLimitAt = $this->getLateArrivalHoldLimitAt($booking);
+        $isFullPaidOrFullDeposit = $this->isBookingFullyPaid($booking);
         $lateMinutes = $checkInAt->diffInMinutes($nowVn, false);
-        $noShowLimitAt = $checkInAt->copy()->setTime(18, 0, 0);
 
-        if ($nowVn->lessThan($noShowLimitAt)) {
+        if (!$holdLimitAt) {
+            return back()->with('error', 'Không xác định được hạn giữ phòng của booking này.');
+        }
+
+        if ($nowVn->lessThan($holdLimitAt)) {
             return back()->with(
                 'error',
-                'Chỉ được hủy no-show từ 18:00 ngày check-in. Trước 18:00 khách cọc một phần vẫn được giữ phòng và check-in không phụ thu.'
+                'Chưa được hủy no-show. Booking này còn trong hạn giữ phòng đến '
+                . $holdLimitAt->format('d/m/Y H:i')
+                . '. Trong hạn này khách được check-in muộn và không phụ thu.'
             );
         }
 
@@ -1803,19 +2137,25 @@ class BookingLifecycleController extends Controller
             }
 
             $oldNote = $booking->note ? $booking->note . "\n" : '';
-            $lateHours = round($lateMinutes / 60, 2);
+            $lateHours = round(max(0, $lateMinutes) / 60, 2);
             $depositText = (float) $booking->deposit_amount > 0
-                ? 'Giữ 100% tiền cọc: ' . number_format((float) $booking->deposit_amount, 0, ',', '.') . 'đ.'
+                ? 'Giữ 100% tiền cọc/tiền đã thu: ' . number_format((float) $booking->deposit_amount, 0, ',', '.') . 'đ.'
                 : 'Chưa ghi nhận tiền cọc trên hệ thống; lễ tân kiểm tra lại thanh toán nếu có.';
+
+            $policyText = $isFullPaidOrFullDeposit
+                ? 'Booking đã thanh toán/cọc 100% nhưng đã hết thời gian lưu trú, xử lý no-show/không hoàn tiền theo chính sách.'
+                : 'Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng ' . $holdLimitAt->format('d/m/Y H:i') . ', xử lý no-show/không hoàn cọc.';
 
             $booking->update([
                 'status' => 'cancelled',
                 'late_arrival_fee' => 0,
                 'late_arrival_hours' => $lateHours,
-                'late_arrival_policy' => 'No-show sau 18:00, không liên lạc được. ' . $depositText,
+                'late_arrival_policy' => $policyText . ' ' . $depositText,
                 'note' => $oldNote
                     . $nowVn->format('d/m/Y H:i')
-                    . ' - Hủy no-show do khách chưa đến sau 18:00 và không liên lạc được. '
+                    . ' - Hủy no-show do khách không đến trong hạn giữ phòng. '
+                    . $policyText
+                    . ' '
                     . $depositText
                     . ' Phòng được mở bán lại.',
             ]);
@@ -1823,14 +2163,16 @@ class BookingLifecycleController extends Controller
             $this->addBookingLog(
                 $booking,
                 'cancel_late_arrival',
-                'Hủy no-show do khách chưa đến sau 18:00 và không liên lạc được. '
+                'Hủy no-show do khách không đến trong hạn giữ phòng. '
+                . $policyText
+                . ' '
                 . $depositText
                 . ' Phòng được mở bán lại.'
             );
 
             DB::commit();
 
-            return back()->with('success', 'Đã hủy no-show, giữ tiền cọc nếu có và mở bán lại phòng.');
+            return back()->with('success', 'Đã hủy no-show, giữ tiền cọc/tiền đã thu nếu có và mở bán lại phòng.');
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -1931,7 +2273,15 @@ class BookingLifecycleController extends Controller
         $plannedCheckInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
         $standardCheckInAt = $plannedCheckInAt->copy()->setTime(14, 0, 0);
 
-        if ($actualCheckInAt->greaterThanOrEqualTo($standardCheckInAt)) {
+        if ($actualCheckInAt->toDateString() < $plannedCheckInAt->toDateString()) {
+            throw new \Exception(
+                'Khách đến trước ngày booking '
+                . $plannedCheckInAt->format('d/m/Y')
+                . '. Đây là đổi ngày lưu trú hoặc tạo booking mới, không phải check-in sớm trong cùng ngày.'
+            );
+        }
+
+        if (!$actualCheckInAt->isSameDay($plannedCheckInAt) || $actualCheckInAt->greaterThanOrEqualTo($standardCheckInAt)) {
             return '';
         }
 
@@ -1989,7 +2339,7 @@ class BookingLifecycleController extends Controller
             $booking->estimated_total = (float) $booking->estimated_total + $policy['amount'];
         }
 
-        return 'Check-in sớm lúc '
+        return 'Check-in sớm trong cùng ngày lúc '
             . $actualCheckInAt->format('d/m/Y H:i')
             . ', sớm hơn giờ chuẩn '
             . $policy['duration_text']
@@ -1999,7 +2349,6 @@ class BookingLifecycleController extends Controller
             . number_format($policy['amount'], 0, ',', '.')
             . 'đ.';
     }
-
     private function calculateEarlyCheckInFee(Booking $booking, \Carbon\Carbon $actualCheckInAt): array
     {
         $plannedCheckInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
@@ -2020,33 +2369,21 @@ class BookingLifecycleController extends Controller
                 * max(1, (int) $booking->room_quantity);
         }
 
-        if ($actualCheckInAt->toDateString() < $plannedCheckInAt->toDateString()) {
-            $extraNights = max(
-                1,
-                $actualCheckInAt->copy()->startOfDay()
-                    ->diffInDays($plannedCheckInAt->copy()->startOfDay())
-            );
+        $minutesOfDay = ((int) $actualCheckInAt->format('H')) * 60
+            + ((int) $actualCheckInAt->format('i'));
 
-            $percent = 100 * $extraNights;
-            $policyText = 'Nhận trước ngày check-in ' . $extraNights
-                . ' ngày, tính thêm ' . $extraNights . ' đêm.';
+        if ($minutesOfDay < 360) {
+            $percent = 100;
+            $policyText = 'Check-in sớm cùng ngày trước 06:00, phụ thu 100% giá 1 đêm.';
+        } elseif ($minutesOfDay < 540) {
+            $percent = 50;
+            $policyText = 'Check-in sớm cùng ngày từ 06:00 đến trước 09:00, phụ thu 50% giá 1 đêm.';
+        } elseif ($minutesOfDay < 660) {
+            $percent = 20;
+            $policyText = 'Check-in sớm cùng ngày từ 09:00 đến trước 11:00, phụ thu 20% giá 1 đêm.';
         } else {
-            $minutesOfDay = ((int) $actualCheckInAt->format('H')) * 60
-                + ((int) $actualCheckInAt->format('i'));
-
-            if ($minutesOfDay < 360) {
-                $percent = 100;
-                $policyText = 'Check-in trước 06:00, phụ thu 100% giá 1 đêm.';
-            } elseif ($minutesOfDay < 540) {
-                $percent = 50;
-                $policyText = 'Check-in từ 06:00 đến trước 09:00, phụ thu 50% giá 1 đêm.';
-            } elseif ($minutesOfDay < 660) {
-                $percent = 20;
-                $policyText = 'Check-in từ 09:00 đến trước 11:00, phụ thu 20% giá 1 đêm.';
-            } else {
-                $percent = 0;
-                $policyText = 'Check-in từ 11:00 đến trước 14:00, miễn phí nếu phòng đã sẵn sàng.';
-            }
+            $percent = 0;
+            $policyText = 'Check-in sớm cùng ngày từ 11:00 đến trước 14:00, miễn phí nếu phòng đã sẵn sàng.';
         }
 
         $amount = round(($basePrice * $percent) / 100, 0);
