@@ -9,6 +9,8 @@ use App\Http\Controllers\BookingController;
 use Carbon\Carbon;
 use App\Http\Controllers\Payment\VnpayController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\HotelReviewController;
+use App\Models\HotelReview;
 
 /*
 |--------------------------------------------------------------------------
@@ -46,13 +48,26 @@ Route::get('/', function () {
         (int) RoomCategory::where('status', 'active')->max('child_capacity')
     );
 
+    $approvedHotelReviews = HotelReview::approved()
+        ->with(['customer', 'booking.roomCategory', 'replier'])
+        ->latest('approved_at')
+        ->take(6)
+        ->get();
+
+    $hotelReviewStats = [
+        'count' => HotelReview::approved()->count(),
+        'average' => round((float) HotelReview::approved()->avg('rating'), 1),
+    ];
+
     return view('user.pages.home', compact(
         'featuredRoomCategories',
         'minOnlineCheckInDate',
         'minOnlineCheckOutDate',
         'onlineBookingClosedToday',
         'maxAdultCapacity',
-        'maxChildCapacity'
+        'maxChildCapacity',
+        'approvedHotelReviews',
+        'hotelReviewStats'
     ));
 })->name('home');
 /*
@@ -68,9 +83,8 @@ Route::get('/about', function () {
 Route::get('/rooms', [RoomController::class, 'index'])->name('rooms');
 Route::get('/rooms/{roomCategory}', [RoomController::class, 'show'])->name('rooms.show');
 
-Route::get('/booking-history', function () {
-    return view('user.pages.booking-history');
-});
+Route::middleware('auth')->get('/booking-history', [BookingController::class, 'history'])
+    ->name('bookings.history');
 
 Route::get('/contact', function () {
     return view('user.pages.contact');
@@ -133,6 +147,21 @@ Route::middleware('auth')->group(function () {
     Route::post('/booking-history/{booking}/services', [BookingController::class, 'storeCustomerService'])
         ->name('bookings.services.store');
 
+    Route::get('/booking-history/{booking}/review', [HotelReviewController::class, 'create'])
+        ->name('bookings.reviews.create');
+
+    Route::post('/booking-history/{booking}/review', [HotelReviewController::class, 'store'])
+        ->name('bookings.reviews.store');
+
+    Route::get('/reviews/{hotelReview}/edit', [HotelReviewController::class, 'edit'])
+        ->name('reviews.edit');
+
+    Route::put('/reviews/{hotelReview}', [HotelReviewController::class, 'update'])
+        ->name('reviews.update');
+
+    Route::delete('/reviews/{hotelReview}', [HotelReviewController::class, 'destroy'])
+        ->name('reviews.destroy');
+
     Route::get(
         '/booking-history/{booking}',
         [BookingController::class, 'show']
@@ -158,6 +187,9 @@ Route::get('/payment/vnpay/return', [VnpayController::class, 'return'])
 
 Route::get('/payment/vnpay/ipn', [VnpayController::class, 'ipn'])
     ->name('payment.vnpay.ipn');
+
+Route::get('/payment/vnpay/admin-request/{payment}', [VnpayController::class, 'payRequest'])
+    ->name('payment.vnpay.admin-request');
 
 Route::middleware('auth')->group(function () {
     Route::post('/payment/vnpay/{booking}', [VnpayController::class, 'create'])

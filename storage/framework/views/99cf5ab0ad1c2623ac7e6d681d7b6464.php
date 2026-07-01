@@ -263,14 +263,15 @@ unset($__errorArgs, $__bag); ?>
                                                 <?php $__currentLoopData = $services; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $service): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                                                     <option value="<?php echo e($service->id); ?>" data-name="<?php echo e($service->name); ?>"
                                                         data-price="<?php echo e($service->price); ?>" data-unit="<?php echo e($service->unit); ?>"
-                                                        data-type="<?php echo e($service->type); ?>">
+                                                        data-type="<?php echo e($service->type); ?>"
+                                                        data-group="<?php echo e($service->service_group ?? 'general'); ?>">
                                                         <?php echo e($service->name); ?>
 
                                                         -
                                                         <?php echo e(number_format($service->price, 0, ',', '.')); ?>đ / <?php echo e($service->unit); ?>
 
                                                         -
-                                                        <?php echo e($service->type == 'minibar' ? 'Minibar' : 'Dịch vụ'); ?>
+                                                        <?php echo e($service->group_label ?? ($service->type == 'minibar' ? 'Minibar' : 'Dịch vụ')); ?>
 
                                                     </option>
                                                 <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>

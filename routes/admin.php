@@ -2,12 +2,15 @@
 
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('admin.pages.dashboard.dashboard');
-})->name('admin.dashboard');
+Route::get('/', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])
+    ->name('admin.dashboard');
 
 Route::middleware('role:super_admin')->group(function () {
     require __DIR__ . '/admin/staffs.php';
+});
+
+Route::middleware('role:super_admin,manager,receptionist_lead,housekeeping_supervisor')->group(function () {
+    require __DIR__ . '/admin/staff-assignments.php';
 });
 
 Route::middleware('role:super_admin,manager')->group(function () {
@@ -16,14 +19,15 @@ Route::middleware('role:super_admin,manager')->group(function () {
     require __DIR__ . '/admin/services.php';
     require __DIR__ . '/admin/promotions.php';
     require __DIR__ . '/admin/amenities.php';
+    require __DIR__ . '/admin/reviews.php';
 });
 
-Route::middleware('role:super_admin,manager,receptionist')->group(function () {
+Route::middleware('role:super_admin,manager,receptionist_lead,receptionist')->group(function () {
     require __DIR__ . '/admin/bookings.php';
     require __DIR__ . '/admin/chats.php';
 });
 
-Route::middleware('role:super_admin,manager,housekeeping')->group(function () {
+Route::middleware('role:super_admin,manager,housekeeping_supervisor,housekeeping')->group(function () {
     Route::get('housekeeping', [\App\Http\Controllers\Admin\HousekeepingController::class, 'index'])
         ->name('admin.housekeeping.index');
 
@@ -31,7 +35,7 @@ Route::middleware('role:super_admin,manager,housekeeping')->group(function () {
         ->name('admin.housekeeping.mark-available');
 });
 
-Route::middleware('role:super_admin,manager')->group(function () {
+Route::middleware('role:super_admin,manager,housekeeping_supervisor,housekeeping')->group(function () {
     Route::get('floor-inspections', [\App\Http\Controllers\Admin\FloorInspectionController::class, 'index'])
         ->name('admin.floor-inspections.index');
 
@@ -40,7 +44,9 @@ Route::middleware('role:super_admin,manager')->group(function () {
 
     Route::post('floor-inspections/{roomInspection}/report', [\App\Http\Controllers\Admin\FloorInspectionController::class, 'report'])
         ->name('admin.floor-inspections.report');
+});
 
+Route::middleware('role:super_admin,manager')->group(function () {
     Route::get('inspection-approvals', [\App\Http\Controllers\Admin\InspectionApprovalController::class, 'index'])
         ->name('admin.inspection-approvals.index');
 

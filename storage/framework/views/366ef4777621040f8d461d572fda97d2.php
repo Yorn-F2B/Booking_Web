@@ -4,7 +4,7 @@
 
 <aside class="admin-sidebar" id="adminSidebar">
     <div class="admin-sidebar-brand">
-        <a href="index.html">
+        <a href="<?php echo e(route('admin.dashboard')); ?>">
             <span class="logo-mark">MC</span>
             <span>MCuong Hotel<small>Bảng quản trị</small></span>
         </a>
@@ -15,13 +15,16 @@
             $userRole = auth()->user()->role ?? null;
             $isSuperAdmin = $userRole === 'super_admin';
             $isManager = $userRole === 'manager';
+            $isReceptionistLead = $userRole === 'receptionist_lead';
             $isReceptionist = $userRole === 'receptionist';
+            $isHousekeepingSupervisor = $userRole === 'housekeeping_supervisor';
             $isHousekeeping = $userRole === 'housekeeping';
         ?>
 
         <div class="admin-nav-label">Tổng quan</div>
 
-        <a href="#" class="admin-nav-link disabled">
+        <a href="<?php echo e(route('admin.dashboard')); ?>"
+            class="admin-nav-link <?php echo e(request()->routeIs('admin.dashboard') ? 'active' : ''); ?>">
             <i class="bx bx-grid-alt"></i>
             Dashboard
         </a>
@@ -33,6 +36,14 @@
                 class="admin-nav-link <?php echo e(request()->routeIs('staffs.*') ? 'active' : ''); ?>">
                 <i class="bx bx-group"></i>
                 Nhân viên
+            </a>
+        <?php endif; ?>
+
+        <?php if($isSuperAdmin || $isManager || $isReceptionistLead || $isHousekeepingSupervisor): ?>
+            <a href="<?php echo e(route('admin.staff-assignments.index')); ?>"
+                class="admin-nav-link <?php echo e(request()->routeIs('admin.staff-assignments.*') ? 'active' : ''); ?>">
+                <i class="bx bx-task"></i>
+                Phân công nhân sự
             </a>
         <?php endif; ?>
 
@@ -66,15 +77,21 @@
                 <i class="bx bx-star"></i>
                 Tiện ích
             </a>
+
+            <a href="<?php echo e(route('admin.reviews.index')); ?>"
+                class="admin-nav-link <?php echo e(request()->routeIs('admin.reviews.*') ? 'active' : ''); ?>">
+                <i class="bx bx-message-square-check"></i>
+                Đánh giá khách sạn
+            </a>
         <?php endif; ?>
 
-        <a href="<?php echo e(route('admin.room-availability.index')); ?>"
-            class="admin-nav-link <?php echo e(request()->routeIs('admin.room-availability.*') ? 'active' : ''); ?>">
-            <i class="bx bx-search"></i>
-            Tra cứu phòng trống
-        </a>
+        <?php if($isSuperAdmin || $isManager || $isReceptionistLead || $isReceptionist): ?>
+            <a href="<?php echo e(route('admin.room-availability.index')); ?>"
+                class="admin-nav-link <?php echo e(request()->routeIs('admin.room-availability.*') ? 'active' : ''); ?>">
+                <i class="bx bx-search"></i>
+                Tra cứu phòng trống
+            </a>
 
-        <?php if($isSuperAdmin || $isReceptionist): ?>
             <a href="<?php echo e(route('admin.bookings.index')); ?>"
                 class="admin-nav-link <?php echo e(request()->routeIs('admin.bookings.*') ? 'active' : ''); ?>">
                 <i class="bx bx-calendar-check"></i>
@@ -82,7 +99,7 @@
             </a>
         <?php endif; ?>
 
-        <?php if($isSuperAdmin || $isManager || $isReceptionist): ?>
+        <?php if($isSuperAdmin || $isManager || $isReceptionistLead || $isReceptionist): ?>
             <a href="<?php echo e(route('admin.chats.index')); ?>"
                 class="admin-nav-link <?php echo e(request()->routeIs('admin.chats.*') ? 'active' : ''); ?>">
                 <i class="bx bx-message-rounded-dots"></i>
@@ -90,7 +107,7 @@
             </a>
         <?php endif; ?>
 
-        <?php if($isSuperAdmin || $isHousekeeping): ?>
+        <?php if($isSuperAdmin || $isManager || $isHousekeepingSupervisor || $isHousekeeping): ?>
             <a href="<?php echo e(route('admin.housekeeping.index')); ?>"
                 class="admin-nav-link <?php echo e(request()->routeIs('admin.housekeeping.*') ? 'active' : ''); ?>">
                 <i class="bx bx-brush"></i>
@@ -129,4 +146,5 @@
     </div>
 
     <div class="admin-sidebar-footer">© 2026 MCuong Hotel</div>
-</aside><?php /**PATH C:\xampp\htdocs\booking-web\resources\views/admin/layouts/partials/header.blade.php ENDPATH**/ ?>
+</aside>
+<?php /**PATH C:\xampp\htdocs\booking-web\resources\views/admin/layouts/partials/header.blade.php ENDPATH**/ ?>

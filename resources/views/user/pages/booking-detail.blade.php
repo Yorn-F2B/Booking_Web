@@ -148,8 +148,14 @@
                                     <span class="badge text-bg-info">Đã nhận phòng</span>
                                 @elseif ($booking->status == 'checked_out')
                                     <span class="badge text-bg-success">Đã trả phòng</span>
-                                @else
+                                @elseif ($booking->status == 'completed')
+                                    <span class="badge text-bg-success">Đã hoàn tất</span>
+                                @elseif ($booking->status == 'inspection_requested')
+                                    <span class="badge text-bg-secondary">Đang kiểm tra phòng</span>
+                                @elseif ($booking->status == 'cancelled')
                                     <span class="badge text-bg-danger">Đã hủy</span>
+                                @else
+                                    <span class="badge text-bg-secondary">{{ $booking->status }}</span>
                                 @endif
                             </div>
 
@@ -356,13 +362,10 @@
                                                         data-name="{{ $service->name }}"
                                                         data-price="{{ $service->price }}"
                                                         data-unit="{{ $service->unit }}"
-                                                        data-type="{{ $service->type }}">
+                                                        data-type="{{ $service->type }}"
+                                                        data-group="{{ $service->service_group ?? 'general' }}">
                                                         {{ $service->name }} - {{ number_format((float) $service->price, 0, ',', '.') }}đ / {{ $service->unit }}
-                                                        @if ($service->type == 'minibar')
-                                                            - Minibar
-                                                        @else
-                                                            - Dịch vụ
-                                                        @endif
+                                                        - {{ $service->group_label ?? ($service->type == 'minibar' ? 'Minibar' : 'Dịch vụ') }}
                                                     </option>
                                                 @endforeach
                                             </select>
@@ -525,6 +528,56 @@
                         @endforelse
 
                     </div>
+
+
+                    @php
+                        $review = $booking->hotelReview ?? null;
+                        $reviewEligible = $canReviewBooking ?? in_array($booking->status, ['checked_out', 'completed'], true);
+                    @endphp
+
+                    <div class="settings-section mb-4">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+                            <div>
+                                <h3 class="h6 fw-bold mb-1">Đánh giá khách sạn</h3>
+                                <p class="text-muted small mb-0">Đánh giá chỉ mở sau khi đơn đã trả phòng/hoàn tất.</p>
+                            </div>
+                            @if ($review)
+                                <span class="badge {{ $review->status_badge_class }}">{{ $review->status_label }}</span>
+                            @endif
+                        </div>
+
+                        @if ($review)
+                            <div class="border rounded-3 p-3">
+                                <div class="text-warning mb-1">{{ $review->star_text }} <span class="text-muted small">{{ number_format((float) $review->rating, 1) }}/5</span></div>
+                                @if ($review->title)
+                                    <div class="fw-semibold mb-1">{{ $review->title }}</div>
+                                @endif
+                                <p class="small text-muted mb-2">{{ $review->comment }}</p>
+
+                                @if ($review->admin_reply)
+                                    <div class="alert alert-info small mb-2">
+                                        <div class="fw-semibold mb-1">Phản hồi từ khách sạn</div>
+                                        {{ $review->admin_reply }}
+                                    </div>
+                                @endif
+
+                                <a href="{{ route('reviews.edit', $review) }}" class="btn btn-outline-secondary btn-sm w-100">
+                                    <i class="bx bx-edit me-1"></i>
+                                    Chỉnh sửa đánh giá
+                                </a>
+                            </div>
+                        @elseif ($reviewEligible)
+                            <a href="{{ route('bookings.reviews.create', $booking) }}" class="btn btn-primary w-100">
+                                <i class="bx bx-star me-1"></i>
+                                Đánh giá kỳ lưu trú
+                            </a>
+                        @else
+                            <div class="alert alert-light border small mb-0">
+                                Bạn sẽ có thể đánh giá sau khi đơn phòng được trả phòng/hoàn tất.
+                            </div>
+                        @endif
+                    </div>
+
 
 
                     @if (in_array($booking->status, ['pending', 'confirmed']))

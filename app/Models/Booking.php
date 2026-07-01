@@ -90,6 +90,17 @@ class Booking extends Model
         return $this->hasMany(BookingLog::class)->latest();
     }
 
+    public function hotelReview()
+    {
+        return $this->hasOne(HotelReview::class);
+    }
+
+    public function canBeReviewed(): bool
+    {
+        return in_array($this->status, ['checked_out', 'completed'], true);
+    }
+
+
     public function payments()
     {
         return $this->hasMany(BookingPayment::class);
@@ -105,6 +116,41 @@ class Booking extends Model
         return $this->hasMany(BookingPromotionServiceOffer::class);
     }
 
+    public function promotionRoomUpgrades()
+    {
+        return $this->hasMany(BookingPromotionRoomUpgrade::class);
+    }
+
+
+    public function staffAssignments()
+    {
+        return $this->hasMany(BookingStaffAssignment::class);
+    }
+
+    public function activeStaffAssignments()
+    {
+        return $this->hasMany(BookingStaffAssignment::class)->where('status', 'active');
+    }
+
+    public function assignedStaff()
+    {
+        return $this->belongsToMany(User::class, 'booking_staff_assignments', 'booking_id', 'staff_id')
+            ->withPivot(['role_in_booking', 'assigned_by', 'status', 'note'])
+            ->withTimestamps();
+    }
+
+    public function isAssignedTo(?int $userId): bool
+    {
+        if (!$userId) {
+            return false;
+        }
+
+        return $this->staffAssignments()
+            ->where('staff_id', $userId)
+            ->where('status', 'active')
+            ->exists();
+    }
+
     public function promotions()
     {
         return $this->belongsToMany(Promotion::class, 'booking_promotions')
@@ -115,6 +161,7 @@ class Booking extends Model
                 'discount_value_snapshot',
                 'money_discount_amount',
                 'service_discount_amount',
+                'room_upgrade_discount_amount',
                 'discount_amount',
                 'applied_by',
                 'applied_channel',

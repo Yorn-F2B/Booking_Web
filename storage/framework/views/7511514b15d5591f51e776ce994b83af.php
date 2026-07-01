@@ -151,8 +151,14 @@
                                     <span class="badge text-bg-info">Đã nhận phòng</span>
                                 <?php elseif($booking->status == 'checked_out'): ?>
                                     <span class="badge text-bg-success">Đã trả phòng</span>
-                                <?php else: ?>
+                                <?php elseif($booking->status == 'completed'): ?>
+                                    <span class="badge text-bg-success">Đã hoàn tất</span>
+                                <?php elseif($booking->status == 'inspection_requested'): ?>
+                                    <span class="badge text-bg-secondary">Đang kiểm tra phòng</span>
+                                <?php elseif($booking->status == 'cancelled'): ?>
                                     <span class="badge text-bg-danger">Đã hủy</span>
+                                <?php else: ?>
+                                    <span class="badge text-bg-secondary"><?php echo e($booking->status); ?></span>
                                 <?php endif; ?>
                             </div>
 
@@ -362,14 +368,12 @@
                                                         data-name="<?php echo e($service->name); ?>"
                                                         data-price="<?php echo e($service->price); ?>"
                                                         data-unit="<?php echo e($service->unit); ?>"
-                                                        data-type="<?php echo e($service->type); ?>">
+                                                        data-type="<?php echo e($service->type); ?>"
+                                                        data-group="<?php echo e($service->service_group ?? 'general'); ?>">
                                                         <?php echo e($service->name); ?> - <?php echo e(number_format((float) $service->price, 0, ',', '.')); ?>đ / <?php echo e($service->unit); ?>
 
-                                                        <?php if($service->type == 'minibar'): ?>
-                                                            - Minibar
-                                                        <?php else: ?>
-                                                            - Dịch vụ
-                                                        <?php endif; ?>
+                                                        - <?php echo e($service->group_label ?? ($service->type == 'minibar' ? 'Minibar' : 'Dịch vụ')); ?>
+
                                                     </option>
                                                 <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
                                             </select>
@@ -538,6 +542,57 @@
                     </div>
 
 
+                    <?php
+                        $review = $booking->hotelReview ?? null;
+                        $reviewEligible = $canReviewBooking ?? in_array($booking->status, ['checked_out', 'completed'], true);
+                    ?>
+
+                    <div class="settings-section mb-4">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+                            <div>
+                                <h3 class="h6 fw-bold mb-1">Đánh giá khách sạn</h3>
+                                <p class="text-muted small mb-0">Đánh giá chỉ mở sau khi đơn đã trả phòng/hoàn tất.</p>
+                            </div>
+                            <?php if($review): ?>
+                                <span class="badge <?php echo e($review->status_badge_class); ?>"><?php echo e($review->status_label); ?></span>
+                            <?php endif; ?>
+                        </div>
+
+                        <?php if($review): ?>
+                            <div class="border rounded-3 p-3">
+                                <div class="text-warning mb-1"><?php echo e($review->star_text); ?> <span class="text-muted small"><?php echo e(number_format((float) $review->rating, 1)); ?>/5</span></div>
+                                <?php if($review->title): ?>
+                                    <div class="fw-semibold mb-1"><?php echo e($review->title); ?></div>
+                                <?php endif; ?>
+                                <p class="small text-muted mb-2"><?php echo e($review->comment); ?></p>
+
+                                <?php if($review->admin_reply): ?>
+                                    <div class="alert alert-info small mb-2">
+                                        <div class="fw-semibold mb-1">Phản hồi từ khách sạn</div>
+                                        <?php echo e($review->admin_reply); ?>
+
+                                    </div>
+                                <?php endif; ?>
+
+                                <a href="<?php echo e(route('reviews.edit', $review)); ?>" class="btn btn-outline-secondary btn-sm w-100">
+                                    <i class="bx bx-edit me-1"></i>
+                                    Chỉnh sửa đánh giá
+                                </a>
+                            </div>
+                        <?php elseif($reviewEligible): ?>
+                            <a href="<?php echo e(route('bookings.reviews.create', $booking)); ?>" class="btn btn-primary w-100">
+                                <i class="bx bx-star me-1"></i>
+                                Đánh giá kỳ lưu trú
+                            </a>
+                        <?php else: ?>
+                            <div class="alert alert-light border small mb-0">
+                                Bạn sẽ có thể đánh giá sau khi đơn phòng được trả phòng/hoàn tất.
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+
+
                     <?php if(in_array($booking->status, ['pending', 'confirmed'])): ?>
 
                         <div class="settings-section">
@@ -616,4 +671,5 @@
     </script>
 
 <?php $__env->stopSection(); ?>
+
 <?php echo $__env->make('layouts.user', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH C:\xampp\htdocs\booking-web\resources\views/user/pages/booking-detail.blade.php ENDPATH**/ ?>

@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\BookingPromotion;
 use App\Models\Promotion;
+use App\Models\PromotionRoomUpgradeOffer;
+use App\Models\RoomCategory;
 use App\Models\Service;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -29,11 +31,12 @@ class PromotionController extends Controller
     public function index(Request $request)
     {
         $query = Promotion::query()
-            ->with(['serviceOffers.service'])
+            ->with(['serviceOffers.service', 'roomUpgradeOffers.fromCategory', 'roomUpgradeOffers.toCategory'])
             ->withCount('usages')
             ->withSum('usages as total_discount_used', 'discount_amount')
             ->withSum('usages as total_money_discount_used', 'money_discount_amount')
             ->withSum('usages as total_service_discount_used', 'service_discount_amount')
+            ->withSum('usages as total_room_upgrade_discount_used', 'room_upgrade_discount_amount')
             ->latest();
 
         if ($request->filled('keyword')) {
@@ -45,6 +48,12 @@ class PromotionController extends Controller
                     ->orWhere('description', 'like', '%' . $keyword . '%')
                     ->orWhereHas('serviceOffers.service', function ($serviceQuery) use ($keyword) {
                         $serviceQuery->where('name', 'like', '%' . $keyword . '%');
+                    })
+                    ->orWhereHas('roomUpgradeOffers.fromCategory', function ($categoryQuery) use ($keyword) {
+                        $categoryQuery->where('name', 'like', '%' . $keyword . '%');
+                    })
+                    ->orWhereHas('roomUpgradeOffers.toCategory', function ($categoryQuery) use ($keyword) {
+                        $categoryQuery->where('name', 'like', '%' . $keyword . '%');
                     });
             });
         }
@@ -116,6 +125,7 @@ class PromotionController extends Controller
                 'is_stackable' => true,
             ]),
             'services' => $this->activeOfferServices(),
+            'roomCategories' => $this->activeRoomCategories(),
             'promotionTypes' => $this->promotionTypes,
             'discountTypes' => $this->discountTypes,
         ]);
@@ -125,14 +135,16 @@ class PromotionController extends Controller
     {
         $data = $this->validatedPromotionData($request);
         $serviceOffers = $this->validatedServiceOffers($request);
+        $roomUpgradeOffers = $this->validatedRoomUpgradeOffers($request, $data);
 
-        $this->ensurePromotionHasValue($data, $serviceOffers);
+        $this->ensurePromotionHasValue($data, $serviceOffers, $roomUpgradeOffers);
 
-        DB::transaction(function () use ($data, $serviceOffers) {
+        DB::transaction(function () use ($data, $serviceOffers, $roomUpgradeOffers) {
             $data['created_by'] = Auth::id();
 
             $promotion = Promotion::create($data);
             $this->syncServiceOffers($promotion, $serviceOffers);
+            $this->syncRoomUpgradeOffers($promotion, $roomUpgradeOffers);
         });
 
         return redirect()
@@ -142,12 +154,13 @@ class PromotionController extends Controller
 
     public function show(Promotion $promotion)
     {
-        $promotion->load(['creator', 'serviceOffers.service']);
+        $promotion->load(['creator', 'serviceOffers.service', 'roomUpgradeOffers.fromCategory', 'roomUpgradeOffers.toCategory']);
 
         $usages = BookingPromotion::with([
             'booking.customer',
             'user',
             'serviceOffers',
+            'roomUpgradeOffers',
         ])
             ->where('promotion_id', $promotion->id)
             ->latest()
@@ -162,12 +175,16 @@ class PromotionController extends Controller
         $totalServiceDiscount = BookingPromotion::where('promotion_id', $promotion->id)
             ->sum('service_discount_amount');
 
+        $totalRoomUpgradeDiscount = BookingPromotion::where('promotion_id', $promotion->id)
+            ->sum('room_upgrade_discount_amount');
+
         return view('admin.pages.promotions.show', [
             'promotion' => $promotion,
             'usages' => $usages,
             'totalDiscount' => $totalDiscount,
             'totalMoneyDiscount' => $totalMoneyDiscount,
             'totalServiceDiscount' => $totalServiceDiscount,
+            'totalRoomUpgradeDiscount' => $totalRoomUpgradeDiscount,
             'promotionTypes' => $this->promotionTypes,
             'discountTypes' => $this->discountTypes,
         ]);
@@ -175,11 +192,12 @@ class PromotionController extends Controller
 
     public function edit(Promotion $promotion)
     {
-        $promotion->load(['serviceOffers.service']);
+        $promotion->load(['serviceOffers.service', 'roomUpgradeOffers.fromCategory', 'roomUpgradeOffers.toCategory']);
 
         return view('admin.pages.promotions.edit', [
             'promotion' => $promotion,
             'services' => $this->activeOfferServices(),
+            'roomCategories' => $this->activeRoomCategories(),
             'promotionTypes' => $this->promotionTypes,
             'discountTypes' => $this->discountTypes,
         ]);
@@ -189,12 +207,14 @@ class PromotionController extends Controller
     {
         $data = $this->validatedPromotionData($request, $promotion);
         $serviceOffers = $this->validatedServiceOffers($request);
+        $roomUpgradeOffers = $this->validatedRoomUpgradeOffers($request, $data);
 
-        $this->ensurePromotionHasValue($data, $serviceOffers);
+        $this->ensurePromotionHasValue($data, $serviceOffers, $roomUpgradeOffers);
 
-        DB::transaction(function () use ($promotion, $data, $serviceOffers) {
+        DB::transaction(function () use ($promotion, $data, $serviceOffers, $roomUpgradeOffers) {
             $promotion->update($data);
             $this->syncServiceOffers($promotion, $serviceOffers);
+            $this->syncRoomUpgradeOffers($promotion, $roomUpgradeOffers);
         });
 
         return redirect()
@@ -382,11 +402,98 @@ class PromotionController extends Controller
         return $rows->all();
     }
 
-    private function ensurePromotionHasValue(array $data, array $serviceOffers): void
+
+
+    private function validatedRoomUpgradeOffers(Request $request, array $promotionData): array
     {
-        if ((float) ($data['discount_value'] ?? 0) <= 0 && empty($serviceOffers)) {
+        $validated = $request->validate([
+            'room_upgrade_offers' => 'nullable|array',
+            'room_upgrade_offers.*.enabled' => 'nullable|boolean',
+            'room_upgrade_offers.*.upgrade_kind' => ['nullable', Rule::in([
+                PromotionRoomUpgradeOffer::KIND_INCIDENT_SUPPORT,
+                PromotionRoomUpgradeOffer::KIND_PAID_UPSELL,
+            ])],
+            'room_upgrade_offers.*.from_room_category_id' => 'nullable|exists:room_categories,id',
+            'room_upgrade_offers.*.to_room_category_id' => 'nullable|exists:room_categories,id',
+            'room_upgrade_offers.*.cover_type' => ['nullable', Rule::in([
+                PromotionRoomUpgradeOffer::COVER_FULL_DIFFERENCE,
+                PromotionRoomUpgradeOffer::COVER_PERCENT_DIFFERENCE,
+                PromotionRoomUpgradeOffer::COVER_FIXED_AMOUNT,
+            ])],
+            'room_upgrade_offers.*.cover_value' => 'nullable|numeric|min:0',
+            'room_upgrade_offers.*.max_cover_amount' => 'nullable|numeric|min:0',
+            'room_upgrade_offers.*.auto_apply_on_upgrade' => 'nullable|boolean',
+            'room_upgrade_offers.*.note' => 'nullable|string|max:1000',
+        ], [
+            'room_upgrade_offers.*.from_room_category_id.exists' => 'Có hạng phòng gốc không hợp lệ.',
+            'room_upgrade_offers.*.to_room_category_id.exists' => 'Có hạng phòng nâng hạng không hợp lệ.',
+        ]);
+
+        $rows = collect($validated['room_upgrade_offers'] ?? [])
+            ->filter(fn ($row) => !empty($row['enabled']))
+            ->map(function ($row, $index) use ($request, $promotionData) {
+                $upgradeKind = $row['upgrade_kind'] ?? PromotionRoomUpgradeOffer::KIND_PAID_UPSELL;
+                $coverType = $row['cover_type'] ?? PromotionRoomUpgradeOffer::COVER_PERCENT_DIFFERENCE;
+                $coverValue = (float) ($row['cover_value'] ?? 0);
+
+                if (
+                    $upgradeKind === PromotionRoomUpgradeOffer::KIND_INCIDENT_SUPPORT
+                    && $promotionData['promotion_type'] !== Promotion::TYPE_SUPPORT
+                ) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'room_upgrade_offers.' . $index . '.upgrade_kind' => 'Hỗ trợ nâng hạng do sự cố phải dùng loại mã hỗ trợ.',
+                    ]);
+                }
+
+                if (
+                    $upgradeKind === PromotionRoomUpgradeOffer::KIND_PAID_UPSELL
+                    && $promotionData['promotion_type'] !== Promotion::TYPE_CONDITIONAL
+                ) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'room_upgrade_offers.' . $index . '.upgrade_kind' => 'Mã kích thích khách nâng hạng phải dùng loại mã điều kiện.',
+                    ]);
+                }
+
+                if ($coverType === PromotionRoomUpgradeOffer::COVER_PERCENT_DIFFERENCE && $coverValue > 100) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'room_upgrade_offers.' . $index . '.cover_value' => 'Ưu đãi phần chênh theo % không được vượt quá 100%.',
+                    ]);
+                }
+
+                if ($upgradeKind === PromotionRoomUpgradeOffer::KIND_INCIDENT_SUPPORT) {
+                    $coverType = PromotionRoomUpgradeOffer::COVER_FULL_DIFFERENCE;
+                    $coverValue = 100;
+                }
+
+                if ($coverType !== PromotionRoomUpgradeOffer::COVER_FULL_DIFFERENCE && $coverValue <= 0) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'room_upgrade_offers.' . $index . '.cover_value' => 'Giá trị ưu đãi nâng hạng phải lớn hơn 0.',
+                    ]);
+                }
+
+                return [
+                    'upgrade_kind' => $upgradeKind,
+                    'from_room_category_id' => $row['from_room_category_id'] ?: null,
+                    'to_room_category_id' => $row['to_room_category_id'] ?: null,
+                    'cover_type' => $coverType,
+                    'cover_value' => $coverValue,
+                    'max_cover_amount' => $this->nullableNumber($row['max_cover_amount'] ?? null),
+                    'requires_hotel_fault_reason' => $upgradeKind === PromotionRoomUpgradeOffer::KIND_INCIDENT_SUPPORT,
+                    'guest_must_pay_extra' => $upgradeKind === PromotionRoomUpgradeOffer::KIND_PAID_UPSELL,
+                    'auto_apply_on_upgrade' => $request->boolean('room_upgrade_offers.' . $index . '.auto_apply_on_upgrade'),
+                    'note' => $row['note'] ?? null,
+                ];
+            })
+            ->values();
+
+        return $rows->all();
+    }
+
+    private function ensurePromotionHasValue(array $data, array $serviceOffers, array $roomUpgradeOffers = []): void
+    {
+        if ((float) ($data['discount_value'] ?? 0) <= 0 && empty($serviceOffers) && empty($roomUpgradeOffers)) {
             throw \Illuminate\Validation\ValidationException::withMessages([
-                'discount_value' => 'Mã ưu đãi phải có giảm tiền hoặc ít nhất một ưu đãi dịch vụ.',
+                'discount_value' => 'Mã ưu đãi phải có giảm tiền, ưu đãi dịch vụ hoặc ưu đãi nâng hạng phòng.',
             ]);
         }
     }
@@ -397,6 +504,15 @@ class PromotionController extends Controller
 
         foreach ($serviceOffers as $serviceOffer) {
             $promotion->serviceOffers()->create($serviceOffer);
+        }
+    }
+
+    private function syncRoomUpgradeOffers(Promotion $promotion, array $roomUpgradeOffers): void
+    {
+        $promotion->roomUpgradeOffers()->delete();
+
+        foreach ($roomUpgradeOffers as $roomUpgradeOffer) {
+            $promotion->roomUpgradeOffers()->create($roomUpgradeOffer);
         }
     }
 
@@ -433,6 +549,14 @@ class PromotionController extends Controller
         if (!empty($data)) {
             $request->merge($data);
         }
+    }
+
+    private function activeRoomCategories()
+    {
+        return RoomCategory::where('status', 'active')
+            ->orderBy('price')
+            ->orderBy('name')
+            ->get();
     }
 
     private function activeOfferServices()

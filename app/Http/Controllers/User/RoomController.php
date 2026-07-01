@@ -4,8 +4,10 @@ namespace App\Http\Controllers\User;
 
 use App\Http\Controllers\Controller;
 use App\Models\RoomCategory;
+use App\Models\HotelReview;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class RoomController extends Controller
@@ -156,6 +158,17 @@ class RoomController extends Controller
             ->orderBy('name')
             ->get();
 
+        $roomCategoryReviewStats = HotelReview::approved()
+            ->select(
+                'room_category_id',
+                DB::raw('COUNT(*) as review_count'),
+                DB::raw('AVG(rating) as average_rating')
+            )
+            ->whereIn('room_category_id', $roomCategories->pluck('id'))
+            ->groupBy('room_category_id')
+            ->get()
+            ->keyBy('room_category_id');
+
         return view('user.pages.rooms', [
             'roomCategories' => $roomCategories,
             'filterRoomCategories' => $filterRoomCategories,
@@ -176,6 +189,7 @@ class RoomController extends Controller
             'minOnlineCheckInDate' => $minOnlineCheckInDate,
             'minOnlineCheckOutDate' => $minOnlineCheckOutDate,
             'onlineBookingClosedToday' => $onlineBookingClosedToday,
+            'roomCategoryReviewStats' => $roomCategoryReviewStats,
         ]);
     }
 
@@ -187,11 +201,24 @@ class RoomController extends Controller
         $minOnlineCheckOutDate = $this->getOnlineMinCheckOutDate($minOnlineCheckInDate);
         $onlineBookingClosedToday = $this->isOnlineBookingClosedToday();
 
+        $approvedReviews = HotelReview::approved()
+            ->with(['customer', 'booking.roomCategory', 'replier'])
+            ->where('room_category_id', $roomCategory->id)
+            ->latest('approved_at')
+            ->paginate(6, ['*'], 'reviews_page');
+
+        $reviewStats = HotelReview::approved()
+            ->where('room_category_id', $roomCategory->id)
+            ->selectRaw('COUNT(*) as review_count, AVG(rating) as average_rating, AVG(cleanliness_rating) as cleanliness_average, AVG(service_rating) as service_average, AVG(location_rating) as location_average, AVG(value_rating) as value_average')
+            ->first();
+
         return view('user.pages.room-detail', compact(
             'roomCategory',
             'minOnlineCheckInDate',
             'minOnlineCheckOutDate',
-            'onlineBookingClosedToday'
+            'onlineBookingClosedToday',
+            'approvedReviews',
+            'reviewStats'
         ));
     }
 

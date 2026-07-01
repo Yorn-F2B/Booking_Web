@@ -8,6 +8,7 @@ export default defineConfig({
                 'resources/css/app.css',
                 'resources/js/app.js',
                 'resources/js/admin/bookings-realtime.js',
+                'resources/js/user/realtime-user.js',
             ],
             refresh: true,
         }),

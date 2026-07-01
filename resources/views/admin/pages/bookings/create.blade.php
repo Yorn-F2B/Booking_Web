@@ -573,22 +573,76 @@
 
                             <div class="row g-3">
 
-                                <div class="col-md-6">
-                                    <label class="form-label">Tiền cọc</label>
+                                <div class="col-md-4">
+                                    <label class="form-label">Phương thức thanh toán</label>
+                                    <select name="payment_method" id="paymentMethod"
+                                        class="form-select @error('payment_method') is-invalid @enderror">
+                                        <option value="none" {{ old('payment_method', 'none') == 'none' ? 'selected' : '' }}>
+                                            Chưa thu tiền
+                                        </option>
+                                        <option value="cash" {{ old('payment_method') == 'cash' ? 'selected' : '' }}>
+                                            Tiền mặt tại quầy
+                                        </option>
+                                        <option value="bank_transfer" {{ old('payment_method') == 'bank_transfer' ? 'selected' : '' }}>
+                                            Chuyển khoản tại quầy
+                                        </option>
+                                        <option value="vnpay" {{ old('payment_method') == 'vnpay' ? 'selected' : '' }}>
+                                            Online VNPay
+                                        </option>
+                                    </select>
+
+                                    @error('payment_method')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+
+                                    <div class="booking-help-text mt-1">
+                                        Có thể tạo booking chưa thu tiền, thu trực tiếp, hoặc chuyển khách sang VNPay.
+                                    </div>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label">Kiểu thanh toán</label>
+                                    <select name="payment_type" id="paymentType"
+                                        class="form-select @error('payment_type') is-invalid @enderror">
+                                        <option value="" {{ old('payment_type') === null ? 'selected' : '' }}>
+                                            -- Chọn sau --
+                                        </option>
+                                        <option value="deposit_30" {{ old('payment_type') == 'deposit_30' ? 'selected' : '' }}>
+                                            Thu cọc 30%
+                                        </option>
+                                        <option value="full_100" {{ old('payment_type') == 'full_100' ? 'selected' : '' }}>
+                                            Thu đủ 100%
+                                        </option>
+                                        <option value="custom" {{ old('payment_type') == 'custom' ? 'selected' : '' }}>
+                                            Nhập số tiền thực thu
+                                        </option>
+                                    </select>
+
+                                    @error('payment_type')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+
+                                    <div class="booking-help-text mt-1" id="paymentTypeHelp">
+                                        Chọn phương thức thanh toán để hệ thống tự tính số tiền cần thu.
+                                    </div>
+                                </div>
+
+                                <div class="col-md-4" id="customPaymentAmountBox">
+                                    <label class="form-label">Số tiền thu thực tế</label>
                                     <input type="number" name="deposit_amount" id="depositAmount"
                                         class="form-control @error('deposit_amount') is-invalid @enderror"
-                                        value="{{ old('deposit_amount', 0) }}" min="0">
+                                        value="{{ old('deposit_amount', 0) }}" min="0" step="1000">
 
                                     @error('deposit_amount')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
 
-                                    <div class="booking-help-text mt-1">
-                                        Nếu nhập lớn hơn 0, trạng thái thanh toán sẽ là "Đã cọc".
+                                    <div class="booking-help-text mt-1" id="paymentAmountHelp">
+                                        Chỉ nhập khi chọn kiểu "Nhập số tiền thực thu".
                                     </div>
                                 </div>
 
-                                <div class="col-md-6">
+                                <div class="col-md-12">
                                     <div class="booking-total-box">
                                         <div class="booking-help-text">Tổng tiền tạm tính</div>
                                         <strong id="estimatedTotalText">0đ</strong>
@@ -637,8 +691,8 @@
                                             -
                                             {{ number_format($service->price, 0, ',', '.') }}đ / {{ $service->unit }}
                                             <span
-                                                class="badge bg-{{ $service->type == 'minibar' ? 'warning text-dark' : 'primary' }}">
-                                                {{ $service->type == 'minibar' ? 'Minibar' : 'Dịch vụ' }}
+                                                class="badge bg-{{ ($service->service_group ?? '') == 'vehicle' ? 'dark' : (($service->type == 'minibar') ? 'warning text-dark' : 'primary') }}">
+                                                {{ $service->group_label ?? ($service->type == 'minibar' ? 'Minibar' : 'Dịch vụ') }}
                                             </span>
                                         </label>
                                     </div>
@@ -746,6 +800,27 @@
                                                                 if ($promotion->discount_type == 'percent' && (float) $promotion->max_discount_amount > 0) {
                                                                     $promotionDiscountText .= ' - tối đa ' . number_format((float) $promotion->max_discount_amount, 0, ',', '.') . 'đ';
                                                                 }
+
+
+                                                                $promotionServiceOffersPayload = $promotion->serviceOffers
+                                                                    ->map(function ($offer) {
+                                                                        return [
+                                                                            'service_id' => $offer->service_id,
+                                                                            'service_name' => $offer->service->name ?? 'Dịch vụ',
+                                                                            'service_unit' => $offer->service->unit ?? '',
+                                                                            'service_price' => (float) ($offer->service->price ?? 0),
+                                                                            'service_type' => $offer->service->type ?? 'service',
+                                                                            'discount_type' => $offer->discount_type,
+                                                                            'discount_value' => (float) $offer->discount_value,
+                                                                            'quantity' => (int) $offer->quantity,
+                                                                            'auto_add_service' => (bool) $offer->auto_add_service,
+                                                                        ];
+                                                                    })
+                                                                    ->values();
+
+                                                                $promotionServiceOffersJson = $promotionServiceOffersPayload->toJson(
+                                                                    JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+                                                                );
                                                             @endphp
 
                                                             <label class="promotion-card mb-0">
@@ -760,19 +835,7 @@
                                                                         data-discount-type="{{ $promotion->discount_type }}"
                                                                         data-discount-value="{{ (float) $promotion->discount_value }}"
                                                                         data-max-discount="{{ (float) $promotion->max_discount_amount }}"
-                                                                        data-service-offers='@json($promotion->serviceOffers->map(function ($offer) {
-                                                                            return [
-                                                                                'service_id' => $offer->service_id,
-                                                                                'service_name' => $offer->service->name ?? 'Dịch vụ',
-                                                                                'service_unit' => $offer->service->unit ?? '',
-                                                                                'service_price' => (float) ($offer->service->price ?? 0),
-                                                                                'service_type' => $offer->service->type ?? 'service',
-                                                                                'discount_type' => $offer->discount_type,
-                                                                                'discount_value' => (float) $offer->discount_value,
-                                                                                'quantity' => (int) $offer->quantity,
-                                                                                'auto_add_service' => (bool) $offer->auto_add_service,
-                                                                            ];
-                                                                        })->values())'
+                                                                        data-service-offers="{{ e($promotionServiceOffersJson) }}"
                                                                         @checked(in_array($promotion->code, old('promotion_codes', [])))>
 
                                                                     <div class="ms-1">
@@ -804,6 +867,12 @@
                                                                             <div class="promotion-meta mt-1 text-success">
                                                                                 Dịch vụ ưu đãi:
                                                                                 {{ $promotion->serviceOffers->map(fn ($offer) => $offer->offer_label)->implode(' · ') }}
+                                                                            </div>
+                                                                        @endif
+                                                                        @if ($promotion->roomUpgradeOffers->count() > 0)
+                                                                            <div class="promotion-meta mt-1 text-primary">
+                                                                                Nâng hạng:
+                                                                                {{ $promotion->roomUpgradeOffers->map(fn ($offer) => $offer->kind_label . ' - ' . $offer->cover_label)->implode(' · ') }}
                                                                             </div>
                                                                         @endif
                                                                     </div>
@@ -929,6 +998,13 @@
             const promotionSubtotalText = document.getElementById('promotionSubtotalText');
             const promotionDiscountText = document.getElementById('promotionDiscountText');
             const promotionFinalText = document.getElementById('promotionFinalText');
+
+            const paymentMethod = document.getElementById('paymentMethod');
+            const paymentType = document.getElementById('paymentType');
+            const depositAmount = document.getElementById('depositAmount');
+            const customPaymentAmountBox = document.getElementById('customPaymentAmountBox');
+            const paymentTypeHelp = document.getElementById('paymentTypeHelp');
+            const paymentAmountHelp = document.getElementById('paymentAmountHelp');
 
             const hourlyPreviewWrapper = document.getElementById('hourlyPreviewWrapper');
             const hourlyPreviewBox = document.getElementById('hourlyPreviewBox');
@@ -1731,11 +1807,90 @@
                 const total = promotionTotals.finalTotal;
 
                 estimatedTotalText.innerText = formatMoney(total);
+                updatePaymentUi(total);
 
                 if (roomTotal <= 0 && serviceTotal > 0) {
                     nightCountText.innerText = 'Đã cộng dịch vụ đặt trước. Chọn hạng phòng và thời gian lưu trú để tính tiền phòng.';
                 } else {
                     nightCountText.innerText = summaryText;
+                }
+            }
+
+            function updatePaymentUi(total) {
+                if (!paymentMethod || !paymentType || !depositAmount) {
+                    return;
+                }
+
+                const method = paymentMethod.value || 'none';
+                const type = paymentType.value || '';
+                const customOption = paymentType.querySelector('option[value="custom"]');
+                const deposit30 = Math.round(Number(total || 0) * 0.3);
+                const full100 = Math.max(0, Number(total || 0));
+
+                if (method === 'none') {
+                    paymentType.value = '';
+                    paymentType.disabled = true;
+                    depositAmount.disabled = true;
+                    depositAmount.value = 0;
+
+                    if (customPaymentAmountBox) {
+                        customPaymentAmountBox.classList.add('d-none');
+                    }
+
+                    if (paymentTypeHelp) {
+                        paymentTypeHelp.innerText = 'Booking sẽ được tạo ở trạng thái chưa thanh toán.';
+                    }
+
+                    return;
+                }
+
+                paymentType.disabled = false;
+
+                if (!paymentType.value) {
+                    paymentType.value = 'deposit_30';
+                }
+
+                if (method === 'vnpay' && customOption) {
+                    customOption.disabled = true;
+
+                    if (paymentType.value === 'custom') {
+                        paymentType.value = 'deposit_30';
+                    }
+                } else if (customOption) {
+                    customOption.disabled = false;
+                }
+
+                const activeType = paymentType.value;
+                const isCustom = activeType === 'custom' && method !== 'vnpay';
+
+                if (customPaymentAmountBox) {
+                    customPaymentAmountBox.classList.toggle('d-none', !isCustom);
+                }
+
+                depositAmount.disabled = !isCustom;
+
+                if (!isCustom) {
+                    depositAmount.value = 0;
+                }
+
+                if (paymentTypeHelp) {
+                    if (method === 'vnpay') {
+                        paymentTypeHelp.innerText = activeType === 'full_100'
+                            ? 'Sau khi tạo booking, hệ thống sẽ chuyển sang VNPay để khách thanh toán đủ ' + formatMoney(full100) + '.'
+                            : 'Sau khi tạo booking, hệ thống sẽ chuyển sang VNPay để khách đặt cọc 30% khoảng ' + formatMoney(deposit30) + '.';
+                    } else if (activeType === 'full_100') {
+                        paymentTypeHelp.innerText = 'Ghi nhận thu đủ số còn lại: ' + formatMoney(full100) + '.';
+                    } else if (activeType === 'custom') {
+                        paymentTypeHelp.innerText = 'Lễ tân nhập đúng số tiền khách thực trả tại quầy.';
+                    } else {
+                        paymentTypeHelp.innerText = 'Ghi nhận cọc 30% khoảng ' + formatMoney(deposit30) + '.';
+                    }
+                }
+
+                if (paymentAmountHelp) {
+                    paymentAmountHelp.innerText = isCustom
+                        ? 'Số tiền nhập không được lớn hơn tổng tiền sau giảm giá.'
+                        : 'Ô này chỉ bật khi chọn kiểu nhập số tiền thực thu.';
                 }
             }
 
@@ -1794,6 +1949,14 @@
 
             roomCategorySelect.addEventListener('change', refreshBookingForm);
             roomQuantity.addEventListener('input', refreshBookingForm);
+
+            if (paymentMethod) {
+                paymentMethod.addEventListener('change', refreshBookingForm);
+            }
+
+            if (paymentType) {
+                paymentType.addEventListener('change', refreshBookingForm);
+            }
 
             serviceRows.forEach(function (row) {
                 const checkbox = row.querySelector('.service-check');

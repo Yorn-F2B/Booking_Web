@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\InspectionApprovalController;
 use App\Http\Controllers\Admin\HousekeepingController;
 use App\Http\Controllers\Admin\BookingCreateController;
 use App\Http\Controllers\Admin\RoomAvailabilityController;
+use App\Http\Controllers\Payment\VnpayController;
 
 /*
 |--------------------------------------------------------------------------
@@ -95,17 +96,11 @@ Route::patch('bookings/{booking}/service-items/{bookingServiceItem}', [BookingCo
 Route::delete('bookings/{booking}/service-items/{bookingServiceItem}', [BookingController::class, 'destroyServiceItem'])
     ->name('admin.bookings.service-items.destroy');
 
-/*
-|--------------------------------------------------------------------------
-| Housekeeping
-|--------------------------------------------------------------------------
-*/
+Route::post('bookings/{booking}/payments', [BookingController::class, 'recordPayment'])
+    ->name('admin.bookings.payments.store');
 
-Route::get('housekeeping', [HousekeepingController::class, 'index'])
-    ->name('admin.housekeeping.index');
-
-Route::patch('housekeeping/{room}/mark-available', [HousekeepingController::class, 'markAvailable'])
-    ->name('admin.housekeeping.mark-available');
+Route::post('bookings/{booking}/vnpay', [VnpayController::class, 'adminCreate'])
+    ->name('admin.bookings.vnpay.create');
 
 /*
 |--------------------------------------------------------------------------

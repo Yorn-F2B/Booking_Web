@@ -5,11 +5,10 @@ namespace App\Events;
 use App\Models\Room;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
-use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class RoomRealtimeUpdated implements ShouldBroadcastNow, ShouldDispatchAfterCommit
+class RoomRealtimeUpdated implements ShouldBroadcastNow
 {
     use Dispatchable, SerializesModels;
 
@@ -17,7 +16,6 @@ class RoomRealtimeUpdated implements ShouldBroadcastNow, ShouldDispatchAfterComm
         public Room $room,
         public string $action = 'updated'
     ) {
-        $this->room->loadMissing('category');
     }
 
     public function broadcastOn(): array
@@ -35,11 +33,19 @@ class RoomRealtimeUpdated implements ShouldBroadcastNow, ShouldDispatchAfterComm
 
     public function broadcastWith(): array
     {
+        $category = null;
+
+        if ($this->room->relationLoaded('category')) {
+            $category = $this->room->category;
+        } elseif ($this->room->relationLoaded('roomCategory')) {
+            $category = $this->room->roomCategory;
+        }
+
         return [
             'id' => $this->room->id,
             'room_number' => $this->room->room_number,
             'floor_number' => $this->room->floor_number,
-            'room_category' => $this->room->category->name ?? 'Không xác định',
+            'room_category' => $category->name ?? 'Không xác định',
             'status' => $this->room->status,
             'status_label' => $this->statusLabel($this->room->status),
             'action' => $this->action,
@@ -53,9 +59,9 @@ class RoomRealtimeUpdated implements ShouldBroadcastNow, ShouldDispatchAfterComm
             'available' => 'Trống',
             'reserved' => 'Đã đặt',
             'occupied' => 'Đang ở',
+            'inspection' => 'Chờ kiểm tra',
             'cleaning' => 'Đang dọn',
             'maintenance' => 'Bảo trì',
-            'inspection' => 'Chờ kiểm tra',
             default => 'Không xác định',
         };
     }

@@ -13,7 +13,11 @@ use App\Models\RoomCategory;
 use App\Models\Service;
 use App\Models\BookingServiceItem;
 use App\Models\BookingLog;
+use App\Models\BookingPayment;
+use App\Models\PromotionRoomUpgradeOffer;
+use App\Services\PromotionService;
 use Illuminate\Support\Facades\Auth;
+use App\Support\Realtime;
 
 class BookingLifecycleController extends Controller
 {
@@ -23,6 +27,8 @@ class BookingLifecycleController extends Controller
     private const STANDARD_CHECK_OUT_TIME = Booking::STANDARD_CHECK_OUT_TIME;
     public function checkIn(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if ($booking->status !== 'confirmed') {
             return back()->with('error', 'Chỉ có thể nhận phòng với booking đã xác nhận.');
         }
@@ -162,6 +168,8 @@ class BookingLifecycleController extends Controller
 
             DB::commit();
 
+            Realtime::booking($booking, 'checked_in');
+
             return back()->with('success', 'Check-in thành công.');
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -173,6 +181,8 @@ class BookingLifecycleController extends Controller
 
     public function previewExtendStay(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if ($booking->status !== 'checked_in') {
             return back()->with('error', 'Chỉ booking đang ở mới được kiểm tra gia hạn lưu trú.');
         }
@@ -214,6 +224,8 @@ class BookingLifecycleController extends Controller
 
     public function extendStay(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if ($booking->status !== 'checked_in') {
             return back()->with('error', 'Chỉ booking đang ở mới được gia hạn lưu trú.');
         }
@@ -289,6 +301,7 @@ class BookingLifecycleController extends Controller
                         'type' => 'policy_violation_fee',
                     ],
                     [
+                        'service_group' => 'other',
                         'price' => 0,
                         'unit' => 'lần',
                         'description' => 'Phụ thu khi khách gia hạn thêm giờ hoặc thêm đêm.',
@@ -667,6 +680,8 @@ class BookingLifecycleController extends Controller
 
     public function addRoomToBooking(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if (!in_array($booking->status, ['confirmed', 'checked_in'])) {
             return back()->with('error', 'Chỉ booking đã xác nhận hoặc đang ở mới được thêm phòng.');
         }
@@ -707,6 +722,8 @@ class BookingLifecycleController extends Controller
 
     public function changeOneRoomCategory(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if (!in_array($booking->status, ['confirmed', 'checked_in'])) {
             return back()->with('error', 'Chỉ booking đã xác nhận hoặc đang ở mới được đổi hạng 1 phòng.');
         }
@@ -719,6 +736,8 @@ class BookingLifecycleController extends Controller
             'booking_room_id' => 'required|exists:booking_rooms,id',
             'new_room_category_id' => 'required|exists:room_categories,id',
             'change_category_reason' => 'nullable|string|max:1000',
+            'upgrade_payment_action' => 'nullable|in:guest_pay,incident_support,paid_upsell',
+            'room_upgrade_promotion_code' => 'nullable|string|max:50',
         ]);
 
         $booking->load('bookingRooms.room.category', 'roomCategory');
@@ -746,6 +765,8 @@ class BookingLifecycleController extends Controller
 
     public function changeAllRoomCategory(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if (!in_array($booking->status, ['confirmed', 'checked_in'])) {
             return back()->with('error', 'Chỉ booking đã xác nhận hoặc đang ở mới được đổi toàn bộ hạng phòng.');
         }
@@ -757,6 +778,8 @@ class BookingLifecycleController extends Controller
         $data = $request->validate([
             'new_room_category_id' => 'required|exists:room_categories,id',
             'change_category_reason' => 'nullable|string|max:1000',
+            'upgrade_payment_action' => 'nullable|in:guest_pay,incident_support,paid_upsell',
+            'room_upgrade_promotion_code' => 'nullable|string|max:50',
         ]);
 
         $booking->load('bookingRooms.room.category', 'roomCategory');
@@ -1012,14 +1035,33 @@ class BookingLifecycleController extends Controller
 
         $difference = $newRoomTotal - $oldRoomTotal;
 
+        $oldCategory = $booking->roomCategory;
         $booking->room_category_id = $newCategory->id;
-        $booking->estimated_total = max(0, (float) $booking->estimated_total + $difference);
+
+        $pricingMessage = $this->applyRoomUpgradeDifference(
+            $booking,
+            $data,
+            $difference,
+            $oldCategory?->id ?? $booking->getOriginal('room_category_id'),
+            $oldCategory?->name ?? 'Hạng cũ',
+            $oldRoomTotal / max(1, $nightCount * $roomQuantity),
+            $newCategory->id,
+            $newCategory->name,
+            (float) $newCategory->price,
+            $nightCount,
+            $roomQuantity,
+            null,
+            null,
+            null
+        );
 
         return 'Đã đổi toàn bộ booking sang hạng phòng '
             . $newCategory->name
             . '. Chênh lệch tiền phòng: '
             . number_format($difference, 0, ',', '.')
-            . 'đ. Lý do: '
+            . 'đ. '
+            . $pricingMessage
+            . ' Lý do: '
             . ($data['change_category_reason'] ?? 'Khách yêu cầu đổi toàn bộ hạng phòng.');
     }
 
@@ -1061,7 +1103,8 @@ class BookingLifecycleController extends Controller
 
         $nightCount = $this->getNightCount($booking);
 
-        $oldRoomTotal = (float) $bookingRoom->price_at_booking * $nightCount;
+        $oldRoomPriceAtBooking = (float) $bookingRoom->price_at_booking;
+        $oldRoomTotal = $oldRoomPriceAtBooking * $nightCount;
         $newRoomTotal = (float) $newCategory->price * $nightCount;
         $difference = $newRoomTotal - $oldRoomTotal;
 
@@ -1083,7 +1126,22 @@ class BookingLifecycleController extends Controller
             $booking->room_category_id = $newCategory->id;
         }
 
-        $booking->estimated_total = max(0, (float) $booking->estimated_total + $difference);
+        $pricingMessage = $this->applyRoomUpgradeDifference(
+            $booking,
+            $data,
+            $difference,
+            $oldRoom->category->id ?? $booking->room_category_id,
+            $oldCategoryName,
+            $oldRoomPriceAtBooking,
+            $newCategory->id,
+            $newCategory->name,
+            (float) $newCategory->price,
+            $nightCount,
+            1,
+            $bookingRoom->id,
+            $oldRoom->id,
+            $newRoom->id
+        );
 
         return 'Đã đổi phòng '
             . $oldRoom->room_number
@@ -1095,8 +1153,145 @@ class BookingLifecycleController extends Controller
             . $newCategory->name
             . '. Chênh lệch tiền phòng: '
             . number_format($difference, 0, ',', '.')
-            . 'đ. Lý do: '
+            . 'đ. '
+            . $pricingMessage
+            . ' Lý do: '
             . ($data['change_category_reason'] ?? 'Khách yêu cầu đổi 1 phòng.');
+    }
+
+
+
+    private function applyRoomUpgradeDifference(
+        Booking $booking,
+        array $data,
+        float $difference,
+        ?int $oldCategoryId,
+        string $oldCategoryName,
+        float $oldRoomPrice,
+        int $newCategoryId,
+        string $newCategoryName,
+        float $newRoomPrice,
+        int $nightCount,
+        int $roomQuantity,
+        ?int $bookingRoomId = null,
+        ?int $oldRoomId = null,
+        ?int $newRoomId = null
+    ): string {
+        $difference = round($difference, 0);
+        $action = $data['upgrade_payment_action'] ?? 'guest_pay';
+        $reason = trim((string) ($data['change_category_reason'] ?? ''));
+
+        $currentDiscount = (float) ($booking->discount_amount ?? 0);
+        $currentSubtotal = (float) ($booking->subtotal_amount ?? 0);
+
+        if ($currentSubtotal <= 0) {
+            $currentSubtotal = (float) $booking->estimated_total + $currentDiscount;
+        }
+
+        if ($difference <= 0) {
+            $booking->subtotal_amount = max(0, $currentSubtotal + $difference);
+            $booking->estimated_total = max(0, (float) $booking->estimated_total + $difference);
+            $booking->save();
+
+            if ($difference < 0) {
+                return 'Hạng mới rẻ hơn, hệ thống đã giảm tổng tiền phòng ' . number_format(abs($difference), 0, ',', '.') . 'đ.';
+            }
+
+            return 'Không phát sinh chênh lệch tiền phòng.';
+        }
+
+        $coveredAmount = 0;
+        $promotion = null;
+        $offer = null;
+        $code = strtoupper(trim((string) ($data['room_upgrade_promotion_code'] ?? '')));
+
+        if (in_array($action, [
+            PromotionRoomUpgradeOffer::KIND_INCIDENT_SUPPORT,
+            PromotionRoomUpgradeOffer::KIND_PAID_UPSELL,
+        ], true)) {
+            if ($code === '') {
+                throw new \Exception('Vui lòng nhập mã nâng hạng phòng.');
+            }
+
+            if ($booking->bookingPromotions()->where('code_snapshot', $code)->exists()) {
+                throw new \Exception('Booking đã áp dụng mã ' . $code . '.');
+            }
+
+            $promotionResult = app(PromotionService::class)->findRoomUpgradeOffer(
+                $code,
+                (int) $oldCategoryId,
+                $newCategoryId,
+                $action,
+                [
+                    'customer_id' => $booking->customer_id,
+                    'subtotal_amount' => $currentSubtotal + $difference,
+                    'check_in_at' => $booking->check_in_at,
+                    'check_out_at' => $booking->check_out_at,
+                    'night_count' => $nightCount,
+                    'room_quantity' => $booking->room_quantity,
+                ],
+                'admin',
+                $reason
+            );
+
+            if (!$promotionResult['ok']) {
+                throw new \Exception($promotionResult['message']);
+            }
+
+            $promotion = $promotionResult['promotion'];
+            $offer = $promotionResult['offer'];
+            $coveredAmount = app(PromotionService::class)->calculateRoomUpgradeCoverAmount($offer, $difference);
+
+            if ($action === PromotionRoomUpgradeOffer::KIND_INCIDENT_SUPPORT) {
+                $coveredAmount = $difference;
+            }
+        }
+
+        $coveredAmount = min(max(0, $coveredAmount), $difference);
+        $guestExtraAmount = max(0, $difference - $coveredAmount);
+
+        $booking->subtotal_amount = max(0, $currentSubtotal + $difference);
+        $booking->discount_amount = max(0, $currentDiscount + $coveredAmount);
+        $booking->estimated_total = max(0, (float) $booking->estimated_total + $guestExtraAmount);
+        $booking->save();
+
+        if ($promotion && $offer && $coveredAmount > 0) {
+            app(PromotionService::class)->storeRoomUpgradeUsage(
+                $booking,
+                $promotion,
+                $offer,
+                [
+                    'booking_room_id' => $bookingRoomId,
+                    'old_room_id' => $oldRoomId,
+                    'new_room_id' => $newRoomId,
+                    'old_room_category_id' => $oldCategoryId,
+                    'old_room_category_name_snapshot' => $oldCategoryName,
+                    'old_room_price_snapshot' => $oldRoomPrice,
+                    'new_room_category_id' => $newCategoryId,
+                    'new_room_category_name_snapshot' => $newCategoryName,
+                    'new_room_price_snapshot' => $newRoomPrice,
+                    'night_count' => $nightCount,
+                    'room_quantity' => $roomQuantity,
+                    'original_difference_amount' => $difference,
+                    'covered_amount' => $coveredAmount,
+                    'guest_extra_amount' => $guestExtraAmount,
+                    'note' => $data['change_category_reason'] ?? null,
+                ],
+                'admin',
+                $reason,
+                Auth::id()
+            );
+        }
+
+        if ($action === PromotionRoomUpgradeOffer::KIND_INCIDENT_SUPPORT) {
+            return 'Khách sạn hỗ trợ toàn bộ tiền chênh ' . number_format($coveredAmount, 0, ',', '.') . 'đ, khách không trả thêm.';
+        }
+
+        if ($action === PromotionRoomUpgradeOffer::KIND_PAID_UPSELL) {
+            return 'Mã điều kiện nâng hạng hỗ trợ ' . number_format($coveredAmount, 0, ',', '.') . 'đ, khách trả thêm ' . number_format($guestExtraAmount, 0, ',', '.') . 'đ.';
+        }
+
+        return 'Khách trả toàn bộ tiền chênh ' . number_format($guestExtraAmount, 0, ',', '.') . 'đ.';
     }
 
     private function findAvailableRoomsForCheckIn(
@@ -1146,6 +1341,8 @@ class BookingLifecycleController extends Controller
 
     public function changeStayDates(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if (!in_array($booking->status, ['pending', 'confirmed'])) {
             return back()->with('error', 'Chỉ booking chờ xác nhận hoặc đã xác nhận mới được đổi ngày lưu trú.');
         }
@@ -1370,6 +1567,8 @@ class BookingLifecycleController extends Controller
 
     public function requestInspection(Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if ($booking->status !== 'checked_in') {
             return back()->with('error', 'Chỉ có thể yêu cầu kiểm tra khi khách đang ở.');
         }
@@ -1430,6 +1629,8 @@ class BookingLifecycleController extends Controller
 
     public function requestPriorityCleaning(Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if ($booking->status !== 'confirmed') {
             return back()->with('error', 'Chỉ gửi yêu cầu dọn ưu tiên cho booking đã xác nhận nhưng khách chưa check-in.');
         }
@@ -1523,6 +1724,8 @@ class BookingLifecycleController extends Controller
 
     public function checkOut(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if ($booking->status !== 'checked_in') {
             return back()->with('error', 'Chỉ có thể check-out booking đang ở.');
         }
@@ -1532,9 +1735,12 @@ class BookingLifecycleController extends Controller
             'checkout_extra_name' => 'nullable|string|max:150',
             'checkout_extra_amount' => 'nullable|numeric|min:0',
             'checkout_extra_note' => 'nullable|string|max:1000',
+            'checkout_payment_method' => 'nullable|in:cash,bank_transfer',
+            'checkout_payment_confirm' => 'nullable|in:1',
         ], [
             'checkout_extra_amount.numeric' => 'Số tiền phí phát sinh khi check-out không hợp lệ.',
             'checkout_extra_amount.min' => 'Số tiền phí phát sinh khi check-out không được âm.',
+            'checkout_payment_method.in' => 'Phương thức thanh toán khi check-out không hợp lệ.',
         ]);
 
         $booking->load([
@@ -1588,6 +1794,7 @@ class BookingLifecycleController extends Controller
                         'type' => 'policy_violation_fee',
                     ],
                     [
+                        'service_group' => 'other',
                         'price' => 0,
                         'unit' => 'lần',
                         'description' => 'Phụ thu khi khách trả phòng muộn so với giờ check-out trên booking.',
@@ -1636,6 +1843,7 @@ class BookingLifecycleController extends Controller
                         'type' => 'policy_violation_fee',
                     ],
                     [
+                        'service_group' => 'other',
                         'price' => 0,
                         'unit' => 'lần',
                         'description' => 'Khoản phí phát sinh được lễ tân ghi nhận khi check-out.',
@@ -1662,33 +1870,98 @@ class BookingLifecycleController extends Controller
                 $feeMessages[] = $manualFeeName . ': ' . number_format($manualFeeAmount, 0, ',', '.') . 'đ.';
             }
 
+            $booking = Booking::where('id', $booking->id)
+                ->lockForUpdate()
+                ->with([
+                    'bookingRooms.room.category',
+                    'roomCategory',
+                    'roomInspections.items',
+                    'serviceItems',
+                ])
+                ->firstOrFail();
+
             $roomBaseTotal = $this->getCheckoutRoomBaseTotal($booking);
             $serviceItemTotal = (float) BookingServiceItem::where('booking_id', $booking->id)
                 ->whereNotIn('billing_status', ['unused', 'cancelled'])
                 ->sum('total');
             $approvedInspectionTotal = $this->getApprovedInspectionTotal($booking);
             $finalTotal = round($roomBaseTotal + $serviceItemTotal + $approvedInspectionTotal, 0);
-            $remainingTotal = max(0, $finalTotal - (float) $booking->deposit_amount);
+
+            $paidBeforeCheckout = (float) $booking->deposit_amount;
+            $remainingTotal = max(0, $finalTotal - $paidBeforeCheckout);
+            $paymentMethod = $data['checkout_payment_method'] ?? null;
+            $checkoutPayment = null;
+
+            if ($remainingTotal > 0) {
+                if (empty($paymentMethod)) {
+                    throw new \Exception(
+                        'Booking còn '
+                        . number_format($remainingTotal, 0, ',', '.')
+                        . 'đ chưa thanh toán. Vui lòng kiểm tra khách đã thanh toán ngoài thực tế và chọn phương thức thanh toán trước khi check-out.'
+                    );
+                }
+
+                if (($data['checkout_payment_confirm'] ?? null) !== '1') {
+                    throw new \Exception(
+                        'Booking còn '
+                        . number_format($remainingTotal, 0, ',', '.')
+                        . 'đ chưa thanh toán. Vui lòng tick xác nhận đã thu đủ khoản còn lại ngoài thực tế trước khi check-out.'
+                    );
+                }
+
+                $checkoutPayment = BookingPayment::create([
+                    'booking_id' => $booking->id,
+                    'provider' => $paymentMethod,
+                    'txn_ref' => $this->generateCheckoutPaymentTxnRef($booking, $paymentMethod),
+                    'amount' => $remainingTotal,
+                    'status' => 'success',
+                    'payment_type' => 'full_100',
+                    'paid_at' => $actualCheckOutAt,
+                    'raw_response' => [
+                        'source' => 'checkout',
+                        'method' => $paymentMethod,
+                        'type' => 'remaining_at_checkout',
+                        'staff_id' => Auth::id(),
+                        'note' => 'Lễ tân xác nhận khách đã thanh toán khoản còn lại khi check-out.',
+                    ],
+                ]);
+
+                $paidAfterCheckout = $paidBeforeCheckout + $remainingTotal;
+            } else {
+                $paidAfterCheckout = $paidBeforeCheckout;
+            }
 
             $oldNote = $booking->note ? $booking->note . "\n" : '';
             $feeText = count($feeMessages) > 0
                 ? ' Phí phát sinh: ' . implode(' ', $feeMessages)
                 : ' Không phát sinh phụ thu check-out.';
 
+            $paymentText = $remainingTotal > 0
+                ? ' Thu thêm khi check-out: '
+                    . number_format($remainingTotal, 0, ',', '.')
+                    . 'đ bằng '
+                    . $this->getCheckoutPaymentMethodLabel($paymentMethod)
+                    . '. Mã giao dịch: '
+                    . ($checkoutPayment->txn_ref ?? '---')
+                    . '.'
+                : ' Khách đã thanh toán đủ trước khi check-out, không cần thu thêm.';
+
             $booking->update([
                 'status' => 'checked_out',
                 'actual_check_out' => $actualCheckOutAt,
                 'payment_status' => 'paid',
+                'deposit_amount' => $paidAfterCheckout,
                 'estimated_total' => $finalTotal,
                 'note' => $oldNote
                     . $actualCheckOutAt->format('d/m/Y H:i')
                     . ' - Check-out thực tế. Tổng phải thu: '
                     . number_format($finalTotal, 0, ',', '.')
-                    . 'đ. Cọc: '
-                    . number_format((float) $booking->deposit_amount, 0, ',', '.')
-                    . 'đ. Còn lại đã thu: '
+                    . 'đ. Đã thu trước check-out: '
+                    . number_format($paidBeforeCheckout, 0, ',', '.')
+                    . 'đ. Còn lại khi check-out: '
                     . number_format($remainingTotal, 0, ',', '.')
                     . 'đ.'
+                    . $paymentText
                     . $feeText,
             ]);
 
@@ -1720,28 +1993,65 @@ class BookingLifecycleController extends Controller
                 . number_format($approvedInspectionTotal, 0, ',', '.')
                 . 'đ. Tổng phải thu: '
                 . number_format($finalTotal, 0, ',', '.')
-                . 'đ. Còn lại đã thu: '
+                . 'đ. Đã thu trước check-out: '
+                . number_format($paidBeforeCheckout, 0, ',', '.')
+                . 'đ. Còn lại khi check-out: '
                 . number_format($remainingTotal, 0, ',', '.')
                 . 'đ.'
+                . $paymentText
                 . $feeText
             );
 
             DB::commit();
 
+            Realtime::booking($booking->id, 'checked_out');
+
             return back()->with(
                 'success',
                 'Check-out thành công. Tổng phải thu '
                 . number_format($finalTotal, 0, ',', '.')
-                . 'đ, còn lại đã thu '
-                . number_format($remainingTotal, 0, ',', '.')
-                . 'đ. Phòng đã chuyển sang trạng thái cần dọn.'
+                . 'đ. '
+                . ($remainingTotal > 0
+                    ? 'Đã ghi nhận thu thêm '
+                        . number_format($remainingTotal, 0, ',', '.')
+                        . 'đ bằng '
+                        . $this->getCheckoutPaymentMethodLabel($paymentMethod)
+                        . '. '
+                    : 'Booking đã thanh toán đủ trước đó. ')
+                . 'Phòng đã chuyển sang trạng thái cần dọn.'
             );
         } catch (\Throwable $e) {
             DB::rollBack();
 
-            return back()->with('error', 'Có lỗi khi check-out: ' . $e->getMessage());
+            return back()->withInput()->with('error', 'Có lỗi khi check-out: ' . $e->getMessage());
         }
     }
+
+    private function getCheckoutPaymentMethodLabel(?string $method): string
+    {
+        return match ($method) {
+            'cash' => 'tiền mặt tại quầy',
+            'bank_transfer' => 'chuyển khoản tại quầy',
+            default => 'không xác định',
+        };
+    }
+
+    private function generateCheckoutPaymentTxnRef(Booking $booking, string $method): string
+    {
+        $prefix = $method === 'cash' ? 'CASHOUT' : 'BANKOUT';
+
+        do {
+            $txnRef = $prefix
+                . $booking->booking_code
+                . now('Asia/Ho_Chi_Minh')->format('YmdHis')
+                . strtoupper(\Illuminate\Support\Str::random(5));
+
+            $txnRef = preg_replace('/[^A-Za-z0-9]/', '', $txnRef);
+        } while (BookingPayment::where('txn_ref', $txnRef)->exists());
+
+        return $txnRef;
+    }
+
 
     private function calculateCheckoutLateFee(Booking $booking, ?\Carbon\Carbon $actualCheckOutAt = null): array
     {
@@ -2096,6 +2406,8 @@ class BookingLifecycleController extends Controller
 
     public function cancelLateArrival(Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if ($booking->status !== 'confirmed') {
             return back()->with('error', 'Chỉ có thể hủy no-show với booking đã xác nhận nhưng khách chưa check-in.');
         }
@@ -2304,6 +2616,7 @@ class BookingLifecycleController extends Controller
                     'type' => 'policy_violation_fee',
                 ],
                 [
+                    'service_group' => 'other',
                     'price' => 0,
                     'unit' => 'lần',
                     'description' => 'Phụ thu khi khách nhận phòng sớm trước giờ check-in chuẩn.',
@@ -2411,6 +2724,29 @@ class BookingLifecycleController extends Controller
             'inspection' => 'Chờ kiểm tra',
             'maintenance' => 'Bảo trì',
         ][$status] ?? 'Chưa rõ trạng thái';
+    }
+
+    private function guardCanAccessBooking(Booking $booking): void
+    {
+        $user = Auth::user();
+
+        if (!$user || in_array($user->role, ['super_admin', 'manager'], true)) {
+            return;
+        }
+
+        if ($user->role === 'receptionist') {
+            $canAccess = (int) $booking->created_by === (int) $user->id
+                || $booking->staffAssignments()
+                    ->where('staff_id', $user->id)
+                    ->where('status', 'active')
+                    ->exists();
+
+            abort_unless($canAccess, 403, 'Bạn không được phân công xử lý booking này.');
+
+            return;
+        }
+
+        abort(403, 'Bạn không có quyền xử lý booking này.');
     }
 
     private function addBookingLog(Booking $booking, string $action, string $description): void

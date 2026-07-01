@@ -103,7 +103,8 @@
             font-weight: 800;
         }
 
-        .promotion-service-offer-row {
+        .promotion-service-offer-row,
+        .promotion-room-upgrade-row {
             border: 1px solid #e5e7eb;
             border-radius: 14px;
             background: #f8fafc;
@@ -111,7 +112,8 @@
             margin-bottom: 12px;
         }
 
-        .promotion-service-offer-row:last-child {
+        .promotion-service-offer-row:last-child,
+        .promotion-room-upgrade-row:last-child {
             margin-bottom: 0;
         }
     </style>
@@ -142,6 +144,41 @@
             'discount_value' => 100,
             'quantity' => 1,
             'auto_add_service' => 1,
+            'note' => '',
+        ]];
+    }
+
+
+    $roomUpgradeOfferRows = old('room_upgrade_offers');
+
+    if ($roomUpgradeOfferRows === null) {
+        $roomUpgradeOfferRows = $promotion->exists
+            ? $promotion->roomUpgradeOffers->map(function ($offer) {
+                return [
+                    'enabled' => 1,
+                    'upgrade_kind' => $offer->upgrade_kind,
+                    'from_room_category_id' => $offer->from_room_category_id,
+                    'to_room_category_id' => $offer->to_room_category_id,
+                    'cover_type' => $offer->cover_type,
+                    'cover_value' => $offer->cover_value,
+                    'max_cover_amount' => $offer->max_cover_amount,
+                    'auto_apply_on_upgrade' => $offer->auto_apply_on_upgrade ? 1 : 0,
+                    'note' => $offer->note,
+                ];
+            })->values()->all()
+            : [];
+    }
+
+    if (!is_array($roomUpgradeOfferRows) || count($roomUpgradeOfferRows) === 0) {
+        $roomUpgradeOfferRows = [[
+            'enabled' => 0,
+            'upgrade_kind' => old('promotion_type', $promotion->promotion_type) === 'support_discount' ? 'incident_support' : 'paid_upsell',
+            'from_room_category_id' => '',
+            'to_room_category_id' => '',
+            'cover_type' => 'percent_difference',
+            'cover_value' => 20,
+            'max_cover_amount' => '',
+            'auto_apply_on_upgrade' => 0,
             'note' => '',
         ]];
     }
@@ -381,6 +418,111 @@
                     Chưa có dịch vụ hoạt động để gắn vào mã ưu đãi. Hãy tạo dịch vụ trước nếu muốn tặng/giảm dịch vụ.
                 </div>
             @endif
+        </div>
+
+
+        <div class="promotion-form-card">
+            <h5>Ưu đãi nâng hạng phòng</h5>
+            <div class="promotion-help mb-3">
+                Bật phần này khi mã dùng cho đổi/nâng hạng phòng. Mã hỗ trợ sự cố phải là <strong>Mã hỗ trợ</strong>; mã kích thích khách đặt hạng cao hơn phải là <strong>Mã điều kiện</strong>.
+            </div>
+
+            @foreach ($roomUpgradeOfferRows as $upgradeIndex => $upgradeRow)
+                <div class="promotion-room-upgrade-row" data-room-upgrade-row>
+                    <div class="form-check mb-3">
+                        <input type="checkbox" name="room_upgrade_offers[{{ $upgradeIndex }}][enabled]" value="1"
+                            class="form-check-input room-upgrade-enabled" id="roomUpgradeEnabled{{ $upgradeIndex }}"
+                            @checked((int) ($upgradeRow['enabled'] ?? 0) === 1)>
+                        <label class="form-check-label fw-bold" for="roomUpgradeEnabled{{ $upgradeIndex }}">
+                            Mã này có quyền lợi nâng hạng phòng
+                        </label>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Kiểu nâng hạng</label>
+                            <select name="room_upgrade_offers[{{ $upgradeIndex }}][upgrade_kind]" class="form-select room-upgrade-kind">
+                                <option value="incident_support" @selected(($upgradeRow['upgrade_kind'] ?? '') === 'incident_support')>
+                                    Hỗ trợ do sự cố - khách không trả thêm
+                                </option>
+                                <option value="paid_upsell" @selected(($upgradeRow['upgrade_kind'] ?? 'paid_upsell') === 'paid_upsell')>
+                                    Mã điều kiện upsell - khách trả phần còn lại
+                                </option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Từ hạng</label>
+                            <select name="room_upgrade_offers[{{ $upgradeIndex }}][from_room_category_id]" class="form-select">
+                                <option value="">Tất cả hạng cũ</option>
+                                @foreach (($roomCategories ?? collect()) as $category)
+                                    <option value="{{ $category->id }}" @selected((string) ($upgradeRow['from_room_category_id'] ?? '') === (string) $category->id)>
+                                        {{ $category->name }} - {{ number_format((float) $category->price, 0, ',', '.') }}đ
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Sang hạng</label>
+                            <select name="room_upgrade_offers[{{ $upgradeIndex }}][to_room_category_id]" class="form-select">
+                                <option value="">Tất cả hạng mới</option>
+                                @foreach (($roomCategories ?? collect()) as $category)
+                                    <option value="{{ $category->id }}" @selected((string) ($upgradeRow['to_room_category_id'] ?? '') === (string) $category->id)>
+                                        {{ $category->name }} - {{ number_format((float) $category->price, 0, ',', '.') }}đ
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Cách chịu/giảm tiền chênh</label>
+                            <select name="room_upgrade_offers[{{ $upgradeIndex }}][cover_type]" class="form-select room-upgrade-cover-type">
+                                <option value="full_difference" @selected(($upgradeRow['cover_type'] ?? '') === 'full_difference')>
+                                    Chịu toàn bộ tiền chênh
+                                </option>
+                                <option value="percent_difference" @selected(($upgradeRow['cover_type'] ?? 'percent_difference') === 'percent_difference')>
+                                    Giảm % tiền chênh
+                                </option>
+                                <option value="fixed_amount" @selected(($upgradeRow['cover_type'] ?? '') === 'fixed_amount')>
+                                    Giảm số tiền cố định
+                                </option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Giá trị</label>
+                            <input type="number" name="room_upgrade_offers[{{ $upgradeIndex }}][cover_value]"
+                                class="form-control room-upgrade-cover-value" min="0" step="0.01"
+                                value="{{ $upgradeRow['cover_value'] ?? 20 }}">
+                            <div class="promotion-help mt-1">Với %: nhập 20 = giảm 20% phần chênh.</div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Giới hạn tối đa</label>
+                            <input type="number" name="room_upgrade_offers[{{ $upgradeIndex }}][max_cover_amount]"
+                                class="form-control" min="0" step="1000"
+                                value="{{ $upgradeRow['max_cover_amount'] ?? '' }}" placeholder="Bỏ trống nếu không giới hạn">
+                        </div>
+
+                        <div class="col-md-8">
+                            <label class="form-label">Ghi chú nâng hạng</label>
+                            <input type="text" name="room_upgrade_offers[{{ $upgradeIndex }}][note]" class="form-control"
+                                value="{{ $upgradeRow['note'] ?? '' }}"
+                                placeholder="VD: dùng khi phòng lỗi, hết phòng cùng hạng hoặc khuyến khích lên hạng cao hơn">
+                        </div>
+
+                        <div class="col-md-4 d-flex align-items-end">
+                            <label class="promotion-switch-item w-100 mb-0">
+                                <input type="checkbox" name="room_upgrade_offers[{{ $upgradeIndex }}][auto_apply_on_upgrade]" value="1"
+                                    @checked((int) ($upgradeRow['auto_apply_on_upgrade'] ?? 0) === 1)>
+                                <span class="fw-semibold d-block">Tự gợi ý khi đổi hạng</span>
+                                <span class="promotion-help">Dùng để lễ tân dễ chọn mã phù hợp.</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            @endforeach
         </div>
 
         <div class="promotion-form-card">
@@ -686,6 +828,35 @@
 
         refreshServiceOfferRemoveButtons();
 
+
+
+        function updateRoomUpgradeRows() {
+            document.querySelectorAll('[data-room-upgrade-row]').forEach(function (row) {
+                const enabled = row.querySelector('.room-upgrade-enabled');
+                const kind = row.querySelector('.room-upgrade-kind');
+                const coverType = row.querySelector('.room-upgrade-cover-type');
+                const coverValue = row.querySelector('.room-upgrade-cover-value');
+
+                if (!enabled || !kind || !coverType || !coverValue) {
+                    return;
+                }
+
+                if (kind.value === 'incident_support') {
+                    coverType.value = 'full_difference';
+                    coverValue.value = 100;
+                    coverType.disabled = true;
+                    coverValue.readOnly = true;
+                } else {
+                    coverType.disabled = false;
+                    coverValue.readOnly = false;
+                }
+            });
+        }
+
+        document.querySelectorAll('.room-upgrade-kind').forEach(function (select) {
+            select.addEventListener('change', updateRoomUpgradeRows);
+        });
+
         const promotionForm = document.getElementById('promotionForm');
 
         if (promotionForm) {
@@ -703,6 +874,7 @@
         initPromotionFlatpickr();
         updateDiscountUI();
         updatePromotionTypeUI();
+        updateRoomUpgradeRows();
     });
 </script>
 

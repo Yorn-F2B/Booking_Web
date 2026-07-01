@@ -1,6 +1,9 @@
+﻿
+
 <?php $__env->startSection('title', 'Danh sách đặt phòng'); ?>
 
 <?php $__env->startSection('content'); ?>
+<div data-bookings-index-fragment>
     <?php
         $bookingStatusLabels = [
             'pending' => 'Chờ xác nhận',
@@ -865,6 +868,8 @@
             });
         });
     </script>
-    <?php echo app('Illuminate\Foundation\Vite')('resources/js/admin/bookings-realtime.js'); ?>
+    </div>
+<?php echo app('Illuminate\Foundation\Vite')('resources/js/admin/bookings-realtime.js'); ?>
 <?php $__env->stopSection(); ?>
+
 <?php echo $__env->make('layouts.admin', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH C:\xampp\htdocs\booking-web\resources\views/admin/pages/bookings/index.blade.php ENDPATH**/ ?>

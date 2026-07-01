@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
+use App\Models\BookingPayment;
 use App\Models\BookingLog;
 use App\Models\BookingRoom;
 use App\Models\BookingServiceItem;
+use App\Models\BookingStaffAssignment;
 use App\Models\Customer;
 use App\Models\Room;
 use App\Models\RoomCategory;
@@ -18,6 +20,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use App\Services\PromotionService;
 use App\Models\Promotion;
+use App\Support\Realtime;
+use App\Mail\BookingCreatedMail;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 
 class BookingCreateController extends Controller
 {
@@ -36,11 +42,11 @@ class BookingCreateController extends Controller
         $services = Service::where('status', 'active')
             ->where('price', '>', 0)
             ->whereIn('type', ['service'])
-            ->orderBy('type')
+            ->orderByRaw("FIELD(service_group, 'vehicle', 'food_drink', 'transport', 'laundry', 'wellness', 'room_support', 'general', 'other')")
             ->orderBy('name')
             ->get();
 
-        $availablePromotions = Promotion::with(['serviceOffers.service'])
+        $availablePromotions = Promotion::with(['serviceOffers.service', 'roomUpgradeOffers.fromCategory', 'roomUpgradeOffers.toCategory'])
             ->where('status', 'active')
             ->where('admin_can_apply', true)
             ->orderByRaw("FIELD(promotion_type, 'normal_discount', 'event_discount', 'conditional_discount', 'support_discount')")
@@ -74,6 +80,8 @@ class BookingCreateController extends Controller
             'prefer_adjacent_rooms' => 'nullable|boolean',
 
             'deposit_amount' => 'nullable|numeric|min:0',
+            'payment_method' => 'required|in:none,cash,bank_transfer,vnpay',
+            'payment_type' => 'nullable|in:deposit_30,full_100,custom',
             'note' => 'nullable|string|max:1000',
 
             'services' => 'nullable|array',
@@ -100,6 +108,9 @@ class BookingCreateController extends Controller
             'confirm_low_stock.accepted' => 'Vui lòng xác nhận rủi ro tồn phòng thấp nếu vẫn muốn tạo booking ở ngay theo giờ.',
             'adult_count.required' => 'Vui lòng nhập số người lớn.',
             'room_quantity.required' => 'Vui lòng nhập số phòng.',
+            'payment_method.required' => 'Vui lòng chọn phương thức thanh toán.',
+            'payment_method.in' => 'Phương thức thanh toán không hợp lệ.',
+            'payment_type.in' => 'Kiểu thanh toán không hợp lệ.',
         ]);
 
         $roomCategory = RoomCategory::findOrFail($data['room_category_id']);
@@ -239,13 +250,20 @@ class BookingCreateController extends Controller
         );
 
         $subtotalAmount = $roomTotal + $policyFeeAmount + $serviceItemTotal;
-        $depositAmount = (float) ($data['deposit_amount'] ?? 0);
+        $paymentMethod = $data['payment_method'] ?? 'none';
+        $paymentType = $data['payment_type'] ?? null;
+        $customPaymentAmount = (float) ($data['deposit_amount'] ?? 0);
 
-        if ($depositAmount > $subtotalAmount) {
+        try {
+            $this->validateInitialPaymentChoice($paymentMethod, $paymentType, $customPaymentAmount, $subtotalAmount);
+        } catch (\Throwable $e) {
             return back()
                 ->withInput()
-                ->with('error', 'Tiền cọc không được lớn hơn tổng tiền tạm tính trước giảm giá.');
+                ->with('error', $e->getMessage());
         }
+
+        $pendingVnpayPayment = null;
+        $booking = null;
 
         DB::beginTransaction();
 
@@ -281,9 +299,19 @@ class BookingCreateController extends Controller
             $serviceDiscountAmount = (float) ($promotionResult['service_discount_total'] ?? 0);
             $discountAmount = (float) $promotionResult['discount_total'];
             $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
+            $initialPaymentAmount = $this->resolveInitialPaymentAmount(
+                $paymentMethod,
+                $paymentType,
+                $customPaymentAmount,
+                $estimatedTotal,
+                0
+            );
+            $depositAmount = in_array($paymentMethod, ['cash', 'bank_transfer'], true)
+                ? $initialPaymentAmount
+                : 0;
 
             if ($depositAmount > $estimatedTotal) {
-                throw new \Exception('Tiền cọc không được lớn hơn tổng tiền sau giảm giá.');
+                throw new \Exception('Số tiền thu không được lớn hơn tổng tiền sau giảm giá.');
             }
 
             $booking = Booking::create([
@@ -307,11 +335,13 @@ class BookingCreateController extends Controller
                 'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
                 'deposit_amount' => $depositAmount,
-                'payment_status' => $depositAmount > 0 ? 'partial' : 'unpaid',
+                'payment_status' => $depositAmount >= $estimatedTotal && $estimatedTotal > 0 ? 'paid' : ($depositAmount > 0 ? 'partial' : 'unpaid'),
                 'status' => $bookingMode === 'walk_in' ? 'checked_in' : 'confirmed',
                 'actual_check_in' => $bookingMode === 'walk_in' ? now('Asia/Ho_Chi_Minh') : null,
                 'note' => $data['note'] ?? null,
             ]);
+
+            $this->autoAssignCreatedBooking($booking);
 
             foreach ($availableRooms as $room) {
                 BookingRoom::create([
@@ -385,11 +415,30 @@ class BookingCreateController extends Controller
                 . '. Tổng tiền tạm tính: ' . number_format($estimatedTotal, 0, ',', '.') . 'đ.'
             );
 
+            if (in_array($paymentMethod, ['cash', 'bank_transfer'], true) && $initialPaymentAmount > 0) {
+                $this->recordInitialDirectPayment($booking, $paymentMethod, $paymentType, $initialPaymentAmount, $estimatedTotal);
+            }
+
+            if ($paymentMethod === 'vnpay' && $initialPaymentAmount > 0) {
+                $pendingVnpayPayment = $this->createInitialVnpayPayment($booking, $paymentType, $initialPaymentAmount);
+            }
+
             DB::commit();
+            Realtime::booking($booking, $bookingMode === 'walk_in' ? 'walk_in_created' : 'staff_created');
+
+            if ($pendingVnpayPayment) {
+                session()->flash('success', 'Tạo booking và gán phòng thành công. Chưa gửi email xác nhận booking vì khách chưa thanh toán VNPay. Email xác nhận sẽ gửi sau khi VNPay báo thanh toán thành công.');
+
+                return redirect()->away(
+                    app(\App\Services\VnpayService::class)->createPaymentUrl($booking, $pendingVnpayPayment, $request)
+                );
+            }
+
+            $mailResult = $this->sendBookingCreatedEmail($booking, 'admin_created');
 
             return redirect()
                 ->route('admin.bookings.show', $booking->id)
-                ->with('success', 'Tạo booking và gán phòng thành công.');
+                ->with('success', 'Tạo booking và gán phòng thành công. ' . $mailResult['message']);
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -397,6 +446,204 @@ class BookingCreateController extends Controller
                 ->withInput()
                 ->with('error', 'Có lỗi xảy ra khi tạo booking: ' . $e->getMessage());
         }
+    }
+
+    private function sendBookingCreatedEmail(Booking $booking, string $source = 'admin_created'): array
+    {
+        $booking->loadMissing([
+            'customer',
+            'roomCategory',
+            'bookingRooms.room',
+            'serviceItems.service',
+            'payments',
+        ]);
+
+        $email = $booking->customer->email ?? null;
+
+        if (!$email) {
+            $this->addBookingLog(
+                $booking,
+                'booking_email_skipped',
+                'Không gửi email xác nhận booking vì khách chưa có email.'
+            );
+
+            return [
+                'status' => 'skipped',
+                'message' => 'Chưa gửi email xác nhận vì khách chưa có email.',
+            ];
+        }
+
+        try {
+            Mail::to($email)->send(new BookingCreatedMail($booking, $source));
+
+            $this->addBookingLog(
+                $booking,
+                'booking_email_sent',
+                'Đã gửi email xác nhận booking đến ' . $email . '.'
+            );
+
+            return [
+                'status' => 'sent',
+                'message' => 'Đã gửi email xác nhận booking đến ' . $email . '.',
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('Không gửi được email xác nhận booking.', [
+                'booking_id' => $booking->id,
+                'email' => $email,
+                'error' => $e->getMessage(),
+            ]);
+
+            $this->addBookingLog(
+                $booking,
+                'booking_email_failed',
+                'Không gửi được email xác nhận booking đến ' . $email . ': ' . $e->getMessage()
+            );
+
+            return [
+                'status' => 'failed',
+                'message' => 'Chưa gửi được email xác nhận: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    private function validateInitialPaymentChoice(
+        string $paymentMethod,
+        ?string $paymentType,
+        float $customPaymentAmount,
+        float $temporaryTotal
+    ): void {
+        if ($paymentMethod === 'none') {
+            return;
+        }
+
+        if (!$paymentType) {
+            throw new \Exception('Vui lòng chọn kiểu thanh toán: cọc 30%, thu đủ hoặc nhập số tiền.');
+        }
+
+        if ($paymentMethod === 'vnpay' && $paymentType === 'custom') {
+            throw new \Exception('Thanh toán VNPay chỉ hỗ trợ cọc 30% hoặc thanh toán đủ. Nếu muốn nhập số tiền khác, hãy chọn thanh toán trực tiếp tại quầy.');
+        }
+
+        if ($paymentType === 'custom' && $customPaymentAmount <= 0) {
+            throw new \Exception('Vui lòng nhập số tiền thu thực tế.');
+        }
+
+        if ($paymentType === 'custom' && $customPaymentAmount > $temporaryTotal) {
+            throw new \Exception('Số tiền thu không được lớn hơn tổng tiền tạm tính trước giảm giá.');
+        }
+    }
+
+    private function resolveInitialPaymentAmount(
+        string $paymentMethod,
+        ?string $paymentType,
+        float $customPaymentAmount,
+        float $estimatedTotal,
+        float $currentPaid = 0
+    ): float {
+        if ($paymentMethod === 'none' || $estimatedTotal <= 0) {
+            return 0;
+        }
+
+        $remaining = max(0, $estimatedTotal - $currentPaid);
+
+        if ($paymentType === 'deposit_30') {
+            $depositTarget = round($estimatedTotal * 0.3, 0);
+
+            return max(0, min($depositTarget - $currentPaid, $remaining));
+        }
+
+        if ($paymentType === 'full_100') {
+            return $remaining;
+        }
+
+        return min($customPaymentAmount, $remaining);
+    }
+
+    private function recordInitialDirectPayment(
+        Booking $booking,
+        string $paymentMethod,
+        ?string $paymentType,
+        float $amount,
+        float $estimatedTotal
+    ): void {
+        $storedPaymentType = $amount >= $estimatedTotal ? 'full_100' : 'deposit_30';
+        $methodLabel = $paymentMethod === 'cash'
+            ? 'tiền mặt tại quầy'
+            : 'chuyển khoản tại quầy';
+
+        $payment = BookingPayment::create([
+            'booking_id' => $booking->id,
+            'provider' => $paymentMethod,
+            'txn_ref' => $this->generateInitialPaymentTxnRef($booking, $paymentMethod),
+            'amount' => $amount,
+            'status' => 'success',
+            'payment_type' => $storedPaymentType,
+            'paid_at' => now('Asia/Ho_Chi_Minh'),
+            'raw_response' => [
+                'source' => 'admin_create_booking',
+                'method' => $paymentMethod,
+                'type' => $paymentType,
+                'staff_id' => Auth::id(),
+            ],
+        ]);
+
+        $this->addBookingLog(
+            $booking,
+            'admin_payment_received',
+            'Thu tiền khi tạo booking bằng ' . $methodLabel . ': '
+            . number_format($amount, 0, ',', '.')
+            . 'đ. Trạng thái thanh toán: '
+            . $booking->payment_status
+            . '. Mã giao dịch: '
+            . $payment->txn_ref
+            . '.'
+        );
+    }
+
+    private function createInitialVnpayPayment(Booking $booking, ?string $paymentType, float $amount): BookingPayment
+    {
+        $payment = BookingPayment::create([
+            'booking_id' => $booking->id,
+            'provider' => 'admin_vnpay',
+            'txn_ref' => $this->generateInitialPaymentTxnRef($booking, 'vnpay'),
+            'amount' => $amount,
+            'status' => 'pending',
+            'payment_type' => $paymentType === 'full_100' ? 'full_100' : 'deposit_30',
+        ]);
+
+        $this->addBookingLog(
+            $booking,
+            'admin_vnpay_created',
+            'Tạo giao dịch VNPay khi tạo booking: '
+            . number_format($amount, 0, ',', '.')
+            . 'đ ('
+            . ($payment->payment_type === 'full_100' ? 'thu đủ' : 'cọc 30%')
+            . '). Mã giao dịch: '
+            . $payment->txn_ref
+            . '.'
+        );
+
+        return $payment;
+    }
+
+    private function generateInitialPaymentTxnRef(Booking $booking, string $method): string
+    {
+        $prefix = match ($method) {
+            'cash' => 'CASH',
+            'bank_transfer' => 'BANK',
+            default => 'ADMVNP',
+        };
+
+        do {
+            $txnRef = $prefix
+                . $booking->booking_code
+                . now('Asia/Ho_Chi_Minh')->format('YmdHis')
+                . strtoupper(Str::random(5));
+
+            $txnRef = preg_replace('/[^A-Za-z0-9]/', '', $txnRef);
+        } while (BookingPayment::where('txn_ref', $txnRef)->exists());
+
+        return $txnRef;
     }
 
     private function resolveBookingPeriod(array $data, RoomCategory $roomCategory, int $roomQuantity): array
@@ -1035,13 +1282,20 @@ class BookingCreateController extends Controller
         $serviceItemTotal = collect($serviceItems)->sum('total');
 
         $subtotalAmount = $roomTotal + $policyFeeAmount + $serviceItemTotal;
-        $depositAmount = (float) ($request->deposit_amount ?? 0);
+        $paymentMethod = $request->payment_method ?? 'none';
+        $paymentType = $request->payment_type;
+        $customPaymentAmount = (float) ($request->deposit_amount ?? 0);
 
-        if ($depositAmount > $subtotalAmount) {
+        try {
+            $this->validateInitialPaymentChoice($paymentMethod, $paymentType, $customPaymentAmount, $subtotalAmount);
+        } catch (\Throwable $e) {
             return redirect()
                 ->route('admin.bookings.create')
-                ->with('error', 'Tiền cọc không được lớn hơn tổng tiền tạm tính trước giảm giá.');
+                ->with('error', $e->getMessage());
         }
+
+        $pendingVnpayPayment = null;
+        $booking = null;
 
         DB::beginTransaction();
 
@@ -1083,9 +1337,19 @@ class BookingCreateController extends Controller
             $serviceDiscountAmount = (float) ($promotionResult['service_discount_total'] ?? 0);
             $discountAmount = (float) $promotionResult['discount_total'];
             $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
+            $initialPaymentAmount = $this->resolveInitialPaymentAmount(
+                $paymentMethod,
+                $paymentType,
+                $customPaymentAmount,
+                $estimatedTotal,
+                0
+            );
+            $depositAmount = in_array($paymentMethod, ['cash', 'bank_transfer'], true)
+                ? $initialPaymentAmount
+                : 0;
 
             if ($depositAmount > $estimatedTotal) {
-                throw new \Exception('Tiền cọc không được lớn hơn tổng tiền sau giảm giá.');
+                throw new \Exception('Số tiền thu không được lớn hơn tổng tiền sau giảm giá.');
             }
 
             $booking = Booking::create([
@@ -1109,10 +1373,12 @@ class BookingCreateController extends Controller
                 'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
                 'deposit_amount' => $depositAmount,
-                'payment_status' => $depositAmount > 0 ? 'partial' : 'unpaid',
+                'payment_status' => $depositAmount >= $estimatedTotal && $estimatedTotal > 0 ? 'paid' : ($depositAmount > 0 ? 'partial' : 'unpaid'),
                 'status' => 'confirmed',
                 'note' => $request->note,
             ]);
+
+            $this->autoAssignCreatedBooking($booking);
 
             foreach ($rooms as $room) {
                 BookingRoom::create([
@@ -1189,11 +1455,31 @@ class BookingCreateController extends Controller
                 . '. Tổng tiền tạm tính: ' . number_format($estimatedTotal, 0, ',', '.') . 'đ.'
             );
 
+            if (in_array($paymentMethod, ['cash', 'bank_transfer'], true) && $initialPaymentAmount > 0) {
+                $this->recordInitialDirectPayment($booking, $paymentMethod, $paymentType, $initialPaymentAmount, $estimatedTotal);
+            }
+
+            if ($paymentMethod === 'vnpay' && $initialPaymentAmount > 0) {
+                $pendingVnpayPayment = $this->createInitialVnpayPayment($booking, $paymentType, $initialPaymentAmount);
+            }
+
             DB::commit();
+
+            Realtime::booking($booking, 'staff_created_from_suggestion');
+
+            if ($pendingVnpayPayment) {
+                session()->flash('success', 'Tạo booking và gán phòng thành công. Chưa gửi email xác nhận booking vì khách chưa thanh toán VNPay. Email xác nhận sẽ gửi sau khi VNPay báo thanh toán thành công.');
+
+                return redirect()->away(
+                    app(\App\Services\VnpayService::class)->createPaymentUrl($booking, $pendingVnpayPayment, $request)
+                );
+            }
+
+            $mailResult = $this->sendBookingCreatedEmail($booking, 'admin_created');
 
             return redirect()
                 ->route('admin.bookings.show', $booking)
-                ->with('success', 'Đã tạo booking từ phương án gợi ý.');
+                ->with('success', 'Đã tạo booking từ phương án gợi ý. ' . $mailResult['message']);
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -1231,6 +1517,7 @@ class BookingCreateController extends Controller
                 'type' => 'policy_violation_fee',
             ],
             [
+                'service_group' => 'other',
                 'price' => 0,
                 'unit' => 'lần',
                 'description' => 'Phụ thu theo chính sách giờ nhận/trả phòng của khách sạn.',
@@ -1250,6 +1537,28 @@ class BookingCreateController extends Controller
             'total' => $amount,
             'note' => $note,
         ]);
+    }
+
+    private function autoAssignCreatedBooking(Booking $booking): void
+    {
+        $user = Auth::user();
+
+        if (!$user || $user->role !== 'receptionist') {
+            return;
+        }
+
+        BookingStaffAssignment::updateOrCreate(
+            [
+                'booking_id' => $booking->id,
+                'staff_id' => $user->id,
+                'role_in_booking' => 'owner',
+            ],
+            [
+                'assigned_by' => $user->id,
+                'status' => 'active',
+                'note' => 'Tự động gán cho lễ tân tạo booking.',
+            ]
+        );
     }
 
     private function addBookingLog(Booking $booking, string $action, string $description): void

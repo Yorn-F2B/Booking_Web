@@ -57,9 +57,77 @@ class User extends Authenticatable
         return $this->role === 'receptionist';
     }
 
+    public function isReceptionistLead()
+    {
+        return $this->role === 'receptionist_lead';
+    }
+
     public function isHousekeeping()
     {
         return $this->role === 'housekeeping';
+    }
+
+    public function isHousekeepingSupervisor()
+    {
+        return $this->role === 'housekeeping_supervisor';
+    }
+
+
+    public function createdBookings()
+    {
+        return $this->hasMany(Booking::class, 'created_by');
+    }
+
+    public function bookingAssignments()
+    {
+        return $this->hasMany(BookingStaffAssignment::class, 'staff_id');
+    }
+
+    public function assignedBookings()
+    {
+        return $this->belongsToMany(Booking::class, 'booking_staff_assignments', 'staff_id', 'booking_id')
+            ->withPivot(['role_in_booking', 'assigned_by', 'status', 'note'])
+            ->withTimestamps();
+    }
+
+    public function floorAssignments()
+    {
+        return $this->hasMany(StaffFloorAssignment::class, 'staff_id');
+    }
+
+    public function roomAssignments()
+    {
+        return $this->hasMany(StaffRoomAssignment::class, 'staff_id');
+    }
+
+    public function canManageAssignments()
+    {
+        return in_array($this->role, ['super_admin', 'manager', 'receptionist_lead', 'housekeeping_supervisor'], true);
+    }
+
+    public function canManageReceptionistAssignments()
+    {
+        return in_array($this->role, ['super_admin', 'manager', 'receptionist_lead'], true);
+    }
+
+    public function canManageHousekeepingAssignments()
+    {
+        return in_array($this->role, ['super_admin', 'manager', 'housekeeping_supervisor'], true);
+    }
+
+    public function hotelReviews()
+    {
+        return $this->hasMany(HotelReview::class);
+    }
+
+    public function approvedHotelReviews()
+    {
+        return $this->hasMany(HotelReview::class, 'approved_by');
+    }
+
+    public function repliedHotelReviews()
+    {
+        return $this->hasMany(HotelReview::class, 'replied_by');
     }
 
     public function customerChatConversations()

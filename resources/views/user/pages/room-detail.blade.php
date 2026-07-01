@@ -204,6 +204,95 @@
 
                     </div>
 
+
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-body">
+                            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+                                <div>
+                                    <h3 class="h5 fw-bold mb-1">Đánh giá hạng phòng</h3>
+                                    <p class="text-muted small mb-0">Các đánh giá đã được xác thực từ khách từng lưu trú.</p>
+                                </div>
+
+                                @if (($reviewStats->review_count ?? 0) > 0)
+                                    <div class="text-end">
+                                        <div class="text-warning fs-5">★ {{ number_format((float) $reviewStats->average_rating, 1) }}/5</div>
+                                        <div class="small text-muted">{{ (int) $reviewStats->review_count }} đánh giá</div>
+                                    </div>
+                                @endif
+                            </div>
+
+                            @if (($reviewStats->review_count ?? 0) > 0)
+                                <div class="row g-2 mb-4 small">
+                                    <div class="col-6 col-md-3">
+                                        <div class="border rounded-3 p-2 text-center">
+                                            <div class="text-muted">Vệ sinh</div>
+                                            <div class="fw-bold">{{ number_format((float) $reviewStats->cleanliness_average, 1) }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="border rounded-3 p-2 text-center">
+                                            <div class="text-muted">Dịch vụ</div>
+                                            <div class="fw-bold">{{ number_format((float) $reviewStats->service_average, 1) }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="border rounded-3 p-2 text-center">
+                                            <div class="text-muted">Vị trí</div>
+                                            <div class="fw-bold">{{ number_format((float) $reviewStats->location_average, 1) }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="border rounded-3 p-2 text-center">
+                                            <div class="text-muted">Giá trị</div>
+                                            <div class="fw-bold">{{ number_format((float) $reviewStats->value_average, 1) }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            @endif
+
+                            @forelse (($approvedReviews ?? collect()) as $review)
+                                <div class="border rounded-3 p-3 mb-3">
+                                    <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold"
+                                                style="width:40px;height:40px;">
+                                                {{ $review->guest_initials }}
+                                            </div>
+                                            <div>
+                                                <div class="fw-semibold">{{ $review->guest_name }}</div>
+                                                <div class="small text-muted">{{ optional($review->approved_at ?? $review->created_at)->format('d/m/Y') }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="text-warning small text-nowrap">{{ $review->star_text }}</div>
+                                    </div>
+
+                                    @if ($review->title)
+                                        <div class="fw-semibold mb-1">{{ $review->title }}</div>
+                                    @endif
+
+                                    <p class="text-muted small mb-2">{{ $review->comment }}</p>
+
+                                    @if ($review->admin_reply)
+                                        <div class="alert alert-info small mb-0">
+                                            <div class="fw-semibold mb-1">Phản hồi từ khách sạn</div>
+                                            {{ $review->admin_reply }}
+                                        </div>
+                                    @endif
+                                </div>
+                            @empty
+                                <div class="alert alert-info mb-0">
+                                    Hạng phòng này chưa có đánh giá công khai.
+                                </div>
+                            @endforelse
+
+                            @if (($approvedReviews ?? null) && $approvedReviews->hasPages())
+                                <div class="mt-3">
+                                    {{ $approvedReviews->links() }}
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+
                 </div>
 
                 <div class="col-lg-4">

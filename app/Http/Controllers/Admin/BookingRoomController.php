@@ -11,11 +11,14 @@ use Illuminate\Support\Facades\DB;
 use App\Models\BookingLog;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
+use App\Support\Realtime;
 
 class BookingRoomController extends Controller
 {
     public function assignRooms(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if (!in_array($booking->status, ['pending', 'confirmed'])) {
             return back()->with('error', 'Chỉ có thể đổi phòng khi booking chưa check-in.');
         }
@@ -115,6 +118,8 @@ class BookingRoomController extends Controller
 
     public function changeRoom(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         $data = $request->validate([
             'old_room_id' => 'required|exists:rooms,id',
             'new_room_id' => 'required|exists:rooms,id|different:old_room_id',
@@ -204,6 +209,29 @@ class BookingRoomController extends Controller
 
             return back()->with('error', 'Có lỗi khi đổi phòng: ' . $e->getMessage());
         }
+    }
+
+    private function guardCanAccessBooking(Booking $booking): void
+    {
+        $user = Auth::user();
+
+        if (!$user || in_array($user->role, ['super_admin', 'manager'], true)) {
+            return;
+        }
+
+        if ($user->role === 'receptionist') {
+            $canAccess = (int) $booking->created_by === (int) $user->id
+                || $booking->staffAssignments()
+                    ->where('staff_id', $user->id)
+                    ->where('status', 'active')
+                    ->exists();
+
+            abort_unless($canAccess, 403, 'Bạn không được phân công xử lý booking này.');
+
+            return;
+        }
+
+        abort(403, 'Bạn không có quyền xử lý booking này.');
     }
 
     private function addBookingLog(Booking $booking, string $action, string $description): void

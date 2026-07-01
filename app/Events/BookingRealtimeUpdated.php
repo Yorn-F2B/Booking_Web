@@ -5,11 +5,11 @@ namespace App\Events;
 use App\Models\Booking;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
-use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Collection;
 
-class BookingRealtimeUpdated implements ShouldBroadcastNow, ShouldDispatchAfterCommit
+class BookingRealtimeUpdated implements ShouldBroadcastNow
 {
     use Dispatchable, SerializesModels;
 
@@ -17,11 +17,6 @@ class BookingRealtimeUpdated implements ShouldBroadcastNow, ShouldDispatchAfterC
         public Booking $booking,
         public string $action = 'updated'
     ) {
-        $this->booking->loadMissing([
-            'customer',
-            'roomCategory',
-            'bookingRooms.room',
-        ]);
     }
 
     public function broadcastOn(): array
@@ -45,13 +40,23 @@ class BookingRealtimeUpdated implements ShouldBroadcastNow, ShouldDispatchAfterC
 
     public function broadcastWith(): array
     {
+        $customer = $this->booking->relationLoaded('customer') ? $this->booking->customer : null;
+        $roomCategory = $this->booking->relationLoaded('roomCategory') ? $this->booking->roomCategory : null;
+        $bookingRooms = $this->booking->relationLoaded('bookingRooms') ? $this->booking->bookingRooms : collect();
+
         $customerName = trim(
-            ($this->booking->customer->last_name ?? '') . ' ' .
-            ($this->booking->customer->first_name ?? '')
+            ($customer->last_name ?? '') . ' ' .
+            ($customer->first_name ?? '')
         );
 
-        $roomNumbers = $this->booking->bookingRooms
-            ? $this->booking->bookingRooms->pluck('room.room_number')->filter()->implode(', ')
+        if ($customerName === '') {
+            $customerName = $customer->name ?? 'Chưa có tên';
+        }
+
+        $roomNumbers = $bookingRooms instanceof Collection
+            ? $bookingRooms->map(function ($bookingRoom) {
+                return $bookingRoom->room->room_number ?? null;
+            })->filter()->implode(', ')
             : '';
 
         return [
@@ -59,9 +64,9 @@ class BookingRealtimeUpdated implements ShouldBroadcastNow, ShouldDispatchAfterC
             'booking_code' => $this->booking->booking_code,
             'action' => $this->action,
             'customer_id' => $this->booking->customer_id,
-            'customer_name' => $customerName !== '' ? $customerName : 'Chưa có tên',
-            'customer_phone' => $this->booking->customer->phone ?? 'Chưa có SĐT',
-            'room_category' => $this->booking->roomCategory->name ?? 'Không xác định',
+            'customer_name' => $customerName,
+            'customer_phone' => $customer->phone ?? 'Chưa có SĐT',
+            'room_category' => $roomCategory->name ?? 'Không xác định',
             'room_numbers' => $roomNumbers,
             'status' => $this->booking->status,
             'status_label' => $this->statusLabel($this->booking->status),
@@ -69,8 +74,10 @@ class BookingRealtimeUpdated implements ShouldBroadcastNow, ShouldDispatchAfterC
             'payment_status_label' => $this->paymentStatusLabel($this->booking->payment_status),
             'estimated_total' => (float) $this->booking->estimated_total,
             'estimated_total_text' => number_format((float) $this->booking->estimated_total, 0, ',', '.') . 'đ',
+            'deposit_amount' => (float) $this->booking->deposit_amount,
+            'deposit_amount_text' => number_format((float) $this->booking->deposit_amount, 0, ',', '.') . 'đ',
             'updated_at' => now('Asia/Ho_Chi_Minh')->format('d/m/Y H:i'),
-            'url' => route('admin.bookings.show', $this->booking->id),
+            'admin_url' => route('admin.bookings.show', $this->booking->id),
         ];
     }
 

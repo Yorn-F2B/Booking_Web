@@ -495,75 +495,47 @@
                     Khách hàng nói gì về chúng tôi
                 </h2>
                 <p class="text-muted" data-aos="fade-up" data-aos-delay="100">
-                    Hơn 4.8/5 điểm đánh giá từ 2.300+ lượt đặt phòng.
+                    <?php if(($hotelReviewStats['count'] ?? 0) > 0): ?>
+                        Trung bình <?php echo e(number_format((float) ($hotelReviewStats['average'] ?? 0), 1)); ?>/5 từ <?php echo e($hotelReviewStats['count']); ?> đánh giá đã xác thực.
+                    <?php else: ?>
+                        Đánh giá sẽ hiển thị sau khi khách lưu trú và được khách sạn duyệt.
+                    <?php endif; ?>
                 </p>
             </div>
+
             <div class="row g-4">
-                <div class="col-md-4" data-aos="fade-up">
-                    <div class="card border-0 shadow-sm h-100 review-card">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center mb-3">
-                                <img src="https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg"
-                                    class="rounded-circle me-3" alt="Khách hàng" width="48" height="48" />
-                                <div>
-                                    <h3 class="h6 mb-0">Nguyễn Minh Anh</h3>
-                                    <small class="text-muted">Gia đình từ Hà Nội</small>
+                <?php $__empty_1 = true; $__currentLoopData = ($approvedHotelReviews ?? collect())->take(3); $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $review): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
+                    <div class="col-md-4" data-aos="fade-up" data-aos-delay="<?php echo e($loop->index * 100); ?>">
+                        <div class="card border-0 shadow-sm h-100 review-card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-3">
+                                    <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-3 fw-bold"
+                                        style="width:48px;height:48px;">
+                                        <?php echo e($review->guest_initials); ?>
+
+                                    </div>
+                                    <div>
+                                        <h3 class="h6 mb-0"><?php echo e($review->guest_name); ?></h3>
+                                        <small class="text-muted"><?php echo e($review->booking->roomCategory->name ?? 'Khách lưu trú'); ?></small>
+                                    </div>
                                 </div>
-                            </div>
-                            <p class="small text-muted mb-2">
-                                “Phòng sạch sẽ, view biển rất đẹp. Hồ bơi vô cực siêu chill,
-                                buffet sáng đa dạng. Nhân viên cực kỳ dễ thương và hỗ trợ
-                                nhiệt tình.”
-                            </p>
-                            <div class="text-warning small">
-                                ★★★★★ <span class="text-muted ms-1">5.0</span>
+                                <?php if($review->title): ?>
+                                    <div class="fw-semibold small mb-1"><?php echo e($review->title); ?></div>
+                                <?php endif; ?>
+                                <p class="small text-muted mb-2">“<?php echo e($review->comment); ?>”</p>
+                                <div class="text-warning small">
+                                    <?php echo e($review->star_text); ?> <span class="text-muted ms-1"><?php echo e(number_format((float) $review->rating, 1)); ?></span>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                <div class="col-md-4" data-aos="fade-up" data-aos-delay="100">
-                    <div class="card border-0 shadow-sm h-100 review-card">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center mb-3">
-                                <img src="https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg"
-                                    class="rounded-circle me-3" alt="Khách hàng" width="48" height="48" />
-                                <div>
-                                    <h3 class="h6 mb-0">Trần Quốc Huy</h3>
-                                    <small class="text-muted">Công tác từ TP.HCM</small>
-                                </div>
-                            </div>
-                            <p class="small text-muted mb-2">
-                                “Vị trí đẹp, di chuyển thuận tiện. Phòng họp đầy đủ thiết bị,
-                                wifi mạnh. Dịch vụ phòng nhanh, rất phù hợp cho khách công
-                                tác.”
-                            </p>
-                            <div class="text-warning small">
-                                ★★★★☆ <span class="text-muted ms-1">4.7</span>
-                            </div>
+                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
+                    <div class="col-12">
+                        <div class="alert alert-info text-center mb-0">
+                            Chưa có đánh giá công khai. Hãy là khách hàng đầu tiên chia sẻ trải nghiệm sau khi lưu trú.
                         </div>
                     </div>
-                </div>
-                <div class="col-md-4" data-aos="fade-up" data-aos-delay="200">
-                    <div class="card border-0 shadow-sm h-100 review-card">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center mb-3">
-                                <img src="https://images.pexels.com/photos/2379004/pexels-photo-2379004.jpeg"
-                                    class="rounded-circle me-3" alt="Khách hàng" width="48" height="48" />
-                                <div>
-                                    <h3 class="h6 mb-0">Lê Bảo Trâm</h3>
-                                    <small class="text-muted">Cặp đôi tuần trăng mật</small>
-                                </div>
-                            </div>
-                            <p class="small text-muted mb-2">
-                                “Trang trí phòng honeymoon rất dễ thương, có bánh kem &amp;
-                                hoa. Nhìn chung trải nghiệm tuyệt vời, sẽ quay lại.”
-                            </p>
-                            <div class="text-warning small">
-                                ★★★★★ <span class="text-muted ms-1">4.9</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <?php endif; ?>
             </div>
         </div>
     </section>
@@ -759,4 +731,5 @@
         });
     </script>
 <?php $__env->stopSection(); ?>
+
 <?php echo $__env->make('layouts.user', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH C:\xampp\htdocs\booking-web\resources\views/user/pages/home.blade.php ENDPATH**/ ?>

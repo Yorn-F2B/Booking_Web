@@ -6,10 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\RoomInspection;
 use App\Models\RoomInspectionItem;
 use App\Models\Service;
+use App\Models\StaffFloorAssignment;
+use App\Models\StaffRoomAssignment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Models\BookingLog;
+use App\Support\Realtime;
 
 class FloorInspectionController extends Controller
 {
@@ -21,7 +24,11 @@ class FloorInspectionController extends Controller
             'room',
             'inspector',
             'items',
-        ])
+        ]);
+
+        $this->applyHousekeepingInspectionScope($inspections);
+
+        $inspections = $inspections
             ->latest()
             ->paginate(10);
 
@@ -30,6 +37,8 @@ class FloorInspectionController extends Controller
 
     public function show(RoomInspection $roomInspection)
     {
+        $this->guardCanHandleInspection($roomInspection);
+
         $roomInspection->load([
             'booking.customer',
             'booking.roomCategory',
@@ -56,6 +65,8 @@ class FloorInspectionController extends Controller
 
     public function report(Request $request, RoomInspection $roomInspection)
     {
+        $this->guardCanHandleInspection($roomInspection);
+
         $data = $request->validate([
             'has_damage' => 'required|in:0,1',
             'damage_service_ids' => 'nullable|array',
@@ -216,6 +227,72 @@ class FloorInspectionController extends Controller
 
             return back()->with('error', 'Có lỗi khi gửi kết quả kiểm tra: ' . $e->getMessage());
         }
+    }
+
+    private function applyHousekeepingInspectionScope($query): void
+    {
+        $user = Auth::user();
+
+        if (!$user || in_array($user->role, ['super_admin', 'manager', 'housekeeping_supervisor'], true)) {
+            return;
+        }
+
+        if ($user->role !== 'housekeeping') {
+            abort(403, 'Bạn không có quyền xem phiếu kiểm tra phòng.');
+        }
+
+        $today = now('Asia/Ho_Chi_Minh')->toDateString();
+
+        $assignedFloorNumbers = StaffFloorAssignment::where('staff_id', $user->id)
+            ->whereDate('work_date', $today)
+            ->where('status', 'active')
+            ->pluck('floor_number')
+            ->toArray();
+
+        $assignedRoomIds = StaffRoomAssignment::where('staff_id', $user->id)
+            ->whereDate('work_date', $today)
+            ->whereIn('status', ['assigned', 'in_progress'])
+            ->pluck('room_id')
+            ->toArray();
+
+        $query->whereHas('room', function ($roomQuery) use ($assignedFloorNumbers, $assignedRoomIds) {
+            $roomQuery->whereIn('id', $assignedRoomIds);
+
+            if (!empty($assignedFloorNumbers)) {
+                $roomQuery->orWhereIn('floor_number', $assignedFloorNumbers);
+            }
+        });
+    }
+
+    private function guardCanHandleInspection(RoomInspection $roomInspection): void
+    {
+        $user = Auth::user();
+
+        if (!$user || in_array($user->role, ['super_admin', 'manager', 'housekeeping_supervisor'], true)) {
+            return;
+        }
+
+        if ($user->role !== 'housekeeping') {
+            abort(403, 'Bạn không có quyền xử lý phiếu kiểm tra này.');
+        }
+
+        $roomInspection->loadMissing('room');
+        $today = now('Asia/Ho_Chi_Minh')->toDateString();
+        $room = $roomInspection->room;
+
+        $assignedByRoom = StaffRoomAssignment::where('staff_id', $user->id)
+            ->where('room_id', $room?->id)
+            ->whereDate('work_date', $today)
+            ->whereIn('status', ['assigned', 'in_progress'])
+            ->exists();
+
+        $assignedByFloor = StaffFloorAssignment::where('staff_id', $user->id)
+            ->where('floor_number', $room?->floor_number)
+            ->whereDate('work_date', $today)
+            ->where('status', 'active')
+            ->exists();
+
+        abort_unless($assignedByRoom || $assignedByFloor, 403, 'Bạn không được phân công kiểm tra phòng này.');
     }
 
     private function addBookingLog($booking, string $action, string $description): void

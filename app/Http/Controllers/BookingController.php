@@ -9,7 +9,6 @@ use App\Models\Room;
 use App\Models\RoomCategory;
 use App\Models\Service;
 use App\Models\BookingServiceItem;
-use App\Events\BookingCreatedRealtime;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -17,10 +16,15 @@ use Illuminate\Support\Str;
 use Carbon\Carbon;
 use App\Models\BookingPayment;
 use App\Models\BookingLog;
+use App\Models\HotelReview;
 use App\Services\VnpayService;
 use App\Services\PromotionService;
 use App\Events\BookingRealtimeUpdated;
 use App\Events\RoomRealtimeUpdated;
+use App\Support\Realtime;
+use App\Mail\BookingCreatedMail;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 
 class BookingController extends Controller
 {
@@ -126,7 +130,7 @@ class BookingController extends Controller
         $services = Service::where('status', 'active')
             ->where('price', '>', 0)
             ->whereIn('type', ['service'])
-            ->orderBy('type')
+            ->orderByRaw("FIELD(service_group, 'vehicle', 'food_drink', 'transport', 'laundry', 'wellness', 'room_support', 'general', 'other')")
             ->orderBy('name')
             ->get();
 
@@ -384,7 +388,7 @@ class BookingController extends Controller
                     . '. Phòng có thể vừa được người khác đặt, vui lòng chọn ngày khác.');
         }
 
-        $booking->load(['customer', 'roomCategory', 'bookingRooms.room']);
+        $booking->load(['customer', 'roomCategory', 'bookingRooms.room', 'serviceItems', 'payments']);
 
         event(new BookingRealtimeUpdated($booking, 'created'));
 
@@ -411,9 +415,136 @@ class BookingController extends Controller
             'payment_type' => $data['payment_type'],
         ]);
 
+        // Không gửi email xác nhận booking ở bước này vì khách chưa thanh toán.
+        // Email xác nhận chính thức sẽ được gửi sau khi VNPay trả kết quả thành công.
         return redirect()->away(
             app(VnpayService::class)->createPaymentUrl($booking, $payment, $request)
         );
+    }
+
+    private function sendBookingCreatedEmail(Booking $booking, string $source = 'user_online'): array
+    {
+        $booking->loadMissing([
+            'customer',
+            'roomCategory',
+            'bookingRooms.room',
+            'serviceItems.service',
+            'payments',
+            'hotelReview.replier',
+        ]);
+
+        $email = $booking->customer->email
+            ?: (Auth::check() ? Auth::user()->email : null);
+
+        if (!$email) {
+            BookingLog::create([
+                'booking_id' => $booking->id,
+                'user_id' => Auth::id(),
+                'action' => 'booking_email_skipped',
+                'description' => 'Không gửi email xác nhận booking vì khách chưa có email.',
+            ]);
+
+            return [
+                'status' => 'skipped',
+                'message' => 'Booking đã tạo nhưng chưa gửi email xác nhận vì khách chưa có email.',
+            ];
+        }
+
+        try {
+            Mail::to($email)->send(new BookingCreatedMail($booking, $source));
+
+            BookingLog::create([
+                'booking_id' => $booking->id,
+                'user_id' => Auth::id(),
+                'action' => 'booking_email_sent',
+                'description' => 'Đã gửi email xác nhận booking đến ' . $email . '.',
+            ]);
+
+            return [
+                'status' => 'sent',
+                'message' => 'Đã gửi email xác nhận booking đến ' . $email . '.',
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('Không gửi được email xác nhận booking.', [
+                'booking_id' => $booking->id,
+                'email' => $email,
+                'error' => $e->getMessage(),
+            ]);
+
+            BookingLog::create([
+                'booking_id' => $booking->id,
+                'user_id' => Auth::id(),
+                'action' => 'booking_email_failed',
+                'description' => 'Không gửi được email xác nhận booking đến ' . $email . ': ' . $e->getMessage(),
+            ]);
+
+            return [
+                'status' => 'failed',
+                'message' => 'Booking đã tạo nhưng chưa gửi được email xác nhận: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+
+    public function history(Request $request)
+    {
+        $customer = Customer::where('user_id', Auth::id())->first();
+
+        if (!$customer) {
+            return redirect()
+                ->route('rooms')
+                ->with('error', 'Bạn chưa có thông tin khách hàng. Vui lòng đặt phòng trước.');
+        }
+
+        $allowedStatuses = [
+            'pending',
+            'confirmed',
+            'checked_in',
+            'inspection_requested',
+            'checked_out',
+            'completed',
+            'cancelled',
+        ];
+
+        $selectedStatus = $request->input('status');
+        $selectedPeriod = $request->input('period');
+        $searchKeyword = trim((string) $request->input('q'));
+
+        $bookingsQuery = Booking::with(['roomCategory', 'bookingRooms.room', 'hotelReview'])
+            ->where('customer_id', $customer->id)
+            ->when(in_array($selectedStatus, $allowedStatuses, true), function ($query) use ($selectedStatus) {
+                $query->where('status', $selectedStatus);
+            })
+            ->when($searchKeyword !== '', function ($query) use ($searchKeyword) {
+                $query->where('booking_code', 'like', '%' . $searchKeyword . '%');
+            })
+            ->when($selectedPeriod === '30_days', function ($query) {
+                $query->where('created_at', '>=', now('Asia/Ho_Chi_Minh')->subDays(30));
+            })
+            ->when($selectedPeriod === '3_months', function ($query) {
+                $query->where('created_at', '>=', now('Asia/Ho_Chi_Minh')->subMonths(3));
+            })
+            ->when($selectedPeriod === '12_months', function ($query) {
+                $query->where('created_at', '>=', now('Asia/Ho_Chi_Minh')->subMonths(12));
+            })
+            ->latest();
+
+        $bookings = $bookingsQuery
+            ->paginate(10)
+            ->withQueryString();
+
+        $bookingStatusCounts = Booking::where('customer_id', $customer->id)
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        return view('user.pages.booking-history', compact(
+            'bookings',
+            'bookingStatusCounts',
+            'selectedStatus',
+            'selectedPeriod',
+            'searchKeyword'
+        ));
     }
 
     public function cancel(Booking $booking)
@@ -442,6 +573,8 @@ class BookingController extends Controller
             }
         }
 
+        Realtime::booking($booking, 'cancelled');
+
         return redirect()
             ->back()
             ->with('success', 'Hủy đơn đặt phòng thành công.');
@@ -463,11 +596,13 @@ class BookingController extends Controller
             'bookingPromotions.serviceOffers',
             'promotionServiceOffers',
             'payments',
+            'hotelReview.replier',
         ]);
 
         $availableServices = Service::where('status', 'active')
             ->where('price', '>', 0)
             ->whereIn('type', ['service', 'minibar'])
+            ->orderByRaw("FIELD(service_group, 'vehicle', 'food_drink', 'transport', 'laundry', 'wellness', 'room_support', 'general', 'other')")
             ->orderByRaw("FIELD(type, 'service', 'minibar')")
             ->orderBy('name')
             ->get();
@@ -478,9 +613,11 @@ class BookingController extends Controller
 
         $defaultPaymentType = $latestPayment->payment_type ?? 'deposit_30';
 
+        $canReviewBooking = $booking->canBeReviewed();
+
         return view(
             'user.pages.booking-detail',
-            compact('booking', 'availableServices', 'latestPayment', 'defaultPaymentType')
+            compact('booking', 'availableServices', 'latestPayment', 'defaultPaymentType', 'canReviewBooking')
         );
     }
 
@@ -606,11 +743,12 @@ class BookingController extends Controller
 
             DB::commit();
 
+            Realtime::booking($booking, 'service_updated');
+
             $booking->refresh();
             $booking->load(['customer', 'roomCategory', 'bookingRooms.room']);
 
-            event(new BookingRealtimeUpdated($booking, 'service_updated'));
-
+            Realtime::booking($booking, 'created');
             if ($service->type == 'minibar') {
                 return back()->with('success', 'Đã ghi nhận yêu cầu minibar. Khách sạn sẽ xác nhận số lượng thực dùng khi trả phòng.');
             }

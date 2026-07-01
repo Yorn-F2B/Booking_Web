@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Payment;
 
 use App\Http\Controllers\Controller;
+use App\Mail\AdminVnpayPaymentRequestMail;
+use App\Mail\BookingCreatedMail;
 use App\Models\Booking;
 use App\Models\BookingLog;
 use App\Models\BookingPayment;
@@ -12,7 +14,10 @@ use App\Services\VnpayService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use App\Support\Realtime;
 
 class VnpayController extends Controller
 {
@@ -56,6 +61,232 @@ class VnpayController extends Controller
         );
     }
 
+    public function adminCreate(Request $request, Booking $booking, VnpayService $vnpayService)
+    {
+        if ($booking->payment_status === 'paid') {
+            return back()->with('error', 'Booking này đã thanh toán đủ.');
+        }
+
+        if (in_array($booking->status, ['canceled', 'cancelled', 'no_show'], true)) {
+            return back()->with('error', 'Booking đã hủy/no-show nên không thể tạo thanh toán VNPay.');
+        }
+
+        $booking->loadMissing(['customer', 'roomCategory', 'bookingRooms.room']);
+
+        $data = $request->validate([
+            'payment_type' => 'required|in:deposit_30,full_100',
+            'customer_email' => 'required|email|max:150',
+        ], [
+            'payment_type.required' => 'Vui lòng chọn hình thức thanh toán VNPay.',
+            'payment_type.in' => 'Hình thức thanh toán VNPay không hợp lệ.',
+            'customer_email.required' => 'Vui lòng nhập email khách để gửi yêu cầu thanh toán VNPay.',
+            'customer_email.email' => 'Email khách không hợp lệ.',
+        ]);
+
+        $amount = $this->calculatePaymentAmount($booking, $data['payment_type'], true);
+
+        if ($amount <= 0) {
+            return back()->with('error', 'Số tiền cần thanh toán không hợp lệ hoặc booking đã đủ tiền cọc.');
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $oldPendingPayments = BookingPayment::where('booking_id', $booking->id)
+                ->where('provider', 'admin_vnpay')
+                ->where('status', 'pending')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($oldPendingPayments as $oldPayment) {
+                $oldRaw = $oldPayment->raw_response ?? [];
+                $oldRaw['closed_reason'] = 'created_new_admin_vnpay_request';
+                $oldRaw['closed_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
+                $oldRaw['closed_by'] = Auth::id();
+
+                $oldPayment->update([
+                    'status' => 'failed',
+                    'response_code' => 'REPLACED',
+                    'transaction_status' => 'REPLACED',
+                    'raw_response' => $oldRaw,
+                ]);
+            }
+
+            $payment = BookingPayment::create([
+                'booking_id' => $booking->id,
+                'provider' => 'admin_vnpay',
+                'txn_ref' => $this->generateTxnRef($booking),
+                'amount' => $amount,
+                'status' => 'pending',
+                'payment_type' => $data['payment_type'],
+                'raw_response' => [
+                    'source' => 'admin_email_request',
+                    'customer_email' => $data['customer_email'],
+                    'staff_id' => Auth::id(),
+                ],
+            ]);
+
+            $requestExpiresAt = now('Asia/Ho_Chi_Minh')->addMinutes($vnpayService->adminRequestExpireMinutes());
+            $paymentRequestUrl = route('payment.vnpay.admin-request', [
+                'payment' => $payment->id,
+                'token' => $vnpayService->paymentRequestToken($payment),
+            ]);
+
+            $paymentPurpose = $data['payment_type'] === 'deposit_30'
+                ? 'cọc 30%'
+                : 'thanh toán số tiền còn lại';
+
+            $rawResponse = $payment->raw_response ?? [];
+            $rawResponse['payment_request_url'] = $paymentRequestUrl;
+            $rawResponse['request_expires_at'] = $requestExpiresAt->toDateTimeString();
+            $rawResponse['request_expire_minutes'] = $vnpayService->adminRequestExpireMinutes();
+            $payment->update([
+                'raw_response' => $rawResponse,
+            ]);
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return back()->with('error', 'Không thể tạo yêu cầu thanh toán VNPay: ' . $e->getMessage());
+        }
+
+        try {
+            Mail::to($data['customer_email'])->send(
+                new AdminVnpayPaymentRequestMail($booking, $payment, $paymentRequestUrl, $requestExpiresAt)
+            );
+
+            $rawResponse = $payment->fresh()->raw_response ?? [];
+            $rawResponse['email_sent_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
+            $payment->update([
+                'raw_response' => $rawResponse,
+            ]);
+
+            BookingLog::create([
+                'booking_id' => $booking->id,
+                'user_id' => Auth::id(),
+                'action' => 'admin_vnpay_email_sent',
+                'description' => 'Lễ tân gửi yêu cầu thanh toán VNPay qua email '
+                    . $data['customer_email']
+                    . ': '
+                    . number_format((float) $amount, 0, ',', '.')
+                    . 'đ ('
+                    . $paymentPurpose
+                    . '). Mã giao dịch: '
+                    . $payment->txn_ref
+                    . '. Link yêu cầu có hiệu lực đến '
+                    . $requestExpiresAt->format('d/m/Y H:i')
+                    . '.',
+            ]);
+
+            return back()
+                ->with('success', 'Đã gửi email yêu cầu thanh toán VNPay cho khách. Số tiền: ' . number_format((float) $amount, 0, ',', '.') . 'đ. Link email có hiệu lực đến ' . $requestExpiresAt->format('d/m/Y H:i') . '.')
+                ->with('admin_vnpay_payment_url', $paymentRequestUrl);
+        } catch (\Throwable $e) {
+            BookingLog::create([
+                'booking_id' => $booking->id,
+                'user_id' => Auth::id(),
+                'action' => 'admin_vnpay_email_failed',
+                'description' => 'Đã tạo mã thanh toán VNPay '
+                    . $payment->txn_ref
+                    . ' nhưng gửi email thất bại: '
+                    . $e->getMessage(),
+            ]);
+
+            return back()
+                ->with('error', 'Đã tạo yêu cầu thanh toán VNPay nhưng gửi email thất bại: ' . $e->getMessage() . '. Có thể copy link bên dưới gửi thủ công cho khách.')
+                ->with('admin_vnpay_payment_url', $paymentRequestUrl);
+        }
+    }
+
+    public function payRequest(Request $request, BookingPayment $payment, VnpayService $vnpayService)
+    {
+        if ($payment->provider !== 'admin_vnpay') {
+            return redirect()
+                ->route('home')
+                ->with('error', 'Yêu cầu thanh toán không hợp lệ.');
+        }
+
+        if (!$vnpayService->verifyPaymentRequestToken($payment, (string) $request->query('token'))) {
+            return redirect()
+                ->route('home')
+                ->with('error', 'Link thanh toán không hợp lệ hoặc đã bị thay thế. Vui lòng liên hệ lễ tân để nhận link mới.');
+        }
+
+        $payment->loadMissing(['booking.customer', 'booking.roomCategory', 'booking.bookingRooms.room']);
+        $booking = $payment->booking;
+
+        if (!$booking) {
+            return redirect()
+                ->route('home')
+                ->with('error', 'Không tìm thấy booking của yêu cầu thanh toán.');
+        }
+
+        if ($payment->status === 'success') {
+            return redirect()
+                ->route('home')
+                ->with('success', 'Giao dịch này đã được thanh toán thành công trước đó. Cảm ơn quý khách.');
+        }
+
+        if ($payment->status !== 'pending') {
+            return redirect()
+                ->route('home')
+                ->with('error', 'Yêu cầu thanh toán này không còn hiệu lực. Vui lòng liên hệ lễ tân để nhận link mới.');
+        }
+
+        $rawResponse = $payment->raw_response ?? [];
+        $requestExpiresAt = !empty($rawResponse['request_expires_at'] ?? null)
+            ? \Carbon\Carbon::parse($rawResponse['request_expires_at'], 'Asia/Ho_Chi_Minh')
+            : $payment->created_at?->copy()->timezone('Asia/Ho_Chi_Minh')->addMinutes($vnpayService->adminRequestExpireMinutes());
+
+        if ($requestExpiresAt && now('Asia/Ho_Chi_Minh')->greaterThan($requestExpiresAt)) {
+            $this->markPaymentRequestFailed($payment, 'EXPIRED', 'Yêu cầu thanh toán VNPay đã hết hạn.');
+
+            return redirect()
+                ->route('home')
+                ->with('error', 'Link thanh toán đã hết hạn. Vui lòng liên hệ lễ tân để nhận link mới.');
+        }
+
+        if (in_array($booking->status, ['canceled', 'cancelled', 'no_show'], true)) {
+            $this->markPaymentRequestFailed($payment, 'BOOKING_CLOSED', 'Booking đã hủy/no-show, không thể thanh toán VNPay.');
+
+            return redirect()
+                ->route('home')
+                ->with('error', 'Booking này đã hủy hoặc không còn hiệu lực thanh toán.');
+        }
+
+        if ($booking->payment_status === 'paid') {
+            $this->markPaymentRequestFailed($payment, 'ALREADY_PAID', 'Booking đã thanh toán đủ trước khi khách mở link VNPay.');
+
+            return redirect()
+                ->route('home')
+                ->with('success', 'Booking này đã được thanh toán đủ. Cảm ơn quý khách.');
+        }
+
+        $expectedAmount = $this->calculatePaymentAmount($booking, $payment->payment_type, true);
+
+        if ($expectedAmount <= 0 || abs(round($expectedAmount, 0) - round((float) $payment->amount, 0)) >= 1) {
+            $this->markPaymentRequestFailed($payment, 'AMOUNT_CHANGED', 'Số tiền booking đã thay đổi. Cần tạo lại yêu cầu thanh toán VNPay.');
+
+            return redirect()
+                ->route('home')
+                ->with('error', 'Số tiền booking đã thay đổi. Vui lòng liên hệ lễ tân để nhận link thanh toán mới.');
+        }
+
+        $gatewayExpireMinutes = $vnpayService->expireMinutes();
+        $paymentUrl = $vnpayService->createPaymentUrl($booking, $payment, $request, $gatewayExpireMinutes);
+
+        $rawResponse = $payment->raw_response ?? [];
+        $rawResponse['last_opened_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
+        $rawResponse['last_gateway_expires_at'] = now('Asia/Ho_Chi_Minh')->addMinutes($gatewayExpireMinutes)->toDateTimeString();
+        $rawResponse['last_customer_ip'] = $request->ip();
+        $payment->update([
+            'raw_response' => $rawResponse,
+        ]);
+
+        return redirect()->away($paymentUrl);
+    }
+
     public function return(Request $request, VnpayService $vnpayService)
     {
         $params = $request->query();
@@ -80,20 +311,31 @@ class VnpayController extends Controller
         $booking = $payment->booking;
 
         if ($result === 'success') {
-            return redirect()
-                ->route('bookings.show', $booking)
-                ->with('success', 'Thanh toán VNPay thành công. Booking đã được xác nhận và gán phòng.');
+            $emailMessage = $this->sendBookingPaymentSuccessEmail($payment);
+
+            return $this->redirectAfterPaymentReturn(
+                $payment,
+                $booking,
+                'success',
+                'Thanh toán VNPay thành công. Booking đã được cập nhật thanh toán.' . ($emailMessage ? ' ' . $emailMessage : '')
+            );
         }
 
         if ($result === 'paid_no_room') {
-            return redirect()
-                ->route('bookings.show', $booking)
-                ->with('error', 'Thanh toán đã được ghi nhận nhưng hệ thống không còn phòng trống để tự động gán. Vui lòng liên hệ lễ tân để được xử lý.');
+            return $this->redirectAfterPaymentReturn(
+                $payment,
+                $booking,
+                'error',
+                'Thanh toán đã được ghi nhận nhưng hệ thống không còn phòng trống để tự động gán. Vui lòng liên hệ lễ tân để được xử lý.'
+            );
         }
 
-        return redirect()
-            ->route('bookings.show', $booking)
-            ->with('error', 'Thanh toán VNPay không thành công. Bạn có thể thanh toán lại nếu vẫn muốn đặt phòng.');
+        return $this->redirectAfterPaymentReturn(
+            $payment,
+            $booking,
+            'error',
+            'Thanh toán VNPay không thành công. Có thể tạo lại giao dịch nếu khách vẫn muốn thanh toán online.'
+        );
     }
 
     public function ipn(Request $request, VnpayService $vnpayService)
@@ -117,12 +359,129 @@ class VnpayController extends Controller
             ]);
         }
 
-        $this->processPaymentResult($payment, $params);
+        $result = $this->processPaymentResult($payment, $params);
+
+        if ($result === 'success') {
+            $this->sendBookingPaymentSuccessEmail($payment);
+        }
 
         return response()->json([
             'RspCode' => '00',
             'Message' => 'Confirm Success',
         ]);
+    }
+
+    private function sendBookingPaymentSuccessEmail(BookingPayment $payment): string
+    {
+        $payment = $payment->fresh();
+
+        if (!$payment || $payment->status !== 'success') {
+            return '';
+        }
+
+        $rawResponse = $payment->raw_response ?? [];
+
+        if (!empty($rawResponse['booking_confirm_email_sent_at'])) {
+            return 'Email xác nhận booking đã được gửi trước đó.';
+        }
+
+        $booking = Booking::with([
+            'customer',
+            'roomCategory',
+            'bookingRooms.room',
+            'serviceItems.service',
+            'payments',
+        ])->find($payment->booking_id);
+
+        if (!$booking) {
+            return '';
+        }
+
+        $email = $booking->customer->email ?? null;
+
+        if (!$email) {
+            $rawResponse['booking_confirm_email_skipped_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
+            $rawResponse['booking_confirm_email_skip_reason'] = 'missing_customer_email';
+            $payment->update(['raw_response' => $rawResponse]);
+
+            BookingLog::create([
+                'booking_id' => $booking->id,
+                'user_id' => Auth::id(),
+                'action' => 'booking_email_skipped_after_payment',
+                'description' => 'Thanh toán VNPay thành công nhưng không gửi email xác nhận booking vì khách chưa có email.',
+            ]);
+
+            return 'Khách chưa có email nên chưa gửi email xác nhận booking.';
+        }
+
+        try {
+            Mail::to($email)->send(new BookingCreatedMail($booking, 'payment_success'));
+
+            $rawResponse['booking_confirm_email_sent_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
+            $rawResponse['booking_confirm_email_to'] = $email;
+            $payment->update(['raw_response' => $rawResponse]);
+
+            BookingLog::create([
+                'booking_id' => $booking->id,
+                'user_id' => Auth::id(),
+                'action' => 'booking_email_sent_after_payment',
+                'description' => 'Đã gửi email xác nhận booking sau khi thanh toán VNPay thành công đến ' . $email . '.',
+            ]);
+
+            return 'Đã gửi email xác nhận booking đến ' . $email . '.';
+        } catch (\Throwable $e) {
+            Log::warning('Không gửi được email xác nhận booking sau thanh toán VNPay.', [
+                'booking_id' => $booking->id,
+                'payment_id' => $payment->id,
+                'email' => $email,
+                'error' => $e->getMessage(),
+            ]);
+
+            $rawResponse['booking_confirm_email_failed_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
+            $rawResponse['booking_confirm_email_error'] = $e->getMessage();
+            $payment->update(['raw_response' => $rawResponse]);
+
+            BookingLog::create([
+                'booking_id' => $booking->id,
+                'user_id' => Auth::id(),
+                'action' => 'booking_email_failed_after_payment',
+                'description' => 'Thanh toán VNPay thành công nhưng chưa gửi được email xác nhận booking đến ' . $email . ': ' . $e->getMessage(),
+            ]);
+
+            return 'Thanh toán đã thành công nhưng chưa gửi được email xác nhận: ' . $e->getMessage();
+        }
+    }
+
+    private function redirectAfterPaymentReturn(BookingPayment $payment, Booking $booking, string $flashKey, string $message)
+    {
+        if ($this->isAdminPayment($payment)) {
+            if ($this->currentUserCanOpenAdminBooking()) {
+                return redirect()
+                    ->route('admin.bookings.show', $booking)
+                    ->with($flashKey, $message);
+            }
+
+            return redirect()
+                ->route('home')
+                ->with($flashKey, $message . ' Cảm ơn quý khách đã thanh toán.');
+        }
+
+        if (Auth::check()) {
+            return redirect()
+                ->route('bookings.show', $booking)
+                ->with($flashKey, $message);
+        }
+
+        return redirect()
+            ->route('home')
+            ->with($flashKey, $message);
+    }
+
+    private function currentUserCanOpenAdminBooking(): bool
+    {
+        $user = Auth::user();
+
+        return $user && in_array($user->role ?? null, ['super_admin', 'manager', 'receptionist'], true);
     }
 
     private function processPaymentResult(BookingPayment $payment, array $params): string
@@ -163,16 +522,23 @@ class VnpayController extends Controller
                     'description' => 'Thanh toán VNPay không thành công. Mã phản hồi: ' . ($responseCode ?? 'không rõ') . '.',
                 ]);
 
+                $bookingId = $booking->id;
+
+                DB::afterCommit(function () use ($bookingId) {
+                    Realtime::booking($bookingId, 'payment_failed');
+                });
+
                 return 'failed';
             }
 
+            $payableTotal = $this->calculatePayableTotal($booking);
             $newDepositAmount = min(
-                (float) $booking->estimated_total,
+                $payableTotal,
                 (float) $booking->deposit_amount + (float) $payment->amount
             );
 
             $booking->deposit_amount = $newDepositAmount;
-            $booking->payment_status = $newDepositAmount >= (float) $booking->estimated_total
+            $booking->payment_status = $newDepositAmount >= $payableTotal
                 ? 'paid'
                 : 'partial';
 
@@ -195,10 +561,19 @@ class VnpayController extends Controller
                         . 'đ nhưng không còn phòng trống để tự động gán.',
                 ]);
 
+                $bookingId = $booking->id;
+
+                DB::afterCommit(function () use ($bookingId) {
+                    Realtime::booking($bookingId, 'payment_success_no_room');
+                });
+
                 return 'paid_no_room';
             }
 
-            $booking->status = 'confirmed';
+            if ($booking->status === 'pending') {
+                $booking->status = 'confirmed';
+            }
+
             $booking->save();
 
             BookingLog::create([
@@ -207,10 +582,17 @@ class VnpayController extends Controller
                 'action' => 'vnpay_payment_success',
                 'description' => 'Thanh toán VNPay thành công: '
                     . number_format((float) $payment->amount, 0, ',', '.')
-                    . 'đ. Đã tự động gán phòng và xác nhận booking. Trạng thái thanh toán: '
+                    . 'đ. Trạng thái thanh toán: '
                     . $booking->payment_status
+                    . ($this->isAdminPayment($payment) ? '. Giao dịch tạo từ admin.' : '. Đã tự động gán phòng/xác nhận booking nếu đơn còn chờ xử lý.')
                     . '.',
             ]);
+
+            $bookingId = $booking->id;
+
+            DB::afterCommit(function () use ($bookingId) {
+                Realtime::booking($bookingId, 'payment_updated');
+            });
 
             return 'success';
         });
@@ -225,19 +607,43 @@ class VnpayController extends Controller
         }
     }
 
-    private function calculatePaymentAmount(Booking $booking, string $paymentType): float
+    private function calculatePaymentAmount(Booking $booking, string $paymentType, bool $forAdmin = false): float
     {
-        $estimatedTotal = (float) $booking->estimated_total;
+        $payableTotal = $forAdmin
+            ? $this->calculatePayableTotal($booking)
+            : (float) $booking->estimated_total;
+
         $currentPaid = (float) $booking->deposit_amount;
-        $remaining = max(0, $estimatedTotal - $currentPaid);
+        $remaining = max(0, $payableTotal - $currentPaid);
 
         if ($paymentType === 'deposit_30') {
-            $depositTarget = round($estimatedTotal * 0.3, 0);
+            $depositTarget = round($payableTotal * 0.3, 0);
 
             return max(0, min($depositTarget - $currentPaid, $remaining));
         }
 
         return $remaining;
+    }
+
+    private function calculatePayableTotal(Booking $booking): float
+    {
+        $booking->loadMissing([
+            'serviceItems',
+            'roomInspections.items',
+        ]);
+
+        $estimatedTotal = (float) $booking->estimated_total;
+        $subtotalTotal = max(
+            0,
+            (float) ($booking->subtotal_amount ?? 0) - (float) ($booking->discount_amount ?? 0)
+        );
+
+        $approvedInspectionTotal = $booking->roomInspections
+            ->flatMap->items
+            ->where('status', 'approved')
+            ->sum('total');
+
+        return max(0, max($estimatedTotal, $subtotalTotal) + (float) $approvedInspectionTotal);
     }
 
     private function hasAvailableRoomForBooking(Booking $booking): bool
@@ -299,6 +705,38 @@ class VnpayController extends Controller
         }
 
         return true;
+    }
+
+
+    private function markPaymentRequestFailed(BookingPayment $payment, string $responseCode, string $description): void
+    {
+        if ($payment->status !== 'pending') {
+            return;
+        }
+
+        $rawResponse = $payment->raw_response ?? [];
+        $rawResponse['closed_reason'] = $responseCode;
+        $rawResponse['closed_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
+        $rawResponse['closed_description'] = $description;
+
+        $payment->update([
+            'status' => 'failed',
+            'response_code' => $responseCode,
+            'transaction_status' => $responseCode,
+            'raw_response' => $rawResponse,
+        ]);
+
+        BookingLog::create([
+            'booking_id' => $payment->booking_id,
+            'user_id' => Auth::id(),
+            'action' => 'admin_vnpay_request_closed',
+            'description' => $description . ' Mã giao dịch: ' . $payment->txn_ref . '.',
+        ]);
+    }
+
+    private function isAdminPayment(BookingPayment $payment): bool
+    {
+        return in_array($payment->provider, ['admin_vnpay'], true);
     }
 
     private function generateTxnRef(Booking $booking): string
