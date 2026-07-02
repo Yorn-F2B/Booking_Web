@@ -4,7 +4,7 @@
 
 <aside class="admin-sidebar" id="adminSidebar">
     <div class="admin-sidebar-brand">
-        <a href="{{ route('admin.dashboard') }}">
+        <a href="{{ route('home') }}" target="_blank">
             <span class="logo-mark">MC</span>
             <span>MCuong Hotel<small>Bảng quản trị</small></span>
         </a>
@@ -86,6 +86,12 @@
         @endif
 
         @if ($isSuperAdmin || $isManager || $isReceptionistLead || $isReceptionist)
+            <a href="{{ route('admin.room-daily.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.room-daily.*') ? 'active' : '' }}">
+                <i class="bx bx-calendar-event"></i>
+                Trạng thái phòng theo ngày
+            </a>
+
             <a href="{{ route('admin.room-availability.index') }}"
                 class="admin-nav-link {{ request()->routeIs('admin.room-availability.*') ? 'active' : '' }}">
                 <i class="bx bx-search"></i>

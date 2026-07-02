@@ -436,7 +436,7 @@
                                 </h2>
 
                                 <div class="alert alert-info small mb-3">
-                                    Giờ nhận phòng <strong>12:00 - 14:00</strong> <br>
+                                    Giờ nhận phòng <strong>13:00 - 14:00</strong> <br>
                                     Giờ trả phòng <strong>12:00</strong>
                                 </div>
 

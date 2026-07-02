@@ -169,7 +169,7 @@
                             </h2>
                             <div id="faq1" class="accordion-collapse collapse show" data-bs-parent="#accordionFAQ">
                                 <div class="accordion-body px-4 pb-4 pt-1 text-muted small lh-lg">
-                                    Tại MCuong Hotel, <strong>thời gian nhận phòng (Check-in) là từ 14:00 đến 16:00</strong> và <strong>thời gian trả phòng (Check-out) là từ 10:00 đến 12:00</strong> trưa. Nếu quý khách có nhu cầu nhận phòng sớm hơn hoặc trả phòng muộn hơn, vui lòng báo trước với lễ tân (dịch vụ này có thể phát sinh phụ phí tùy thuộc vào tình trạng phòng trống).
+                                    Tại MCuong Hotel, <strong>thời gian nhận phòng linh hoạt từ 13:00 đến 14:00</strong> nếu phòng đã sẵn sàng và <strong>thời gian trả phòng trước 12:00</strong>. Nếu quý khách có nhu cầu nhận phòng sớm hơn hoặc trả phòng muộn hơn, vui lòng báo trước với lễ tân (dịch vụ này có thể phát sinh phụ phí tùy thuộc vào tình trạng phòng trống).
                                 </div>
                             </div>
                         </div>

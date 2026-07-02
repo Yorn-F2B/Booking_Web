@@ -520,28 +520,47 @@
                             </select>
                         </div>
 
+                        {{-- Khoảng ngày lưu trú --}}
+                        <div class="col-xl-2 col-lg-5 col-md-6">
+                            <div class="d-flex align-items-end gap-1">
+                                <div class="flex-fill">
+                                    <label class="form-label">Ngày đến</label>
+                                    <input type="text" name="date_from" id="filterDateFrom" class="form-control"
+                                        value="{{ request('date_from', request('filter_date')) }}"
+                                        placeholder="dd/mm/yyyy" autocomplete="off">
+                                </div>
+                                <div class="text-muted pb-2" style="flex-shrink:0">→</div>
+                                <div class="flex-fill">
+                                    <label class="form-label">Ngày đi</label>
+                                    <input type="text" name="date_to" id="filterDateTo" class="form-control"
+                                        value="{{ request('date_to', request('date_from', request('filter_date'))) }}"
+                                        placeholder="dd/mm/yyyy" autocomplete="off">
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="col-xl-2 col-lg-2 col-md-4">
-                            <label class="form-label">Ngày lưu trú</label>
-                            <input type="text" name="filter_date" id="filterDate" class="form-control"
-                                value="{{ request('filter_date') }}" placeholder="dd/mm/yyyy">
-                        </div>
-
-                        <div class="col-xl-1 col-lg-1 col-md-4">
-                            <label class="form-label">Từ giờ</label>
-                            <input type="text" name="filter_time_from" id="filterTimeFrom" class="form-control"
-                                value="{{ request('filter_time_from') }}" placeholder="00:00">
-                        </div>
-
-                        <div class="col-xl-1 col-lg-1 col-md-4">
-                            <label class="form-label">Đến giờ</label>
-                            <input type="text" name="filter_time_to" id="filterTimeTo" class="form-control"
-                                value="{{ request('filter_time_to') }}" placeholder="23:59">
+                            <div class="d-flex align-items-end gap-1">
+                                <div class="flex-fill">
+                                    <label class="form-label">Giờ đến</label>
+                                    <input type="text" name="time_from" id="filterTimeFrom" class="form-control"
+                                        value="{{ request('time_from', request('filter_time_from')) }}"
+                                        placeholder="14:00" autocomplete="off">
+                                </div>
+                                <div class="text-muted pb-2" style="flex-shrink:0">→</div>
+                                <div class="flex-fill">
+                                    <label class="form-label">Giờ đi</label>
+                                    <input type="text" name="time_to" id="filterTimeTo" class="form-control"
+                                        value="{{ request('time_to', request('filter_time_to')) }}"
+                                        placeholder="12:00" autocomplete="off">
+                                </div>
+                            </div>
                         </div>
 
                         <div class="col-12 d-flex justify-content-between align-items-center gap-2 flex-wrap mt-3">
                             <div class="booking-muted-line">
-                                @if (request()->hasAny(['keyword', 'status', 'payment_status', 'filter_date', 'filter_time_from', 'filter_time_to']))
-                                    Đang lọc danh sách. Bấm “Xem tất cả” để reset.
+                                @if (request()->hasAny(['keyword', 'status', 'payment_status', 'date_from', 'date_to', 'time_from', 'time_to', 'filter_date']))
+                                    Đang lọc danh sách. Bấm "Xem tất cả" để reset.
                                 @else
                                     Có thể tìm theo mã booking, tên khách hoặc số điện thoại.
                                 @endif
@@ -824,39 +843,44 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            if (typeof flatpickr === 'undefined') {
-                return;
-            }
+            if (typeof flatpickr === 'undefined') return;
 
-            flatpickr('#filterDate', {
-                locale: 'vn',
+            var locale = (flatpickr.l10ns && flatpickr.l10ns.vn) ? 'vn' : 'default';
+            var dateOpts = {
+                locale: locale,
                 dateFormat: 'Y-m-d',
                 altInput: true,
                 altFormat: 'd/m/Y',
-                allowInput: true,
-            });
-
-            flatpickr('#filterTimeFrom', {
+                allowInput: false,
+                disableMobile: true,
+            };
+            var timeOpts = {
                 enableTime: true,
                 noCalendar: true,
                 dateFormat: 'H:i',
                 time_24hr: true,
-                minuteIncrement: 1,
-                locale: 'vn',
-                allowInput: true,
+                minuteIncrement: 30,
+                locale: locale,
+                allowInput: false,
+                disableMobile: true,
+            };
+
+            var fpFrom = flatpickr('#filterDateFrom', Object.assign({}, dateOpts));
+            var fpTo   = flatpickr('#filterDateTo',   Object.assign({}, dateOpts));
+
+            // When date_from changes, ensure date_to >= date_from
+            document.getElementById('filterDateFrom') && document.getElementById('filterDateFrom').addEventListener('change', function () {
+                if (fpFrom && fpTo) {
+                    fpTo.set('minDate', fpFrom.selectedDates[0] || null);
+                    if (fpTo.selectedDates[0] && fpFrom.selectedDates[0] && fpTo.selectedDates[0] < fpFrom.selectedDates[0]) {
+                        fpTo.setDate(fpFrom.selectedDates[0]);
+                    }
+                }
             });
 
-            flatpickr('#filterTimeTo', {
-                enableTime: true,
-                noCalendar: true,
-                dateFormat: 'H:i',
-                time_24hr: true,
-                minuteIncrement: 1,
-                locale: 'vn',
-                allowInput: true,
-            });
+            flatpickr('#filterTimeFrom', timeOpts);
+            flatpickr('#filterTimeTo',   timeOpts);
         });
     </script>
-    </div>
 @vite('resources/js/admin/bookings-realtime.js')
 @endsection

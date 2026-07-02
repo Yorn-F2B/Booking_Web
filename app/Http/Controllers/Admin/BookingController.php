@@ -60,21 +60,27 @@ class BookingController extends Controller
             $bookings->where('payment_status', $request->payment_status);
         }
 
-        if ($request->filled('filter_date')) {
-            $filterDate = $request->filter_date;
+        if ($request->filled('filter_date') || $request->filled('date_from')) {
+            $tz = 'Asia/Ho_Chi_Minh';
 
-            $timeFrom = $request->filter_time_from ?: '00:00';
-            $timeTo = $request->filter_time_to ?: '23:59';
+            // Support both old single-date filter and new date-range filter
+            if ($request->filled('date_from')) {
+                $dateFrom = $request->date_from;
+                $dateTo   = $request->filled('date_to') ? $request->date_to : $dateFrom;
+            } else {
+                $dateFrom = $request->filter_date;
+                $dateTo   = $dateFrom;
+            }
 
-            $filterStart = Carbon::parse($filterDate . ' ' . $timeFrom . ':00', 'Asia/Ho_Chi_Minh');
-            $filterEnd = Carbon::parse($filterDate . ' ' . $timeTo . ':59', 'Asia/Ho_Chi_Minh');
+            $timeFrom = $request->input('time_from', $request->input('filter_time_from', '00:00')) ?: '00:00';
+            $timeTo   = $request->input('time_to',   $request->input('filter_time_to',   '23:59')) ?: '23:59';
 
+            $filterStart = Carbon::parse($dateFrom . ' ' . $timeFrom . ':00', $tz);
+            $filterEnd   = Carbon::parse($dateTo   . ' ' . $timeTo   . ':59', $tz);
+
+            // If same day and end <= start, treat as overnight wrap
             if ($filterEnd->lessThanOrEqualTo($filterStart)) {
-                return back()
-                    ->withInput()
-                    ->withErrors([
-                        'filter_time_to' => 'Giờ kết thúc lọc phải sau giờ bắt đầu.',
-                    ]);
+                $filterEnd->addDay();
             }
 
             $bookings->where('check_in_at', '<', $filterEnd)
