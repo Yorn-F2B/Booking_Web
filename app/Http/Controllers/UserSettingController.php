@@ -14,19 +14,24 @@ class UserSettingController extends Controller
     {
         $user = Auth::user();
 
-        $customer = Customer::firstOrCreate(
-            [
-                'user_id' => $user->id,
-            ],
-            [
-                'first_name' => '',
-                'last_name' => '',
-                'phone' => '',
-                'gender' => null,
-                'address' => '',
-                'email' => $user->email,
-            ]
-        );
+        if (!$user) {
+            return redirect()->route('login')->with('error', 'Vui lòng đăng nhập để tiếp tục.');
+        }
+
+        $customer = Customer::where('user_id', $user->id)->first();
+
+        if (!$customer) {
+            $customer = new Customer();
+            $customer->user_id = $user->id;
+            $customer->first_name = '';
+            $customer->last_name = '';
+            $customer->phone = 'temp_' . $user->id . '_' . time(); // Temporary unique phone
+            $customer->gender = null;
+            $customer->address = '';
+            $customer->email = $user->email;
+            $customer->status = 'active';
+            $customer->save();
+        }
 
         $bookings = Booking::with(['roomCategory', 'bookingRooms.room'])
             ->where('customer_id', $customer->id)

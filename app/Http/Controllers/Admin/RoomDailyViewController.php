@@ -14,57 +14,75 @@ class RoomDailyViewController extends Controller
 
     public function index(Request $request)
     {
-        $today = now(self::TIMEZONE)->toDateString();
+        $today   = now(self::TIMEZONE)->toDateString();
         $nowTime = now(self::TIMEZONE)->format('H:i');
 
-        $selectedDate = $request->input('date', $today);
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $selectedDate)) {
-            $selectedDate = $today;
+        // ── Date from / Date to ───────────────────────────────────────
+        $dateFrom = $request->input('date_from', $today);
+        $dateTo   = $request->input('date_to',   $today);
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+            $dateFrom = $today;
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+            $dateTo = $today;
+        }
+        // Ensure from <= to
+        if ($dateFrom > $dateTo) {
+            [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
         }
 
-        // Time range filter (optional)
+        // ── Time from / Time to (optional) ───────────────────────────
         $timeFrom = $request->input('time_from', '');
-        $timeTo   = $request->input('time_to', '');
+        $timeTo   = $request->input('time_to',   '');
         $hasTimeFilter = $timeFrom !== '' && $timeTo !== '';
 
-        // Validate time format
         if ($hasTimeFilter) {
             if (!preg_match('/^\d{2}:\d{2}$/', $timeFrom) || !preg_match('/^\d{2}:\d{2}$/', $timeTo)) {
                 $hasTimeFilter = false;
                 $timeFrom = '';
-                $timeTo = '';
+                $timeTo   = '';
             }
         }
 
-        $isToday = $selectedDate === $today;
+        // ── Build window ──────────────────────────────────────────────
+        $windowStart = Carbon::parse(
+            $dateFrom . ' ' . ($hasTimeFilter ? $timeFrom . ':00' : '00:00:00'),
+            self::TIMEZONE
+        );
+        $windowEnd = Carbon::parse(
+            $dateTo . ' ' . ($hasTimeFilter ? $timeTo . ':00' : '23:59:59'),
+            self::TIMEZONE
+        );
 
-        // Build the time window to query
-        if ($hasTimeFilter) {
-            $windowStart = Carbon::parse($selectedDate . ' ' . $timeFrom . ':00', self::TIMEZONE);
-            $windowEnd   = Carbon::parse($selectedDate . ' ' . $timeTo . ':00', self::TIMEZONE);
-            // If to <= from, assume next day wrap (e.g. overnight 22:00–02:00)
-            if ($windowEnd->lte($windowStart)) {
-                $windowEnd->addDay();
-            }
-        } else {
-            $windowStart = Carbon::parse($selectedDate . ' 00:00:00', self::TIMEZONE);
-            $windowEnd   = Carbon::parse($selectedDate . ' 23:59:59', self::TIMEZONE);
+        // Sanity: if end <= start (e.g. same day, time_to <= time_from), push end +1 day
+        if ($windowEnd->lte($windowStart)) {
+            $windowEnd->addDay();
         }
 
-        // Load all rooms
+        $isRange   = $dateFrom !== $dateTo;                  // multi-day range
+        $isToday   = !$isRange && $dateFrom === $today;       // single day = today
+        $isPast    = !$isRange && $dateFrom < $today;
+        $isFuture  = !$isRange && $dateFrom > $today;
+
+        // booking-derived: khi có range, có time filter, hoặc không phải hôm nay
+        // → không dùng physical room->status làm override, chỉ nhìn vào booking
+        $bookingDerived = $isRange || $hasTimeFilter || $isPast || $isFuture;
+
+        // ── Load rooms ────────────────────────────────────────────────
         $rooms = Room::with('category')
             ->orderByDesc('floor_number')
             ->orderByRaw('CAST(room_number AS UNSIGNED) ASC')
             ->orderBy('room_number')
             ->get();
 
-        // Booking statuses to include
+        // ── Booking statuses ──────────────────────────────────────────
         $bookingStatuses = ['pending', 'confirmed', 'checked_in', 'inspection_requested'];
-        if (!$isToday || $hasTimeFilter) {
+        if (!$isToday || $hasTimeFilter || $isRange) {
             $bookingStatuses = array_merge($bookingStatuses, ['checked_out', 'completed']);
         }
 
-        // Query bookings overlapping the window
+        // ── Query bookings overlapping window ─────────────────────────
         $bookings = Booking::with(['bookingRooms', 'customer'])
             ->whereIn('status', $bookingStatuses)
             ->where('check_in_at', '<', $windowEnd)
@@ -79,12 +97,12 @@ class RoomDailyViewController extends Controller
             }
         }
 
-        $rooms = $rooms->map(function ($room) use ($roomBookingMap, $isToday, $hasTimeFilter) {
+        $rooms = $rooms->map(function ($room) use ($roomBookingMap, $isToday, $bookingDerived) {
             $dailyStatus = $this->resolveDailyStatus(
                 $room,
                 $roomBookingMap[$room->id] ?? [],
                 $isToday,
-                $hasTimeFilter
+                $bookingDerived
             );
             $room->daily_status   = $dailyStatus['status'];
             $room->daily_bookings = $dailyStatus['bookings'] ?? [];
@@ -105,7 +123,8 @@ class RoomDailyViewController extends Controller
 
         return view('admin.pages.room-daily.index', compact(
             'rooms', 'roomsByFloor', 'summary',
-            'selectedDate', 'today', 'isToday',
+            'dateFrom', 'dateTo', 'today',
+            'isToday', 'isRange', 'isPast', 'isFuture',
             'timeFrom', 'timeTo', 'hasTimeFilter',
             'windowStart', 'windowEnd', 'nowTime'
         ));
@@ -114,53 +133,55 @@ class RoomDailyViewController extends Controller
     /**
      * Resolve room status for the given window.
      *
-     * - TODAY (no time filter): physical status takes precedence.
-     * - With time filter or future/past: derived from bookings in that window only.
-     * - Multiple bookings possible in one day (back-to-back hourly) → return all of them.
+     * - TODAY single day (no time/range filter): physical status takes precedence.
+     * - With time filter, range, or future/past: derived from bookings only.
      */
-    private function resolveDailyStatus(Room $room, array $bookings, bool $isToday, bool $hasTimeFilter): array
+    private function resolveDailyStatus(Room $room, array $bookings, bool $isToday, bool $bookingDerived): array
     {
-        // Physical status overrides on today (no time filter)
-        if ($isToday && !$hasTimeFilter) {
+        // Physical status overrides on today (no time/range filter)
+        if ($isToday && !$bookingDerived) {
             if (in_array($room->status, ['maintenance', 'cleaning', 'inspection'])) {
                 return ['status' => $room->status, 'bookings' => []];
             }
         }
 
         if (empty($bookings)) {
-            $status = ($isToday && !$hasTimeFilter) ? $room->status : 'available';
+            $status = ($isToday && !$bookingDerived) ? $room->status : 'available';
             return ['status' => $status, 'bookings' => []];
         }
 
         $list = collect($bookings);
 
-        // Determine dominant status (highest priority booking)
         $checkedIn = $list->first(fn($b) => $b->status === 'checked_in');
         if ($checkedIn) {
+            if ($isToday && !$bookingDerived && in_array($room->status, ['maintenance', 'cleaning', 'inspection'])) {
+                return ['status' => $room->status, 'bookings' => []];
+            }
             return ['status' => 'occupied', 'bookings' => $list->all()];
         }
 
         $inspecting = $list->first(fn($b) => $b->status === 'inspection_requested');
         if ($inspecting) {
+            if ($isToday && !$bookingDerived && in_array($room->status, ['maintenance', 'cleaning'])) {
+                return ['status' => $room->status, 'bookings' => []];
+            }
             return ['status' => 'inspection', 'bookings' => $list->all()];
         }
 
         $confirmed = $list->first(fn($b) => in_array($b->status, ['confirmed', 'pending']));
         if ($confirmed) {
-            if ($isToday && !$hasTimeFilter && in_array($room->status, ['maintenance', 'cleaning'])) {
+            if ($isToday && !$bookingDerived && in_array($room->status, ['maintenance', 'cleaning', 'inspection'])) {
                 return ['status' => $room->status, 'bookings' => []];
             }
             return ['status' => 'reserved', 'bookings' => $list->all()];
         }
 
-        // All past/completed — show available but still attach bookings for history
         $past = $list->filter(fn($b) => in_array($b->status, ['checked_out', 'completed']));
         if ($past->isNotEmpty()) {
             return ['status' => 'available', 'bookings' => $past->all()];
         }
 
-        $status = ($isToday && !$hasTimeFilter) ? $room->status : 'available';
+        $status = ($isToday && !$bookingDerived) ? $room->status : 'available';
         return ['status' => $status, 'bookings' => []];
     }
 }
-

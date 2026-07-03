@@ -657,7 +657,7 @@
                                     $attention = [
                                         'class' => 'booking-attention-neutral',
                                         'icon' => 'bx-check-circle',
-                                        'text' => 'Ổn',
+                                        'text' => 'Bình thường',
                                         'level' => 'neutral',
                                     ];
 
@@ -693,7 +693,7 @@
                                                     $attention = [
                                                         'class' => 'booking-attention-danger',
                                                         'icon' => 'bx-phone-call',
-                                                        'text' => 'No-show',
+                                                        'text' => 'Không đến',
                                                         'level' => 'danger',
                                                     ];
                                                 }

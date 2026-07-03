@@ -91,12 +91,33 @@ class RoomController extends Controller
     public function update(Request $request, Room $room)
     {
         $data = $request->validate([
-            'room_number' => 'required|max:20|unique:rooms,room_number,' . $room->id,
+            'room_number'      => 'required|max:20|unique:rooms,room_number,' . $room->id,
             'room_category_id' => 'required|exists:room_categories,id',
-            'floor_number' => 'nullable|integer|min:0',
-            'status' => 'required|in:available,reserved,occupied,inspection,cleaning,maintenance',
-            'note' => 'nullable|string',
+            'floor_number'     => 'nullable|integer|min:0',
+            'status'           => 'required|in:available,reserved,occupied,inspection,cleaning,maintenance',
+            'status_from'      => 'nullable|string',
+            'status_until'     => 'nullable|string',
+            'note'             => 'nullable|string',
         ]);
+
+        // Parse format dd/mm/yyyy HH:MM từ flatpickr
+        $parseDate = function (?string $val): ?string {
+            if (!$val) return null;
+            try {
+                return \Carbon\Carbon::createFromFormat('d/m/Y H:i', $val, 'Asia/Ho_Chi_Minh')
+                    ->toDateTimeString();
+            } catch (\Throwable $e) {
+                return null;
+            }
+        };
+
+        $data['status_from']  = $parseDate($data['status_from']  ?? null);
+        $data['status_until'] = $parseDate($data['status_until'] ?? null);
+
+        if ($data['status'] === 'available') {
+            $data['status_from']  = null;
+            $data['status_until'] = null;
+        }
 
         $room->update($data);
 
@@ -108,12 +129,50 @@ class RoomController extends Controller
     public function updateStatus(Request $request, Room $room)
     {
         $data = $request->validate([
-            'status' => 'required|in:available,reserved,occupied,inspection,cleaning,maintenance',
+            'status'       => 'required|in:available,reserved,occupied,inspection,cleaning,maintenance',
+            'status_from'  => 'nullable|string',
+            'status_until' => 'nullable|string',
+            'note'         => 'nullable|string|max:500',
         ]);
 
-        $room->update([
-            'status' => $data['status'],
-        ]);
+        $newStatus = $data['status'];
+
+        // Parse format dd/mm/yyyy HH:MM từ flatpickr
+        $parseDate = function (?string $val): ?string {
+            if (!$val) return null;
+            try {
+                return \Carbon\Carbon::createFromFormat('d/m/Y H:i', $val, 'Asia/Ho_Chi_Minh')
+                    ->toDateTimeString();
+            } catch (\Throwable $e) {
+                return null;
+            }
+        };
+
+        $statusFrom  = $parseDate($data['status_from']  ?? null);
+        $statusUntil = $parseDate($data['status_until'] ?? null);
+
+        if ($room->status !== $newStatus) {
+            $room->update([
+                'status'       => $newStatus,
+                'status_from'  => $statusFrom,
+                'status_until' => $statusUntil,
+                'note'         => $data['note'] ?? $room->note,
+            ]);
+
+            $fmt = fn($v) => $v ? \Carbon\Carbon::parse($v)->format('H:i d/m/Y') : null;
+            $noteLog = 'Chuyển trạng thái thủ công sang ' . $newStatus;
+            if ($statusFrom)  $noteLog .= ' từ ' . $fmt($statusFrom);
+            if ($statusUntil) $noteLog .= ' đến ' . $fmt($statusUntil);
+            if (!empty($data['note'])) $noteLog .= '. Lý do: ' . $data['note'];
+
+            \App\Models\RoomActionLog::create([
+                'room_id'     => $room->id,
+                'user_id'     => \Illuminate\Support\Facades\Auth::id(),
+                'action_type' => 'status_change',
+                'action_time' => now(),
+                'note'        => $noteLog,
+            ]);
+        }
 
         return redirect()
             ->route('admin.rooms.index')

@@ -632,7 +632,8 @@
 
                                     <select name="status"
                                         class="form-select form-select-sm room-status-select {{ $currentSelectClass }}"
-                                        title="{{ $currentStatusLabel }}" onchange="this.form.submit()">
+                                        title="{{ $currentStatusLabel }}"
+                                        onchange="openStatusModal(this, {{ $room->id }}, '{{ $room->room_number }}')">
 
                                         @foreach ($statusFullLabels as $key => $label)
                                             <option value="{{ $key }}" {{ $room->status == $key ? 'selected' : '' }}>
@@ -692,5 +693,206 @@
         </footer>
 
     </div>
+
+{{-- Modal đổi trạng thái phòng --}}
+<style>
+    #statusModal .modal-header {
+        background: linear-gradient(135deg, #0f172a, #1e293b);
+        color: #fff;
+        border-radius: 12px 12px 0 0;
+    }
+    #statusModal .modal-header .modal-title { color: #fff; }
+    #statusModal .modal-header .btn-close { filter: invert(1); }
+    #statusModal .modal-content { border-radius: 14px; overflow: hidden; border: none; }
+    .status-modal-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 700;
+    }
+    .needs-schedule { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .no-schedule    { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+</style>
+
+<div class="modal fade" id="statusModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bx bx-transfer me-1"></i>
+                    Đổi trạng thái — Phòng <span id="smRoomNumber"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="statusForm" method="POST">
+                @csrf
+                @method('PATCH')
+                <div class="modal-body" style="padding:20px">
+
+                    <div class="mb-3">
+                        <div class="fw-semibold mb-1" style="font-size:13px;color:#64748b">Trạng thái mới</div>
+                        <div id="smNewStatusLabel"></div>
+                    </div>
+
+                    <input type="hidden" name="status" id="smStatusInput">
+
+                    {{-- Schedule fields: chỉ hiện với maintenance/cleaning/inspection --}}
+                    <div id="smScheduleFields">
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label" style="font-size:12px;font-weight:600;color:#64748b">
+                                    Từ ngày giờ
+                                </label>
+                                <input type="text" name="status_from" id="smStatusFrom"
+                                    class="form-control form-control-sm" autocomplete="off" readonly placeholder="dd/mm/yyyy HH:MM">
+                                <input type="hidden" name="status_from_raw" id="smStatusFromRaw">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label" style="font-size:12px;font-weight:600;color:#64748b">
+                                    Đến ngày giờ
+                                </label>
+                                <input type="text" name="status_until" id="smStatusUntil"
+                                    class="form-control form-control-sm" autocomplete="off" readonly placeholder="dd/mm/yyyy HH:MM">
+                                <input type="hidden" name="status_until_raw" id="smStatusUntilRaw">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" style="font-size:12px;font-weight:600;color:#64748b">
+                                Lý do <span class="text-muted fw-normal">(tuỳ chọn)</span>
+                            </label>
+                            <textarea name="note" id="smNote" class="form-control form-control-sm"
+                                rows="2" placeholder="Ví dụ: sửa điều hoà, tổng vệ sinh..."></textarea>
+                        </div>
+                    </div>
+
+                    {{-- Simple confirm for available --}}
+                    <div id="smSimpleMsg" class="text-muted" style="font-size:13px;display:none">
+                        Phòng sẽ được chuyển về <strong>Còn trống</strong> ngay lập tức.
+                    </div>
+
+                </div>
+                <div class="modal-footer" style="gap:8px">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Huỷ</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bx bx-check me-1"></i>Xác nhận
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+<script>
+// Locale tiếng Việt nhúng trực tiếp — không cần CDN ngoài
+flatpickr.localize({
+    weekdays: {
+        shorthand: ['CN','T2','T3','T4','T5','T6','T7'],
+        longhand:  ['Chủ Nhật','Thứ Hai','Thứ Ba','Thứ Tư','Thứ Năm','Thứ Sáu','Thứ Bảy']
+    },
+    months: {
+        shorthand: ['Th1','Th2','Th3','Th4','Th5','Th6','Th7','Th8','Th9','Th10','Th11','Th12'],
+        longhand:  ['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Tháng 6',
+                    'Tháng 7','Tháng 8','Tháng 9','Tháng 10','Tháng 11','Tháng 12']
+    },
+    firstDayOfWeek: 1,
+    rangeSeparator: ' đến ',
+    time_24hr: true,
+});
+
+(function () {
+    const dtOpts = {
+        enableTime: true,
+        dateFormat: 'd/m/Y H:i',
+        time_24hr: true,
+        minuteIncrement: 15,
+        allowInput: false,
+        disableMobile: true,
+    };
+
+    let fpFrom = null, fpUntil = null;
+
+    function initPickers() {
+        if (fpFrom)  { fpFrom.destroy();  fpFrom  = null; }
+        if (fpUntil) { fpUntil.destroy(); fpUntil = null; }
+
+        fpFrom = flatpickr('#smStatusFrom', {
+            ...dtOpts,
+            onChange: function(dates) {
+                if (dates[0] && fpUntil) fpUntil.set('minDate', dates[0]);
+            }
+        });
+        fpUntil = flatpickr('#smStatusUntil', {
+            ...dtOpts,
+            onChange: function(dates) {
+                if (dates[0] && fpFrom) fpFrom.set('maxDate', dates[0]);
+            }
+        });
+    }
+
+    const statusLabels = {
+        available:   { text: 'Còn trống',    cls: 'no-schedule' },
+        reserved:    { text: 'Đã đặt trước', cls: 'needs-schedule' },
+        occupied:    { text: 'Đang sử dụng', cls: 'needs-schedule' },
+        inspection:  { text: 'Chờ kiểm tra', cls: 'needs-schedule' },
+        cleaning:    { text: 'Đang dọn dẹp', cls: 'needs-schedule' },
+        maintenance: { text: 'Bảo trì',      cls: 'needs-schedule' },
+    };
+
+    const needsSchedule = ['maintenance', 'cleaning', 'inspection', 'reserved', 'occupied'];
+    let _selectEl = null, _prevValue = null;
+
+    window.openStatusModal = function (selectEl, roomId, roomNumber) {
+        const newStatus = selectEl.value;
+        _selectEl  = selectEl;
+        _prevValue = [...selectEl.options].find(o => o.defaultSelected)?.value ?? selectEl.dataset.original;
+
+        document.getElementById('smRoomNumber').textContent = roomNumber;
+        document.getElementById('smStatusInput').value = newStatus;
+        document.getElementById('smNote').value = '';
+
+        const info = statusLabels[newStatus] || { text: newStatus, cls: 'no-schedule' };
+        document.getElementById('smNewStatusLabel').innerHTML =
+            `<span class="status-modal-badge ${info.cls}">${info.text}</span>`;
+
+        const showSchedule = needsSchedule.includes(newStatus);
+        document.getElementById('smScheduleFields').style.display = showSchedule ? '' : 'none';
+        document.getElementById('smSimpleMsg').style.display      = showSchedule ? 'none' : '';
+
+        document.getElementById('statusForm').action = `/admin/rooms/${roomId}/status`;
+
+        const modal = new bootstrap.Modal(document.getElementById('statusModal'));
+
+        // Khởi tạo flatpickr sau khi modal hiển thị
+        document.getElementById('statusModal').addEventListener('shown.bs.modal', function onShown() {
+            initPickers();
+            // Điền giờ hiện tại cho "Từ ngày giờ"
+            if (fpFrom) fpFrom.setDate(new Date(), true);
+            if (fpUntil) fpUntil.clear();
+            document.getElementById('statusModal').removeEventListener('shown.bs.modal', onShown);
+        }, { once: true });
+
+        document.getElementById('statusModal').addEventListener('hide.bs.modal', function onHide() {
+            if (_selectEl && _prevValue !== null) {
+                _selectEl.value = _prevValue;
+                updateSelectStyle(_selectEl);
+            }
+            document.getElementById('statusModal').removeEventListener('hide.bs.modal', onHide);
+        }, { once: true });
+
+        modal.show();
+    };
+
+    function updateSelectStyle(sel) {
+        const map = {
+            available:'room-status-available', reserved:'room-status-reserved',
+            occupied:'room-status-occupied',   inspection:'room-status-inspection',
+            cleaning:'room-status-cleaning',   maintenance:'room-status-maintenance',
+        };
+        Object.values(map).forEach(c => sel.classList.remove(c));
+        sel.classList.add(map[sel.value] || 'room-status-maintenance');
+    }
+})();
+</script>
 
 @endsection

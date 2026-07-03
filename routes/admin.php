@@ -20,11 +20,20 @@ Route::middleware('role:super_admin,manager')->group(function () {
     require __DIR__ . '/admin/promotions.php';
     require __DIR__ . '/admin/amenities.php';
     require __DIR__ . '/admin/reviews.php';
+
+    Route::get('reports', [\App\Http\Controllers\Admin\ReportController::class, 'index'])
+        ->name('admin.reports.index');
+
+    Route::resource('customers', \App\Http\Controllers\Admin\CustomerController::class)
+        ->names('admin.customers');
 });
 
 Route::middleware('role:super_admin,manager,receptionist_lead,receptionist')->group(function () {
     require __DIR__ . '/admin/bookings.php';
     require __DIR__ . '/admin/chats.php';
+
+    Route::get('bookings/{booking}/invoice', [\App\Http\Controllers\Admin\InvoiceController::class, 'generate'])
+        ->name('admin.bookings.invoice');
 });
 
 Route::middleware('role:super_admin,manager,housekeeping_supervisor,housekeeping')->group(function () {

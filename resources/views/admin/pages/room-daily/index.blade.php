@@ -32,10 +32,8 @@
         'maintenance' => 'badge-daily-maintenance',
     ];
 
-    $isPast   = $selectedDate < $today;
-    $isFuture = $selectedDate > $today;
-
-    $displayDate = \Carbon\Carbon::parse($selectedDate)->locale('vi')->isoFormat('dddd, DD/MM/YYYY');
+    $displayDateFrom = \Carbon\Carbon::parse($dateFrom)->locale('vi')->isoFormat('DD/MM/YYYY');
+    $displayDateTo   = \Carbon\Carbon::parse($dateTo)->locale('vi')->isoFormat('DD/MM/YYYY');
 
     $bookingStatusLabels = [
         'pending'              => 'Chờ xác nhận',
@@ -343,21 +341,28 @@
             <div>
                 <h2 class="mb-1">Trạng thái phòng theo ngày</h2>
                 <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
-                    @if ($isToday && !$hasTimeFilter)
+                    @if ($isToday && !$hasTimeFilter && !$isRange)
                         <span class="window-info-badge window-today">
-                            <i class="bx bx-calendar-check"></i> Hôm nay &mdash; {{ $displayDate }}
+                            <i class="bx bx-calendar-check"></i> Hôm nay &mdash; {{ $displayDateFrom }}
                         </span>
-                    @elseif ($isToday && $hasTimeFilter)
-                        <span class="window-info-badge window-today">
-                            <i class="bx bx-calendar-check"></i> Hôm nay &mdash; {{ $displayDate }}
-                        </span>
-                        <span class="window-info-badge window-timespan">
-                            <i class="bx bx-time-five"></i>
-                            {{ $windowStart->format('H:i') }} → {{ $windowEnd->format('H:i') }}
+                    @elseif ($isRange)
+                        <span class="window-info-badge window-future">
+                            <i class="bx bx-calendar-range"></i>
+                            {{ $windowStart->format('H:i d/m/Y') }} → {{ $windowEnd->format('H:i d/m/Y') }}
                         </span>
                     @elseif ($isPast)
                         <span class="window-info-badge window-past">
-                            <i class="bx bx-history"></i> Quá khứ &mdash; {{ $displayDate }}
+                            <i class="bx bx-history"></i> Quá khứ &mdash; {{ $displayDateFrom }}
+                        </span>
+                        @if ($hasTimeFilter)
+                            <span class="window-info-badge window-timespan">
+                                <i class="bx bx-time-five"></i>
+                                {{ $windowStart->format('H:i') }} → {{ $windowEnd->format('H:i') }}
+                            </span>
+                        @endif
+                    @elseif ($isFuture)
+                        <span class="window-info-badge window-future">
+                            <i class="bx bx-calendar"></i> Tương lai &mdash; {{ $displayDateFrom }}
                         </span>
                         @if ($hasTimeFilter)
                             <span class="window-info-badge window-timespan">
@@ -366,8 +371,8 @@
                             </span>
                         @endif
                     @else
-                        <span class="window-info-badge window-future">
-                            <i class="bx bx-calendar"></i> Tương lai &mdash; {{ $displayDate }}
+                        <span class="window-info-badge window-today">
+                            <i class="bx bx-calendar-check"></i> Hôm nay &mdash; {{ $displayDateFrom }}
                         </span>
                         @if ($hasTimeFilter)
                             <span class="window-info-badge window-timespan">
@@ -386,14 +391,14 @@
                 <div class="filter-row">
 
                     <div class="filter-group">
-                        <label>Ngày</label>
+                        <label>Ngày từ</label>
                         <input type="text"
-                            name="date"
-                            id="dailyDatePicker"
+                            name="date_from"
+                            id="dailyDateFrom"
                             class="form-control"
-                            value="{{ $selectedDate }}"
+                            value="{{ $dateFrom }}"
                             autocomplete="off"
-                            style="width:150px">
+                            style="width:140px">
                     </div>
 
                     <div class="filter-group">
@@ -403,23 +408,34 @@
                             id="timeFrom"
                             class="form-control js-time-picker"
                             value="{{ $timeFrom }}"
-                            placeholder="08:00"
+                            placeholder="00:00"
                             autocomplete="off"
-                            style="width:100px">
+                            style="width:95px">
                     </div>
 
-                    <div class="time-separator">→</div>
+                    <div class="time-separator align-self-end pb-1">→</div>
 
                     <div class="filter-group">
-                        <label>Giờ đến</label>
+                        <label>Ngày đến</label>
+                        <input type="text"
+                            name="date_to"
+                            id="dailyDateTo"
+                            class="form-control"
+                            value="{{ $dateTo }}"
+                            autocomplete="off"
+                            style="width:140px">
+                    </div>
+
+                    <div class="filter-group">
+                        <label>Giờ đến <span class="text-muted fw-normal">(tuỳ chọn)</span></label>
                         <input type="text"
                             name="time_to"
                             id="timeTo"
                             class="form-control js-time-picker"
                             value="{{ $timeTo }}"
-                            placeholder="12:00"
+                            placeholder="23:59"
                             autocomplete="off"
-                            style="width:100px">
+                            style="width:95px">
                     </div>
 
                     <div class="filter-group">
@@ -429,7 +445,7 @@
                         </button>
                     </div>
 
-                    @if ($hasTimeFilter || !$isToday)
+                    @if ($hasTimeFilter || $isRange || !$isToday)
                         <div class="filter-group">
                             <label>&nbsp;</label>
                             <a href="{{ route('admin.room-daily.index') }}" class="btn btn-outline-secondary">
@@ -440,16 +456,13 @@
 
                 </div>
 
-                @if ($hasTimeFilter)
+                @if ($hasTimeFilter || $isRange)
                     <div class="mt-2" style="font-size:13px;color:#64748b">
                         <i class="bx bx-info-circle"></i>
-                        Đang lọc các phòng có booking chạy trong khung
+                        Đang lọc phòng có booking trong khung
                         <strong>{{ $windowStart->format('H:i d/m/Y') }}</strong>
-                        đến
+                        →
                         <strong>{{ $windowEnd->format('H:i d/m/Y') }}</strong>.
-                        @if ($windowEnd->toDateString() !== $windowStart->toDateString())
-                            <span style="color:#92400e">(khung giờ qua đêm)</span>
-                        @endif
                         Phòng không có booking trong khung này hiển thị là <strong>Trống</strong>.
                     </div>
                 @endif
@@ -518,7 +531,7 @@
                             $bookings    = $room->daily_bookings ?? [];
                         @endphp
 
-                        <div class="daily-room-card {{ $cardClass }}">
+                        <div class="daily-room-card {{ $cardClass }}" style="cursor: pointer;" onclick="openRoomLogModal({{ $room->id }}, '{{ $room->room_number }}', '{{ $dateFrom }}')">
 
                             {{-- Số phòng + badge --}}
                             <div class="d-flex justify-content-between align-items-start gap-1">
@@ -602,13 +615,31 @@
     (function () {
         const locale = (typeof flatpickr !== 'undefined' && flatpickr.l10ns && flatpickr.l10ns.vn) ? 'vn' : 'default';
 
-        flatpickr('#dailyDatePicker', {
+        const dateOpts = {
             locale,
             altInput: true,
             altFormat: 'd/m/Y',
             dateFormat: 'Y-m-d',
             allowInput: false,
             disableMobile: true,
+        };
+
+        const fpFrom = flatpickr('#dailyDateFrom', {
+            ...dateOpts,
+            onChange: function (selectedDates) {
+                if (selectedDates[0]) {
+                    fpTo.set('minDate', selectedDates[0]);
+                }
+            },
+        });
+
+        const fpTo = flatpickr('#dailyDateTo', {
+            ...dateOpts,
+            onChange: function (selectedDates) {
+                if (selectedDates[0]) {
+                    fpFrom.set('maxDate', selectedDates[0]);
+                }
+            },
         });
 
         document.querySelectorAll('.js-time-picker').forEach(function (el) {
@@ -623,6 +654,261 @@
             });
         });
     })();
+</script>
+
+<!-- Modal for Room Info (Bookings + Action Logs) -->
+<style>
+    .room-modal-section-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin: 0 0 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .booking-modal-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+    }
+
+    .booking-modal-card .bm-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: #334155;
+        margin-bottom: 5px;
+    }
+
+    .booking-modal-card .bm-row:last-child { margin-bottom: 0; }
+    .booking-modal-card .bm-row i { color: #94a3b8; font-size: 14px; flex-shrink: 0; }
+    .booking-modal-card .bm-label { color: #64748b; min-width: 80px; }
+    .booking-modal-card .bm-val   { font-weight: 600; color: #1e293b; }
+
+    .log-item {
+        display: flex;
+        gap: 10px;
+        padding: 10px 0;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .log-item:last-child { border-bottom: none; }
+
+    .log-time-badge {
+        background: #eff6ff;
+        color: #1d4ed8;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        padding: 2px 9px;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+        height: fit-content;
+    }
+
+    .log-body { flex: 1; min-width: 0; }
+    .log-body .log-who { font-size: 13px; font-weight: 600; color: #1e293b; }
+    .log-body .log-role { font-size: 11px; color: #64748b; }
+    .log-body .log-note { font-size: 13px; color: #475569; margin-top: 3px; }
+
+    .modal-empty-state {
+        text-align: center;
+        padding: 24px;
+        color: #94a3b8;
+        font-size: 13px;
+    }
+
+    .modal-empty-state i { font-size: 32px; display: block; margin-bottom: 8px; }
+
+    #roomLogModal .modal-header {
+        background: linear-gradient(135deg, #0f172a, #1e293b);
+        color: #fff;
+        border-radius: 12px 12px 0 0;
+    }
+
+    #roomLogModal .modal-header .modal-title { color: #fff; }
+    #roomLogModal .modal-header .btn-close { filter: invert(1); }
+    #roomLogModal .modal-content { border-radius: 14px; overflow: hidden; border: none; }
+
+    .booking-status-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 9px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .chip-pending              { background: #fef9c3; color: #854d0e; }
+    .chip-confirmed            { background: #dbeafe; color: #1e40af; }
+    .chip-checked_in           { background: #dcfce7; color: #166534; }
+    .chip-inspection_requested { background: #cffafe; color: #155e75; }
+    .chip-checked_out          { background: #f3f4f6; color: #374151; }
+    .chip-completed            { background: #f0fdf4; color: #166534; }
+</style>
+
+<div class="modal fade" id="roomLogModal" tabindex="-1" aria-labelledby="roomLogModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="roomLogModalLabel">
+                    <i class="bx bx-hotel me-1"></i>
+                    Phòng <span id="modalRoomNumber"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <div id="roomLogContainer">
+                    <p class="text-center text-muted"><i class="bx bx-loader-alt bx-spin"></i> Đang tải dữ liệu...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const bookingAdminUrl = '{{ rtrim(url("admin/bookings"), "/") }}/';
+
+    function openRoomLogModal(roomId, roomNumber, date) {
+        document.getElementById('modalRoomNumber').innerText = roomNumber + ' — ' + date;
+        var modal = new bootstrap.Modal(document.getElementById('roomLogModal'));
+        modal.show();
+
+        var container = document.getElementById('roomLogContainer');
+        container.innerHTML = '<p class="text-center text-muted py-4"><i class="bx bx-loader-alt bx-spin"></i> Đang tải dữ liệu...</p>';
+
+        fetch(`/admin/rooms/${roomId}/action-logs?date=${date}`)
+            .then(res => {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .then(data => {
+                if (!data.success) {
+                    container.innerHTML = '<p class="text-center text-danger"><i class="bx bx-error-circle"></i> Không thể tải dữ liệu.</p>';
+                    return;
+                }
+
+                let html = '';
+
+                // ── BOOKING SECTION ──────────────────────────────────────
+                html += '<p class="room-modal-section-title"><i class="bx bx-calendar-check"></i> Booking trong ngày</p>';
+
+                if (data.bookings && data.bookings.length > 0) {
+                    data.bookings.forEach(b => {
+                        const statusClass = 'chip-' + b.status;
+                        html += `
+                        <div class="booking-modal-card">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <a href="${bookingAdminUrl}${b.id}" target="_blank"
+                                   style="font-weight:700;font-size:14px;color:#2563eb;text-decoration:none;">
+                                    #${b.booking_code}
+                                </a>
+                                <span class="booking-status-chip ${statusClass}">${b.status_label}</span>
+                            </div>
+                            <div class="bm-row">
+                                <i class="bx bx-user"></i>
+                                <span class="bm-label">Khách:</span>
+                                <span class="bm-val">${b.guest_name}</span>
+                            </div>
+                            <div class="bm-row">
+                                <i class="bx bx-log-in"></i>
+                                <span class="bm-label">Nhận phòng:</span>
+                                <span class="bm-val">${b.check_in_at}</span>
+                            </div>
+                            <div class="bm-row">
+                                <i class="bx bx-log-out"></i>
+                                <span class="bm-label">Trả phòng:</span>
+                                <span class="bm-val">${b.check_out_at}</span>
+                            </div>
+                            <div class="bm-row">
+                                <i class="bx bx-group"></i>
+                                <span class="bm-label">Số khách:</span>
+                                <span class="bm-val">${b.adult_count} người lớn${b.child_count ? ' · ' + b.child_count + ' trẻ em' : ''}</span>
+                            </div>
+                        </div>`;
+                    });
+                } else {
+                    html += `<div class="modal-empty-state"><i class="bx bx-calendar-x"></i>Không có booking nào trong ngày này</div>`;
+                }
+
+                // ── ACTION LOG SECTION ───────────────────────────────────
+                html += '<hr style="margin: 18px 0;">';
+                html += '<p class="room-modal-section-title"><i class="bx bx-history"></i> Lịch sử hành động nhân viên</p>';
+
+                if (data.logs && data.logs.length > 0) {
+                    html += '<div>';
+                    data.logs.forEach(log => {
+                        const noteHtml = log.note ? `<div class="log-note">${log.note}</div>` : '';
+                        const editBtn = log.can_edit
+                            ? `<button class="btn btn-sm btn-outline-secondary ms-auto" style="font-size:11px;padding:2px 10px;" onclick="editLog(${log.id})">Sửa ghi chú</button>`
+                            : '';
+                        html += `
+                        <div class="log-item">
+                            <span class="log-time-badge">${log.action_time}</span>
+                            <div class="log-body">
+                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                    <span class="log-who">${log.user_name}</span>
+                                    <span class="log-role">${log.user_role}</span>
+                                    ${editBtn}
+                                </div>
+                                <div id="log-text-${log.id}">${noteHtml}</div>
+                                <div class="mt-2 d-none" id="log-edit-${log.id}">
+                                    <textarea class="form-control mb-1" style="font-size:13px;" id="log-input-${log.id}">${log.note ?? ''}</textarea>
+                                    <button class="btn btn-sm btn-success me-1" onclick="saveLog(${log.id})">Lưu</button>
+                                    <button class="btn btn-sm btn-light" onclick="cancelEdit(${log.id})">Huỷ</button>
+                                </div>
+                            </div>
+                        </div>`;
+                    });
+                    html += '</div>';
+                } else {
+                    html += `<div class="modal-empty-state"><i class="bx bx-note"></i>Chưa có nhật ký hành động nào trong ngày này</div>`;
+                }
+
+                container.innerHTML = html;
+            })
+            .catch(err => {
+                container.innerHTML = `<p class="text-center text-danger"><i class="bx bx-error-circle"></i> Lỗi: ${err.message}</p>`;
+            });
+    }
+
+    function editLog(id) {
+        document.getElementById(`log-text-${id}`).classList.add('d-none');
+        document.getElementById(`log-edit-${id}`).classList.remove('d-none');
+    }
+
+    function cancelEdit(id) {
+        document.getElementById(`log-text-${id}`).classList.remove('d-none');
+        document.getElementById(`log-edit-${id}`).classList.add('d-none');
+    }
+
+    function saveLog(id) {
+        var note = document.getElementById(`log-input-${id}`).value;
+        fetch(`/admin/room-action-logs/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            },
+            body: JSON.stringify({ note: note })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById(`log-text-${id}`).innerHTML = `<div class="log-note">${note}</div>`;
+                cancelEdit(id);
+            } else {
+                alert(data.message || 'Lỗi khi cập nhật.');
+            }
+        });
+    }
 </script>
 
 @endsection

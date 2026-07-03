@@ -54,7 +54,7 @@
 
                             </a>
 
-                        </li>
+                       </li>
 
                         {{-- REGISTER --}}
                         <li class="nav-item">

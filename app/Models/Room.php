@@ -16,7 +16,14 @@ class Room extends Model
         'room_category_id',
         'floor_number',
         'status',
+        'status_from',
+        'status_until',
         'note',
+    ];
+
+    protected $casts = [
+        'status_from'  => 'datetime',
+        'status_until' => 'datetime',
     ];
 
     public function category()
@@ -32,6 +39,11 @@ class Room extends Model
     public function inspections()
     {
         return $this->hasMany(RoomInspection::class);
+    }
+
+    public function actionLogs()
+    {
+        return $this->hasMany(RoomActionLog::class);
     }
 
 
