@@ -133,12 +133,20 @@
                 <i class="bx bx-check-shield"></i>
                 Duyệt kiểm tra phòng
             </a>
+
+            <a href="{{ route('admin.customers.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.customers.*') ? 'active' : '' }}">
+                <i class="bx bx-user"></i>
+                Khách hàng
+            </a>
+
+            <a href="{{ route('admin.reports.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.reports.*') ? 'active' : '' }}">
+                <i class="bx bx-bar-chart-alt-2"></i>
+                Báo cáo doanh thu
+            </a>
         @endif
 
-        <a href="#" class="admin-nav-link disabled">
-            <i class="bx bx-user"></i>
-            Khách hàng
-        </a>
     </nav>
 
     <div class="admin-sidebar-user">

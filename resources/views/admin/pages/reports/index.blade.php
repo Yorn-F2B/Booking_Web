@@ -56,6 +56,50 @@
                     <p>Xem thống kê doanh thu theo thời gian</p>
                 </div>
 
+                {{-- Nút xuất PDF --}}
+                <div class="d-flex align-items-center gap-2">
+                    <form method="GET" action="{{ route('admin.reports.export-pdf') }}"
+                        class="d-flex align-items-center gap-2 flex-wrap" id="pdfExportForm">
+
+                        {{-- Chế độ --}}
+                        <select name="pdf_mode" id="pdfMode" class="form-select form-select-sm" style="width:130px">
+                            <option value="year">Cả năm</option>
+                            <option value="month">Theo tháng</option>
+                            <option value="range">Khoảng ngày</option>
+                        </select>
+
+                        {{-- Năm --}}
+                        <select name="year" id="pdfYear" class="form-select form-select-sm" style="width:90px">
+                            @for ($y = now()->year; $y >= now()->year - 4; $y--)
+                                <option value="{{ $y }}">{{ $y }}</option>
+                            @endfor
+                        </select>
+
+                        {{-- Tháng (ẩn mặc định) --}}
+                        <select name="month" id="pdfMonth" class="form-select form-select-sm d-none" style="width:110px">
+                            @foreach(['01'=>'Tháng 1','02'=>'Tháng 2','03'=>'Tháng 3','04'=>'Tháng 4','05'=>'Tháng 5','06'=>'Tháng 6','07'=>'Tháng 7','08'=>'Tháng 8','09'=>'Tháng 9','10'=>'Tháng 10','11'=>'Tháng 11','12'=>'Tháng 12'] as $v => $l)
+                                <option value="{{ (int)$v }}" {{ now()->month == (int)$v ? 'selected' : '' }}>{{ $l }}</option>
+                            @endforeach
+                        </select>
+
+                        {{-- Khoảng ngày (ẩn mặc định) --}}
+                        <div id="pdfRangeWrap" class="d-none d-flex align-items-center gap-1">
+                            <input type="date" name="range_from" id="pdfRangeFrom"
+                                class="form-control form-control-sm" data-no-min
+                                value="{{ now()->startOfMonth()->format('Y-m-d') }}" style="width:130px">
+                            <span class="text-muted small">→</span>
+                            <input type="date" name="range_to" id="pdfRangeTo"
+                                class="form-control form-control-sm" data-no-min
+                                value="{{ now()->format('Y-m-d') }}" style="width:130px">
+                        </div>
+
+                        <button type="submit" class="btn btn-gold btn-sm">
+                            <i class="bx bxs-file-pdf me-1"></i>
+                            Xuất PDF
+                        </button>
+                    </form>
+                </div>
+
             </div>
 
             <!-- Filter Section -->
@@ -72,11 +116,11 @@
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-semibold">Từ ngày</label>
-                        <input type="date" id="startDate" class="form-control" value="{{ $startDate }}">
+                        <input type="date" id="startDate" class="form-control" value="{{ $startDate }}" data-no-min>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-semibold">Đến ngày</label>
-                        <input type="date" id="endDate" class="form-control" value="{{ $endDate }}">
+                        <input type="date" id="endDate" class="form-control" value="{{ $endDate }}" data-no-min>
                     </div>
                     <div class="col-md-3">
                         <button id="applyFilter" class="btn btn-primary w-100">Áp dụng</button>
@@ -218,21 +262,36 @@
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
+            // ── Bộ lọc báo cáo web ────────────────────────────────────
             const reportType = document.getElementById('reportType');
-            const startDate = document.getElementById('startDate');
-            const endDate = document.getElementById('endDate');
+            const startDate  = document.getElementById('startDate');
+            const endDate    = document.getElementById('endDate');
             const applyFilter = document.getElementById('applyFilter');
 
-            function applyFilters() {
-                const currentUrl = new URL(window.location.href);
-                currentUrl.searchParams.set('type', reportType.value);
-                currentUrl.searchParams.set('start_date', startDate.value);
-                currentUrl.searchParams.set('end_date', endDate.value);
-                window.location.href = currentUrl.toString();
+            applyFilter && applyFilter.addEventListener('click', function () {
+                const url = new URL(window.location.href);
+                url.searchParams.set('type', reportType.value);
+                url.searchParams.set('start_date', startDate.value);
+                url.searchParams.set('end_date', endDate.value);
+                window.location.href = url.toString();
+            });
+
+            // ── Form xuất PDF ─────────────────────────────────────────
+            const pdfMode       = document.getElementById('pdfMode');
+            const pdfYear       = document.getElementById('pdfYear');
+            const pdfMonth      = document.getElementById('pdfMonth');
+            const pdfRangeWrap  = document.getElementById('pdfRangeWrap');
+
+            function syncPdfForm() {
+                const mode = pdfMode.value;
+                pdfYear.classList.toggle('d-none', mode === 'range');
+                pdfMonth.classList.toggle('d-none', mode !== 'month');
+                pdfRangeWrap.classList.toggle('d-none', mode !== 'range');
             }
 
-            applyFilter.addEventListener('click', applyFilters);
+            pdfMode && pdfMode.addEventListener('change', syncPdfForm);
+            syncPdfForm();
         });
     </script>
 

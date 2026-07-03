@@ -55,7 +55,7 @@
                                             Họ
                                         </label>
 
-                                        <input name="first_name" type="text" class="form-control" required />
+                                        <input name="last_name" type="text" class="form-control" required />
 
                                     </div>
 
@@ -66,7 +66,7 @@
                                             Tên
                                         </label>
 
-                                        <input name="last_name" type="text" class="form-control" required />
+                                        <input name="first_name" type="text" class="form-control" required />
 
                                     </div>
 

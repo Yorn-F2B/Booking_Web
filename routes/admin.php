@@ -24,6 +24,12 @@ Route::middleware('role:super_admin,manager')->group(function () {
     Route::get('reports', [\App\Http\Controllers\Admin\ReportController::class, 'index'])
         ->name('admin.reports.index');
 
+    Route::get('reports/export-pdf', [\App\Http\Controllers\Admin\ReportController::class, 'exportPdf'])
+        ->name('admin.reports.export-pdf');
+
+    Route::get('reports/export-csv', [\App\Http\Controllers\Admin\ReportController::class, 'exportCsv'])
+        ->name('admin.reports.export-csv');
+
     Route::resource('customers', \App\Http\Controllers\Admin\CustomerController::class)
         ->names('admin.customers');
 });

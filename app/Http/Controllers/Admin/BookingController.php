@@ -452,6 +452,8 @@ class BookingController extends Controller
             );
         }
 
+        Realtime::booking($booking, 'updated');
+
         return redirect()
             ->route('admin.bookings.show', $booking->id)
             ->with('success', 'Cập nhật booking và trạng thái phòng thành công.');
