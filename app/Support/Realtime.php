@@ -1,0 +1,183 @@
+<?php
+
+namespace App\Support;
+
+use App\Events\BookingRealtimeUpdated;
+use App\Events\ChatMessageRealtimeSent;
+use App\Events\InspectionRealtimeUpdated;
+use App\Events\RoomRealtimeUpdated;
+use App\Models\Booking;
+use App\Models\ChatMessage;
+use App\Models\Room;
+use App\Models\RoomInspection;
+use Illuminate\Database\Eloquent\Model;
+use Throwable;
+
+class Realtime
+{
+    public static function booking(Booking|int|null $booking, string $action = 'updated', bool $broadcastRooms = true): void
+    {
+        if (!$booking) {
+            return;
+        }
+
+        if (!$booking instanceof Booking) {
+            $booking = Booking::find($booking);
+        }
+
+        if (!$booking) {
+            return;
+        }
+
+        try {
+            $booking->refresh();
+        } catch (Throwable) {
+            // Model có thể vừa bị xóa, vẫn broadcast dữ liệu đang có nếu được.
+        }
+
+        self::safeLoad($booking, [
+            'customer',
+            'roomCategory',
+            'bookingRooms.room.category',
+            'serviceItems.service',
+            'roomInspections.items',
+        ]);
+
+        event(new BookingRealtimeUpdated($booking, $action));
+
+        if (!$broadcastRooms) {
+            return;
+        }
+
+        $bookingRooms = $booking->relationLoaded('bookingRooms') ? $booking->bookingRooms : collect();
+
+        foreach ($bookingRooms as $bookingRoom) {
+            if ($bookingRoom && isset($bookingRoom->room) && $bookingRoom->room) {
+                self::room($bookingRoom->room, $action);
+            }
+        }
+    }
+
+    public static function room(Room|int|null $room, string $action = 'updated'): void
+    {
+        if (!$room) {
+            return;
+        }
+
+        if (!$room instanceof Room) {
+            $room = Room::find($room);
+        }
+
+        if (!$room) {
+            return;
+        }
+
+        try {
+            $room->refresh();
+        } catch (Throwable) {
+            // Bỏ qua nếu model vừa bị xóa.
+        }
+
+        self::safeLoad($room, ['category', 'roomCategory']);
+
+        event(new RoomRealtimeUpdated($room, $action));
+    }
+
+    public static function rooms(iterable|null $rooms, string $action = 'updated'): void
+    {
+        if (!$rooms) {
+            return;
+        }
+
+        collect($rooms)
+            ->filter()
+            ->unique(fn ($room) => is_object($room) && isset($room->id) ? $room->id : $room)
+            ->each(fn ($room) => self::room($room, $action));
+    }
+
+    public static function inspection(RoomInspection|int|null $inspection, string $action = 'updated'): void
+    {
+        if (!$inspection) {
+            return;
+        }
+
+        if (!$inspection instanceof RoomInspection) {
+            $inspection = RoomInspection::find($inspection);
+        }
+
+        if (!$inspection) {
+            return;
+        }
+
+        try {
+            $inspection->refresh();
+        } catch (Throwable) {
+            // Bỏ qua nếu model vừa bị xóa.
+        }
+
+        self::safeLoad($inspection, [
+            'booking.customer',
+            'booking.roomCategory',
+            'room.category',
+            'inspector',
+            'confirmer',
+            'items',
+        ]);
+
+        event(new InspectionRealtimeUpdated($inspection, $action));
+
+        if ($inspection->relationLoaded('booking') && $inspection->booking) {
+            self::booking($inspection->booking, $action, false);
+        }
+
+        if ($inspection->relationLoaded('room') && $inspection->room) {
+            self::room($inspection->room, $action);
+        }
+    }
+
+    public static function chat(ChatMessage|int|null $message, string $action = 'sent'): void
+    {
+        if (!$message) {
+            return;
+        }
+
+        if (!$message instanceof ChatMessage) {
+            $message = ChatMessage::find($message);
+        }
+
+        if (!$message) {
+            return;
+        }
+
+        try {
+            $message->refresh();
+        } catch (Throwable) {
+            // Bỏ qua nếu model vừa bị xóa.
+        }
+
+        self::safeLoad($message, [
+            'conversation.customer',
+            'conversation.assignedStaff',
+            'sender',
+        ]);
+
+        event(new ChatMessageRealtimeSent($message, $action));
+    }
+
+    private static function safeLoad(Model $model, array $relations): void
+    {
+        foreach ($relations as $relation) {
+            $rootRelation = explode('.', $relation)[0] ?? $relation;
+
+            if (!method_exists($model, $rootRelation)) {
+                continue;
+            }
+
+            try {
+                $model->loadMissing($relation);
+            } catch (Throwable) {
+                // Quan hệ không tồn tại hoặc dữ liệu đang thiếu thì bỏ qua, không làm hỏng request chính.
+            }
+        }
+    }
+}

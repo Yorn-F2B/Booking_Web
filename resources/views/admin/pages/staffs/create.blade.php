@@ -23,7 +23,8 @@
                 </a>
             </div>
 
-            <form class="settings-section" action="{{ route('staffs.store') }}" method="POST" enctype="multipart/form-data" autocomplete="off">
+            <form class="settings-section" action="{{ route('staffs.store') }}" method="POST" enctype="multipart/form-data"
+                autocomplete="off">
                 @csrf
 
                 <h5 class="mb-3">Thông tin tài khoản</h5>
@@ -135,12 +136,10 @@
                         <select name="position" class="form-select">
                             <option value="">— Chọn chức vụ —</option>
                             <option value="Quản lý" {{ old('position') == 'Quản lý' ? 'selected' : '' }}>Quản lý</option>
+                            <option value="Trưởng lễ tân" {{ old('position') == 'Trưởng lễ tân' ? 'selected' : '' }}>Trưởng lễ tân</option>
                             <option value="Lễ tân" {{ old('position') == 'Lễ tân' ? 'selected' : '' }}>Lễ tân</option>
-                            <option value="Housekeeping" {{ old('position') == 'Housekeeping' ? 'selected' : '' }}>
-                                Housekeeping</option>
-                            <option value="Kế toán" {{ old('position') == 'Kế toán' ? 'selected' : '' }}>Kế toán</option>
-                            <option value="Bảo vệ" {{ old('position') == 'Bảo vệ' ? 'selected' : '' }}>Bảo vệ</option>
-                            <option value="Kỹ thuật" {{ old('position') == 'Kỹ thuật' ? 'selected' : '' }}>Kỹ thuật</option>
+                            <option value="Trưởng buồng phòng" {{ old('position') == 'Trưởng buồng phòng' ? 'selected' : '' }}>Trưởng buồng phòng</option>
+                            <option value="Buồng phòng" {{ old('position') == 'Buồng phòng' ? 'selected' : '' }}>Buồng phòng</option>
                         </select>
                     </div>
 

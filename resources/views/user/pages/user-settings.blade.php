@@ -22,7 +22,7 @@
                             <img id="avatarPreview" src="{{ Auth::user()->avatar
         ? asset('storage/' . Auth::user()->avatar)
         : 'https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg'
-                                        }}" alt="avatar" class="avatar-lg" />
+                                                                    }}" alt="avatar" class="avatar-lg" />
                             <label for="avatarInput" class="avatar-upload-overlay" title="Đổi ảnh đại diện">
                                 <i class="bx bx-camera"></i>
                             </label>
@@ -37,7 +37,7 @@
                             <li><i class="bx bx-calendar-check me-2 text-gold"></i>Thành viên từ:
                                 {{ Auth::user()->created_at }}
                             </li>
-                            <li><i class="bx bx-hotel me-2 text-gold"></i>Đã đặt: 7 lần</li>
+                            <li><i class="bx bx-hotel me-2 text-gold"></i>Đã đặt: {{ $bookingCount }} lần</li>
                         </ul>
                     </div>
                 </div>
@@ -150,8 +150,9 @@
                                                 Ngày sinh
                                             </label>
 
-                                            <input type="date" name="birthday" class="form-control"
-                                                value="{{ $customer->birthday ?? ''}}" />
+                                            <input type="text" name="birthday" class="form-control js-birthday-picker"
+                                                value="{{ old('birthday', $customer?->birthday ? \Carbon\Carbon::parse($customer->birthday)->format('Y-m-d') : '') }}"
+                                                placeholder="dd/mm/yyyy" autocomplete="off" />
                                         </div>
 
                                         {{-- GENDER --}}
@@ -271,79 +272,169 @@
                             </div>
                         </div>
 
-                        <!-- Tab 3: Đơn phòng (cho phép hủy đơn) -->
+                        <!-- Tab 3: Đơn phòng -->
                         <div class="tab-pane fade" id="bookings" role="tabpanel">
+
                             <div class="settings-section">
+
                                 <h3 class="settings-section-title">
-                                    <i class="bx bx-calendar"></i> Đơn phòng của bạn
+                                    <i class="bx bx-calendar"></i>
+                                    Đơn phòng của bạn
                                 </h3>
-                                <p class="small text-muted mb-3">Quản lý các đơn đặt phòng hiện tại và tương lai. Bạn có thể
-                                    hủy đơn nếu còn trong thời gian cho phép.</p>
 
-                                <div class="card border-0 shadow-sm mb-3">
-                                    <div class="card-body">
-                                        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
-                                            <div>
-                                                <h4 class="h6 fw-bold mb-0">MC2026-001</h4>
-                                                <p class="small text-muted mb-0">Phòng Deluxe hướng biển • 2 đêm</p>
-                                            </div>
-                                            <span class="badge text-bg-success">Đã xác nhận</span>
-                                        </div>
-                                        <div class="row g-2 mb-3">
-                                            <div class="col-md-6">
-                                                <p class="small mb-1"><strong>Nhận phòng:</strong> 08/05/2026, 14:00</p>
-                                                <p class="small mb-0"><strong>Trả phòng:</strong> 10/05/2026, 12:00</p>
-                                            </div>
-                                            <div class="col-md-6">
-                                                <p class="small mb-1"><strong>Tổng tiền:</strong> 3.600.000đ</p>
-                                                <p class="small mb-0"><strong>Hủy miễn phí trước:</strong> 05/05/2026</p>
-                                            </div>
-                                        </div>
-                                        <div class="d-flex gap-2">
-                                            <button class="btn btn-outline-danger btn-sm" data-bs-toggle="modal"
-                                                data-bs-target="#cancelModal">
-                                                <i class="bx bx-x-circle me-1"></i>Hủy đơn
-                                            </button>
-                                            <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal"
-                                                data-bs-target="#bookingDetailModal" data-booking-id="MC2026-001">
-                                                <i class="bx bx-detail me-1"></i>Xem chi tiết
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
+                                <p class="small text-muted mb-3">
+                                    Theo dõi các đơn đặt phòng, trạng thái xác nhận và phòng đã được khách sạn gán.
+                                </p>
 
-                                <div class="card border-0 shadow-sm">
-                                    <div class="card-body">
-                                        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
-                                            <div>
-                                                <h4 class="h6 fw-bold mb-0">MC2026-004</h4>
-                                                <p class="small text-muted mb-0">Suite gia đình • 3 đêm</p>
+                                @forelse ($bookings as $booking)
+
+                                    <div class="card border-0 shadow-sm mb-3">
+
+                                        <div class="card-body">
+
+                                            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+
+                                                <div>
+                                                    <h4 class="h6 fw-bold mb-1">
+                                                        {{ $booking->booking_code }}
+                                                    </h4>
+
+                                                    <p class="small text-muted mb-0">
+                                                        {{ $booking->roomCategory->name ?? 'Không xác định' }}
+                                                        • {{ $booking->room_quantity }} phòng
+                                                    </p>
+                                                </div>
+
+                                                <div class="d-flex gap-2">
+
+                                                    @if ($booking->status == 'pending')
+                                                        <span class="badge text-bg-warning">
+                                                            Chờ xác nhận
+                                                        </span>
+                                                    @elseif ($booking->status == 'confirmed')
+                                                        <span class="badge text-bg-primary">
+                                                            Đã xác nhận
+                                                        </span>
+                                                    @elseif ($booking->status == 'checked_in')
+                                                        <span class="badge text-bg-info">
+                                                            Đã nhận phòng
+                                                        </span>
+                                                    @elseif ($booking->status == 'checked_out')
+                                                        <span class="badge text-bg-success">
+                                                            Đã trả phòng
+                                                        </span>
+                                                    @else
+                                                        <span class="badge text-bg-danger">
+                                                            Đã hủy
+                                                        </span>
+                                                    @endif
+
+                                                </div>
+
                                             </div>
-                                            <span class="badge text-bg-warning">Chờ xác nhận</span>
-                                        </div>
-                                        <div class="row g-2 mb-3">
-                                            <div class="col-md-6">
-                                                <p class="small mb-1"><strong>Nhận phòng:</strong> 20/05/2026, 14:00</p>
-                                                <p class="small mb-0"><strong>Trả phòng:</strong> 23/05/2026, 12:00</p>
+
+                                            <div class="row g-2 mb-3">
+
+                                                <div class="col-md-6">
+                                                    <p class="small mb-1">
+                                                        <strong>Nhận phòng:</strong>
+                                                        {{ date('d/m/Y', strtotime($booking->check_in_date)) }}
+                                                    </p>
+
+                                                    <p class="small mb-0">
+                                                        <strong>Trả phòng:</strong>
+                                                        {{ date('d/m/Y', strtotime($booking->check_out_date)) }}
+                                                    </p>
+                                                </div>
+
+                                                <div class="col-md-6">
+                                                    <p class="small mb-1">
+                                                        <strong>Tổng tiền:</strong>
+                                                        {{ number_format($booking->estimated_total, 0, ',', '.') }}đ
+                                                    </p>
+
+                                                    <p class="small mb-0">
+                                                        <strong>Thanh toán:</strong>
+
+                                                        @if ($booking->payment_status == 'unpaid')
+                                                            Chưa thanh toán
+                                                        @elseif ($booking->payment_status == 'partial')
+                                                            Đã cọc
+                                                        @elseif ($booking->payment_status == 'paid')
+                                                            Đã thanh toán
+                                                        @else
+                                                            Đã hoàn tiền
+                                                        @endif
+                                                    </p>
+                                                </div>
+
                                             </div>
-                                            <div class="col-md-6">
-                                                <p class="small mb-1"><strong>Tổng tiền:</strong> 9.600.000đ</p>
-                                                <p class="small mb-0"><strong>Hủy miễn phí trước:</strong> 17/05/2026</p>
+
+                                            <div class="border-top pt-3">
+
+                                                <p class="small fw-bold mb-2">
+                                                    Phòng đã gán:
+                                                </p>
+
+                                                @forelse ($booking->bookingRooms as $bookingRoom)
+
+                                                    <span class="badge text-bg-light border me-1 mb-1">
+                                                        Phòng {{ $bookingRoom->room->room_number ?? 'Không xác định' }}
+                                                    </span>
+
+                                                @empty
+
+                                                    <span class="small text-muted">
+                                                        Khách sạn chưa gán phòng cụ thể cho đơn này.
+                                                    </span>
+
+                                                @endforelse
+
                                             </div>
+
+                                            <div class="mt-3 d-flex gap-2">
+
+                                                <a href="{{ route('bookings.show', $booking->id) }}"
+                                                    class="btn btn-outline-primary btn-sm">
+
+                                                    <i class="bx bx-show me-1"></i>
+                                                    Chi tiết
+
+                                                </a>
+
+                                                @if (in_array($booking->status, ['pending', 'confirmed']))
+
+                                                    <form action="{{ route('bookings.cancel', $booking->id) }}" method="POST"
+                                                        class="d-inline"
+                                                        onsubmit="return confirm('Bạn có chắc muốn hủy đơn đặt phòng này không?')">
+
+                                                        @csrf
+
+                                                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                                                            <i class="bx bx-x-circle me-1"></i>
+                                                            Hủy đơn
+                                                        </button>
+
+                                                    </form>
+
+                                                @endif
+
+                                            </div>
+
                                         </div>
-                                        <div class="d-flex gap-2">
-                                            <button class="btn btn-outline-danger btn-sm" data-bs-toggle="modal"
-                                                data-bs-target="#cancelModal">
-                                                <i class="bx bx-x-circle me-1"></i>Hủy đơn
-                                            </button>
-                                            <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal"
-                                                data-bs-target="#bookingDetailModal" data-booking-id="MC2026-004">
-                                                <i class="bx bx-detail me-1"></i>Xem chi tiết
-                                            </button>
-                                        </div>
+
                                     </div>
-                                </div>
+
+                                @empty
+
+                                    <div class="alert alert-info mb-0">
+                                        Bạn chưa có đơn đặt phòng nào.
+                                    </div>
+
+                                @endforelse
+
                             </div>
+
                         </div>
                     </div>
 
@@ -351,4 +442,138 @@
             </div>
         </div>
     </main>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+    <style>
+        .flatpickr-calendar {
+            font-family: inherit;
+        }
+
+        .flatpickr-current-month {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            left: 0;
+            width: 100%;
+            height: 34px;
+            padding: 0;
+        }
+
+        .flatpickr-current-month .flatpickr-monthDropdown-months {
+            height: 32px;
+            border: 1px solid #dbe3ef;
+            border-radius: 8px;
+            padding: 2px 8px;
+            background: #fff;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .flatpickr-current-month .numInputWrapper {
+            display: none !important;
+        }
+
+        .birthday-year-select {
+            height: 32px;
+            min-width: 88px;
+            border: 1px solid #dbe3ef;
+            border-radius: 8px;
+            background: #fff;
+            padding: 2px 8px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #1f2937;
+            outline: none;
+        }
+
+        .birthday-year-select:focus,
+        .flatpickr-current-month .flatpickr-monthDropdown-months:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+        }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/vn.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            if (typeof flatpickr === 'undefined') {
+                return;
+            }
+
+            const currentYear = new Date().getFullYear();
+            const minYear = currentYear - 120;
+            const defaultYear = currentYear - 18;
+
+            function addYearSelect(instance) {
+                const currentMonth = instance.calendarContainer.querySelector('.flatpickr-current-month');
+
+                if (!currentMonth) {
+                    return;
+                }
+
+                let select = currentMonth.querySelector('.birthday-year-select');
+
+                if (!select) {
+                    select = document.createElement('select');
+                    select.className = 'birthday-year-select';
+
+                    for (let year = currentYear; year >= minYear; year--) {
+                        const option = document.createElement('option');
+                        option.value = year;
+                        option.textContent = year;
+                        select.appendChild(option);
+                    }
+
+                    select.addEventListener('change', function () {
+                        instance.changeYear(Number(this.value));
+                    });
+
+                    currentMonth.appendChild(select);
+                }
+
+                select.value = instance.currentYear;
+            }
+
+            flatpickr('.js-birthday-picker', {
+                locale: flatpickr.l10ns.vn,
+                dateFormat: 'Y-m-d',
+                altInput: true,
+                altFormat: 'd/m/Y',
+                allowInput: true,
+                disableMobile: true,
+                monthSelectorType: 'dropdown',
+                maxDate: 'today',
+                minDate: `${minYear}-01-01`,
+                defaultDate: null,
+
+                onReady: function (selectedDates, dateStr, instance) {
+                    if (!selectedDates.length) {
+                        instance.jumpToDate(new Date(defaultYear, 0, 1));
+                    }
+
+                    addYearSelect(instance);
+                },
+
+                onOpen: function (selectedDates, dateStr, instance) {
+                    if (!selectedDates.length) {
+                        instance.jumpToDate(new Date(defaultYear, 0, 1));
+                    }
+
+                    addYearSelect(instance);
+                },
+
+                onMonthChange: function (selectedDates, dateStr, instance) {
+                    addYearSelect(instance);
+                },
+
+                onYearChange: function (selectedDates, dateStr, instance) {
+                    addYearSelect(instance);
+                }
+            });
+        });
+    </script>
 @endsection

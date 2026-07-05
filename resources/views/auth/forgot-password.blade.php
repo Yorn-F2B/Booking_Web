@@ -1,58 +1,25 @@
 <x-guest-layout>
-    <div class="max-w-md mx-auto bg-white shadow-lg rounded-lg p-6">
+    <div class="mb-4 text-sm text-gray-600">
+        {{ __('Forgot your password? No problem. Just let us know your email address and we will email you a password reset link that will allow you to choose a new one.') }}
+    </div>
 
-        <h2 class="text-2xl font-bold text-center mb-4">
-            Quên mật khẩu
-        </h2>
+    <!-- Session Status -->
+    <x-auth-session-status class="mb-4" :status="session('status')" />
 
-        <p class="text-gray-600 text-sm mb-4 text-center">
-            Nhập email đã đăng ký để nhận liên kết đặt lại mật khẩu.
-        </p>
+    <form method="POST" action="{{ route('password.email') }}">
+        @csrf
 
-        <x-auth-session-status
-            class="mb-4 text-green-600"
-            :status="session('status')"
-        />
-
-        <form method="POST" action="{{ route('password.email') }}">
-            @csrf
-
-            <div class="mb-4">
-                <label for="email" class="block mb-2 font-medium">
-                    Email
-                </label>
-
-                <input
-                    id="email"
-                    type="email"
-                    name="email"
-                    value="{{ old('email') }}"
-                    class="w-full border rounded-lg px-4 py-2"
-                    required
-                    autofocus
-                >
-
-                @error('email')
-                    <span class="text-red-500 text-sm">
-                        {{ $message }}
-                    </span>
-                @enderror
-            </div>
-
-            <button
-                type="submit"
-                class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700"
-            >
-                Gửi liên kết đặt lại mật khẩu
-            </button>
-        </form>
-
-        <div class="mt-4 text-center">
-            <a href="{{ route('login') }}"
-               class="text-blue-600 hover:underline">
-                Quay lại đăng nhập
-            </a>
+        <!-- Email Address -->
+        <div>
+            <x-input-label for="email" :value="__('Email')" />
+            <x-text-input id="email" class="block mt-1 w-full" type="email" name="email" :value="old('email')" required autofocus />
+            <x-input-error :messages="$errors->get('email')" class="mt-2" />
         </div>
 
-    </div>
+        <div class="flex items-center justify-end mt-4">
+            <x-primary-button>
+                {{ __('Email Password Reset Link') }}
+            </x-primary-button>
+        </div>
+    </form>
 </x-guest-layout>

@@ -38,32 +38,32 @@
 
                         @if($roomCategory->thumbnail)
 
-                                        <img src="{{ asset('storage/' . $roomCategory->thumbnail) }}" class="w-100" style="
-                                height: 320px;
-                                object-fit: cover;
-                                border-radius: 14px;
-                            ">
+                            <img src="{{ asset('storage/' . $roomCategory->thumbnail) }}" class="w-100" style="
+                                        height: 320px;
+                                        object-fit: cover;
+                                        border-radius: 14px;
+                                    ">
 
                         @elseif($roomCategory->images->count())
 
-                                        <img src="{{ asset('storage/' . $roomCategory->images->first()->image) }}" class="w-100" style="
-                                height: 320px;
-                                object-fit: cover;
-                                border-radius: 14px;
-                            ">
+                            <img src="{{ asset('storage/' . $roomCategory->images->first()->image) }}" class="w-100" style="
+                                        height: 320px;
+                                        object-fit: cover;
+                                        border-radius: 14px;
+                                    ">
 
                         @else
 
-                                        <div class="d-flex align-items-center justify-content-center bg-light" style="
-                                height: 320px;
-                                border-radius: 14px;
-                            ">
+                            <div class="d-flex align-items-center justify-content-center bg-light" style="
+                                        height: 320px;
+                                        border-radius: 14px;
+                                    ">
 
-                                            <span class="text-muted">
-                                                Chưa có ảnh
-                                            </span>
+                                <span class="text-muted">
+                                    Chưa có ảnh
+                                </span>
 
-                                        </div>
+                            </div>
 
                         @endif
 
@@ -171,6 +171,40 @@
 
                             </div>
 
+                            <div class="col-md-12 mb-4">
+
+                                <label class="text-muted small">
+                                    Tiện ích
+                                </label>
+
+                                <div class="d-flex flex-wrap gap-2 mt-2">
+
+                                    @forelse($roomCategory->amenities as $amenity)
+
+                                        <span class="badge bg-light text-dark border d-flex align-items-center gap-1 px-3 py-2">
+
+                                            @if($amenity->icon)
+
+                                                <i class="{{ $amenity->icon }}"></i>
+
+                                            @endif
+
+                                            {{ $amenity->name }}
+
+                                        </span>
+
+                                    @empty
+
+                                        <span class="text-muted">
+                                            Chưa có tiện ích
+                                        </span>
+
+                                    @endforelse
+
+                                </div>
+
+                            </div>
+
                         </div>
 
                     </div>
@@ -210,10 +244,10 @@
                                 <div class="col-md-3">
 
                                     <img src="{{ asset('storage/' . $image->image) }}" class="w-100" style="
-                                                    height: 180px;
-                                                    object-fit: cover;
-                                                    border-radius: 12px;
-                                                ">
+                                                                height: 180px;
+                                                                object-fit: cover;
+                                                                border-radius: 12px;
+                                                            ">
 
                                 </div>
 

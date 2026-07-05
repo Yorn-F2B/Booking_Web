@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Amenity;
 use App\Models\RoomCategory;
 use App\Models\RoomCategoryImage;
 use Illuminate\Http\Request;
@@ -12,7 +13,7 @@ class RoomCategoryController extends Controller
 {
     public function index()
     {
-        $roomCategories = RoomCategory::with('images')
+        $roomCategories = RoomCategory::with(['images', 'amenities'])
             ->latest()
             ->paginate(10);
 
@@ -24,7 +25,12 @@ class RoomCategoryController extends Controller
 
     public function create()
     {
-        return view('admin.pages.room-categories.create');
+        $amenities = Amenity::orderBy('name')->get();
+
+        return view(
+            'admin.pages.room-categories.create',
+            compact('amenities')
+        );
     }
 
     public function store(Request $request)
@@ -51,7 +57,15 @@ class RoomCategoryController extends Controller
 
             'status' => 'required|in:active,inactive',
 
+            'amenities' => 'nullable|array',
+
+            'amenities.*' => 'exists:amenities,id',
+
         ]);
+
+        $amenityIds = $data['amenities'] ?? [];
+
+        unset($data['amenities']);
 
         if ($request->hasFile('thumbnail')) {
 
@@ -60,6 +74,8 @@ class RoomCategoryController extends Controller
         }
 
         $roomCategory = RoomCategory::create($data);
+
+        $roomCategory->amenities()->sync($amenityIds);
 
         if ($request->hasFile('images')) {
 
@@ -87,7 +103,7 @@ class RoomCategoryController extends Controller
 
     public function show(RoomCategory $roomCategory)
     {
-        $roomCategory->load('images');
+        $roomCategory->load(['images', 'amenities']);
 
         return view(
             'admin.pages.room-categories.show',
@@ -97,11 +113,13 @@ class RoomCategoryController extends Controller
 
     public function edit(RoomCategory $roomCategory)
     {
-        $roomCategory->load('images');
+        $roomCategory->load(['images', 'amenities']);
+
+        $amenities = Amenity::orderBy('name')->get();
 
         return view(
             'admin.pages.room-categories.edit',
-            compact('roomCategory')
+            compact('roomCategory', 'amenities')
         );
     }
 
@@ -109,7 +127,6 @@ class RoomCategoryController extends Controller
         Request $request,
         RoomCategory $roomCategory
     ) {
-
         $data = $request->validate([
 
             'name' => 'required|max:100',
@@ -132,7 +149,15 @@ class RoomCategoryController extends Controller
 
             'status' => 'required|in:active,inactive',
 
+            'amenities' => 'nullable|array',
+
+            'amenities.*' => 'exists:amenities,id',
+
         ]);
+
+        $amenityIds = $data['amenities'] ?? [];
+
+        unset($data['amenities']);
 
         if ($request->hasFile('thumbnail')) {
 
@@ -145,6 +170,8 @@ class RoomCategoryController extends Controller
         }
 
         $roomCategory->update($data);
+
+        $roomCategory->amenities()->sync($amenityIds);
 
         if ($request->hasFile('images')) {
 

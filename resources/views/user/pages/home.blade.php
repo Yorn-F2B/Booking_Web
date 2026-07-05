@@ -3,6 +3,34 @@
 @section('title', 'Trang chủ')
 
 @section('content')
+
+    @php
+        $now = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
+        $checkInLimitToday = $now->copy()->setTime(14, 0, 0);
+
+        $minOnlineCheckInDate = $now->greaterThanOrEqualTo($checkInLimitToday)
+            ? $now->copy()->addDay()->toDateString()
+            : $now->toDateString();
+
+        $minOnlineCheckOutDate = \Carbon\Carbon::parse($minOnlineCheckInDate)
+            ->addDay()
+            ->toDateString();
+
+        $onlineBookingClosedToday = $now->greaterThanOrEqualTo($checkInLimitToday);
+
+        $maxAdultCapacity = max(1, (int) ($maxAdultCapacity ?? 1));
+        $maxChildCapacity = max(0, (int) ($maxChildCapacity ?? 0));
+
+        $homeSelectedAdultCount = old(
+            'adult_count',
+            request('adult_count', min(2, $maxAdultCapacity))
+        );
+
+        $homeSelectedChildCount = old(
+            'child_count',
+            request('child_count', 0)
+        );
+    @endphp
     <!-- Hero + Booking Form -->
     <section class="hero-section position-relative">
         <div class="hero-overlay"></div>
@@ -32,51 +60,114 @@
                     <div class="card booking-card border-0 shadow-lg">
                         <div class="card-body p-4">
                             <h2 class="h5 fw-bold mb-3">Tìm phòng trống</h2>
-                            <form id="quickBookingForm">
-                                <div class="row g-2 mb-3">
-                                    <div class="col-6">
-                                        <label class="form-label">Nhận phòng</label>
-                                        <input type="date" class="form-control" id="checkin" required />
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="form-label">Trả phòng</label>
-                                        <input type="date" class="form-control" id="checkout" required />
-                                    </div>
+
+                            @if ($onlineBookingClosedToday)
+                                <div class="alert alert-warning small mb-3">
+                                    Hôm nay đã quá mốc giữ phòng online lúc <strong>14:00</strong>.
+                                    Ngày nhận phòng sớm nhất có thể chọn là
+                                    <strong>{{ \Carbon\Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') }}</strong>.
                                 </div>
+                            @endif
+
+                            <form method="GET" action="{{ route('rooms') }}">
+
                                 <div class="row g-2 mb-3">
+
                                     <div class="col-6">
-                                        <label class="form-label">Người lớn</label>
-                                        <select class="form-select" id="adults">
-                                            <option value="1">1 người lớn</option>
-                                            <option value="2" selected>2 người lớn</option>
-                                            <option value="3">3 người lớn</option>
-                                            <option value="4">4 người lớn</option>
+                                        <label class="form-label">
+                                            Nhận phòng
+                                        </label>
+
+                                        <input type="text" name="check_in_date" id="home_check_in_date"
+                                            class="form-control js-online-check-in" min="{{ $minOnlineCheckInDate }}"
+                                            data-min-check-in="{{ $minOnlineCheckInDate }}"
+                                            value="{{ request('check_in_date') && request('check_in_date') >= $minOnlineCheckInDate ? request('check_in_date') : '' }}"
+                                            required>
+                                    </div>
+
+                                    <div class="col-6">
+                                        <label class="form-label">
+                                            Trả phòng
+                                        </label>
+
+                                        <input type="text" name="check_out_date" id="home_check_out_date"
+                                            class="form-control js-online-check-out" min="{{ $minOnlineCheckOutDate }}"
+                                            data-min-check-out="{{ $minOnlineCheckOutDate }}"
+                                            value="{{ request('check_out_date') && request('check_out_date') >= $minOnlineCheckOutDate ? request('check_out_date') : '' }}"
+                                            required>
+                                    </div>
+
+                                </div>
+
+                                <div class="row g-2 mb-3">
+
+                                    <div class="col-6">
+                                        <label class="form-label">
+                                            Người lớn
+                                        </label>
+
+                                        <select name="adult_count" id="home_adult_count" class="form-select" required>
+                                            <option value="" disabled {{ empty($homeSelectedAdultCount) ? 'selected' : '' }}>
+                                                Chọn số người lớn
+                                            </option>
+
+                                            @for ($i = 1; $i <= $maxAdultCapacity; $i++)
+                                                <option value="{{ $i }}" {{ (string) $homeSelectedAdultCount === (string) $i ? 'selected' : '' }}>
+                                                    {{ $i }} người lớn
+                                                </option>
+                                            @endfor
                                         </select>
                                     </div>
+
                                     <div class="col-6">
-                                        <label class="form-label">Trẻ em</label>
-                                        <select class="form-select" id="children">
-                                            <option value="0" selected>0 trẻ em</option>
-                                            <option value="1">1 trẻ em</option>
-                                            <option value="2">2 trẻ em</option>
-                                            <option value="3">3 trẻ em</option>
+                                        <label class="form-label">
+                                            Trẻ em
+                                        </label>
+
+                                        <select name="child_count" id="home_child_count" class="form-select" required>
+                                            <option value="" disabled {{ $homeSelectedChildCount === '' || $homeSelectedChildCount === null ? 'selected' : '' }}>
+                                                Chọn số trẻ em
+                                            </option>
+
+                                            @for ($i = 0; $i <= $maxChildCapacity; $i++)
+                                                <option value="{{ $i }}" {{ (string) $homeSelectedChildCount === (string) $i ? 'selected' : '' }}>
+                                                    {{ $i }} trẻ em
+                                                </option>
+                                            @endfor
                                         </select>
                                     </div>
+
                                 </div>
+
                                 <div class="row g-2 mb-3">
+
                                     <div class="col-12">
-                                        <label class="form-label">Loại phòng</label>
-                                        <select class="form-select" id="roomType">
-                                            <option value="deluxe-sea">Phòng Deluxe hướng biển</option>
-                                            <option value="premier-city">Phòng Premier hướng phố</option>
-                                            <option value="family-suite">Suite gia đình</option>
-                                            <option value="presidential-suite">Phòng Tổng thống</option>
-                                        </select>
+                                        <label class="form-label">
+                                            Hạng phòng
+                                        </label>
+
+                                        <select name="room_category_id" id="home_room_category_id" class="form-select">
+    <option value="">
+        Tất cả hạng phòng
+    </option>
+
+    @foreach ($featuredRoomCategories as $category)
+        <option value="{{ $category->id }}"
+            data-adult-capacity="{{ (int) $category->adult_capacity }}"
+            data-child-capacity="{{ (int) $category->child_capacity }}"
+            {{ (string) request('room_category_id') === (string) $category->id ? 'selected' : '' }}>
+            {{ $category->name }}
+        </option>
+    @endforeach
+</select>
                                     </div>
+
                                 </div>
+
                                 <button type="submit" class="btn btn-primary w-100 py-2">
                                     Kiểm tra phòng trống
                                 </button>
+
                             </form>
                         </div>
                     </div>
@@ -170,124 +261,154 @@
     <!-- Featured Rooms -->
     <section class="py-5 bg-light">
         <div class="container">
+
             <div class="d-flex justify-content-between align-items-center mb-3">
+
                 <div>
                     <h2 class="h3 fw-bold mb-1" data-aos="fade-right">
-                        Hang phing noi bat
+                        Hạng phòng nổi bật
                     </h2>
+
                     <p class="text-muted mb-0" data-aos="fade-right" data-aos-delay="100">
                         Lựa chọn phòng phù hợp cho chuyến đi của bạn.
                     </p>
                 </div>
-                <a href="/rooms" class="btn btn-outline-primary d-none d-md-inline-flex" data-aos="fade-left">
+
+                <a href="{{ route('rooms') }}" class="btn btn-outline-primary d-none d-md-inline-flex" data-aos="fade-left">
                     Xem tất cả phòng
                 </a>
+
             </div>
 
             <div class="swiper roomsSwiper" data-aos="fade-up">
+
                 <div class="swiper-wrapper">
-                    <!-- Room 1 -->
-                    <div class="swiper-slide">
-                        <article class="card room-card h-100 border-0 shadow-sm">
-                            <div class="ratio ratio-4x3">
-                                <img src="https://images.pexels.com/photos/1579253/pexels-photo-1579253.jpeg"
-                                    class="card-img-top" alt="Deluxe Sea View" />
-                            </div>
-                            <div class="card-body">
-                                <span class="badge bg-primary-soft text-primary mb-2">Deluxe Sea View</span>
-                                <h3 class="h5">Phòng Deluxe view biển</h3>
-                                <p class="small text-muted mb-2">
-                                    32m² • Ban công riêng • Hướng thẳng ra biển Mỹ Khê.
-                                </p>
-                                <p class="small mb-2"><strong>Tối đa 2 người lớn</strong></p>
-                                <ul class="amenity-list mb-3">
-                                    <li class="amenity-pill">WiFi tốc độ cao</li>
-                                    <li class="amenity-pill">Buffet sáng</li>
-                                    <li class="amenity-pill">Smart TV 55"</li>
-                                </ul>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <span class="fw-bold text-primary fs-5">1.800.000đ</span>
-                                        <span class="text-muted small">/đêm</span>
-                                    </div>
-                                    <a href="/room-deluxe-sea" class="btn btn-outline-primary btn-sm">
-                                        Xem chi tiết
-                                    </a>
-                                </div>
-                            </div>
-                        </article>
-                    </div>
 
-                    <!-- Room 2 -->
-                    <div class="swiper-slide">
-                        <article class="card room-card h-100 border-0 shadow-sm">
-                            <div class="ratio ratio-4x3">
-                                <img src="https://images.pexels.com/photos/271639/pexels-photo-271639.jpeg"
-                                    class="card-img-top" alt="Family Suite" />
-                            </div>
-                            <div class="card-body">
-                                <span class="badge bg-success-soft text-success mb-2">Family Suite</span>
-                                <h3 class="h5">Suite gia đình 2 phòng ngủ</h3>
-                                <p class="small text-muted mb-2">
-                                    60m² • 2 phòng ngủ • Phòng khách riêng, phù hợp gia đình.
-                                </p>
-                                <p class="small mb-2"><strong>Tối đa 4 người lớn, 2 trẻ em</strong></p>
-                                <ul class="amenity-list mb-3">
-                                    <li class="amenity-pill">Bồn tắm nằm &amp; đứng</li>
-                                    <li class="amenity-pill">Minibar &amp; pantry</li>
-                                    <li class="amenity-pill">2 phòng ngủ</li>
-                                </ul>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <span class="fw-bold text-primary fs-5">3.200.000đ</span>
-                                        <span class="text-muted small">/đêm</span>
-                                    </div>
-                                    <a href="/room-family-suite" class="btn btn-outline-primary btn-sm">
-                                        Xem chi tiết
-                                    </a>
-                                </div>
-                            </div>
-                        </article>
-                    </div>
+                    @forelse ($featuredRoomCategories as $category)
 
-                    <!-- Room 3 -->
-                    <div class="swiper-slide">
-                        <article class="card room-card h-100 border-0 shadow-sm">
-                            <div class="ratio ratio-4x3">
-                                <img src="https://images.pexels.com/photos/1571450/pexels-photo-1571450.jpeg"
-                                    class="card-img-top" alt="Premier City View" />
-                            </div>
-                            <div class="card-body">
-                                <span class="badge bg-warning-soft text-warning mb-2">Premier City View</span>
-                                <h3 class="h5">Phòng Premier view thành phố</h3>
-                                <p class="small text-muted mb-2">
-                                    28m² • Cửa sổ rộng toàn cảnh thành phố Đà Nẵng.
-                                </p>
-                                <p class="small mb-2"><strong>Tối đa 2 người lớn</strong></p>
-                                <ul class="amenity-list mb-3">
-                                    <li class="amenity-pill">Miễn phí đậu xe</li>
-                                    <li class="amenity-pill">Smart TV 55"</li>
-                                    <li class="amenity-pill">View thành phố</li>
-                                </ul>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <span class="fw-bold text-primary fs-5">1.400.000đ</span>
-                                        <span class="text-muted small">/đêm</span>
-                                    </div>
-                                    <a href="/room-premier-city" class="btn btn-outline-primary btn-sm">
-                                        Xem chi tiết
-                                    </a>
+                        <div class="swiper-slide">
+
+                            <article class="card room-card h-100 border-0 shadow-sm">
+
+                                <div class="ratio ratio-4x3">
+
+                                    @if ($category->thumbnail)
+
+                                        <img src="{{ asset('storage/' . $category->thumbnail) }}" class="card-img-top"
+                                            alt="{{ $category->name }}" style="object-fit: cover;">
+
+                                    @elseif ($category->images->count())
+
+                                        <img src="{{ asset('storage/' . $category->images->first()->image) }}" class="card-img-top"
+                                            alt="{{ $category->name }}" style="object-fit: cover;">
+
+                                    @else
+
+                                        <div class="bg-light d-flex align-items-center justify-content-center h-100">
+                                            <span class="text-muted">
+                                                Chưa có ảnh
+                                            </span>
+                                        </div>
+
+                                    @endif
+
                                 </div>
+
+                                <div class="card-body">
+
+                                    <span class="badge bg-primary-soft text-primary mb-2">
+                                        {{ $category->name }}
+                                    </span>
+
+                                    <h3 class="h5">
+                                        {{ $category->name }}
+                                    </h3>
+
+                                    <p class="small text-muted mb-2">
+                                        • {{ $category->area ?? '---' }}m²
+                                        • {{ $category->bed_count ?? 1 }} giường
+                                    </p>
+
+                                    <p class="small mb-2">
+                                        <strong>
+                                            Tối đa {{ $category->adult_capacity }} người lớn,
+                                            {{ $category->child_capacity }} trẻ em
+                                        </strong>
+                                    </p>
+
+                                    <ul class="amenity-list mb-3">
+
+                                        @forelse ($category->amenities->take(3) as $amenity)
+
+                                            <li class="amenity-pill">
+
+                                                @if ($amenity->icon)
+
+                                                    <i class="{{ $amenity->icon }} me-1"></i>
+
+                                                @endif
+
+                                                {{ $amenity->name }}
+
+                                            </li>
+
+                                        @empty
+
+                                            <li class="amenity-pill">
+                                                Chưa có tiện ích
+                                            </li>
+
+                                        @endforelse
+
+                                    </ul>
+
+                                    <div class="d-flex justify-content-between align-items-center">
+
+                                        <div>
+
+                                            <span class="fw-bold text-primary fs-5">
+                                                {{ number_format($category->price, 0, ',', '.') }}đ
+                                            </span>
+
+                                            <span class="text-muted small">
+                                                /đêm
+                                            </span>
+
+                                        </div>
+
+                                        <a href="{{ route('rooms.show', $category->id) }}"
+                                            class="btn btn-outline-primary btn-sm">
+                                            Xem chi tiết
+                                        </a>
+
+                                    </div>
+
+                                </div>
+
+                            </article>
+
+                        </div>
+
+                    @empty
+
+                        <div class="swiper-slide">
+
+                            <div class="alert alert-info mb-0">
+                                Hiện chưa có hạng phòng nào.
                             </div>
-                        </article>
-                    </div>
+
+                        </div>
+
+                    @endforelse
+
                 </div>
 
-                <!-- Swiper navigation -->
                 <div class="swiper-button-next"></div>
                 <div class="swiper-button-prev"></div>
                 <div class="swiper-pagination"></div>
+
             </div>
+
         </div>
     </section>
 
@@ -372,75 +493,46 @@
                     Khách hàng nói gì về chúng tôi
                 </h2>
                 <p class="text-muted" data-aos="fade-up" data-aos-delay="100">
-                    Hơn 4.8/5 điểm đánh giá từ 2.300+ lượt đặt phòng.
+                    @if (($hotelReviewStats['count'] ?? 0) > 0)
+                        Trung bình {{ number_format((float) ($hotelReviewStats['average'] ?? 0), 1) }}/5 từ {{ $hotelReviewStats['count'] }} đánh giá đã xác thực.
+                    @else
+                        Đánh giá sẽ hiển thị sau khi khách lưu trú và được khách sạn duyệt.
+                    @endif
                 </p>
             </div>
+
             <div class="row g-4">
-                <div class="col-md-4" data-aos="fade-up">
-                    <div class="card border-0 shadow-sm h-100 review-card">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center mb-3">
-                                <img src="https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg"
-                                    class="rounded-circle me-3" alt="Khách hàng" width="48" height="48" />
-                                <div>
-                                    <h3 class="h6 mb-0">Nguyễn Minh Anh</h3>
-                                    <small class="text-muted">Gia đình từ Hà Nội</small>
+                @forelse (($approvedHotelReviews ?? collect())->take(3) as $review)
+                    <div class="col-md-4" data-aos="fade-up" data-aos-delay="{{ $loop->index * 100 }}">
+                        <div class="card border-0 shadow-sm h-100 review-card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-3">
+                                    <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-3 fw-bold"
+                                        style="width:48px;height:48px;">
+                                        {{ $review->guest_initials }}
+                                    </div>
+                                    <div>
+                                        <h3 class="h6 mb-0">{{ $review->guest_name }}</h3>
+                                        <small class="text-muted">{{ $review->booking->roomCategory->name ?? 'Khách lưu trú' }}</small>
+                                    </div>
                                 </div>
-                            </div>
-                            <p class="small text-muted mb-2">
-                                “Phòng sạch sẽ, view biển rất đẹp. Hồ bơi vô cực siêu chill,
-                                buffet sáng đa dạng. Nhân viên cực kỳ dễ thương và hỗ trợ
-                                nhiệt tình.”
-                            </p>
-                            <div class="text-warning small">
-                                ★★★★★ <span class="text-muted ms-1">5.0</span>
+                                @if ($review->title)
+                                    <div class="fw-semibold small mb-1">{{ $review->title }}</div>
+                                @endif
+                                <p class="small text-muted mb-2">“{{ $review->comment }}”</p>
+                                <div class="text-warning small">
+                                    {{ $review->star_text }} <span class="text-muted ms-1">{{ number_format((float) $review->rating, 1) }}</span>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                <div class="col-md-4" data-aos="fade-up" data-aos-delay="100">
-                    <div class="card border-0 shadow-sm h-100 review-card">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center mb-3">
-                                <img src="https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg"
-                                    class="rounded-circle me-3" alt="Khách hàng" width="48" height="48" />
-                                <div>
-                                    <h3 class="h6 mb-0">Trần Quốc Huy</h3>
-                                    <small class="text-muted">Công tác từ TP.HCM</small>
-                                </div>
-                            </div>
-                            <p class="small text-muted mb-2">
-                                “Vị trí đẹp, di chuyển thuận tiện. Phòng họp đầy đủ thiết bị,
-                                wifi mạnh. Dịch vụ phòng nhanh, rất phù hợp cho khách công
-                                tác.”
-                            </p>
-                            <div class="text-warning small">
-                                ★★★★☆ <span class="text-muted ms-1">4.7</span>
-                            </div>
+                @empty
+                    <div class="col-12">
+                        <div class="alert alert-info text-center mb-0">
+                            Chưa có đánh giá công khai. Hãy là khách hàng đầu tiên chia sẻ trải nghiệm sau khi lưu trú.
                         </div>
                     </div>
-                </div>
-                <div class="col-md-4" data-aos="fade-up" data-aos-delay="200">
-                    <div class="card border-0 shadow-sm h-100 review-card">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center mb-3">
-                                <img src="https://images.pexels.com/photos/2379004/pexels-photo-2379004.jpeg"
-                                    class="rounded-circle me-3" alt="Khách hàng" width="48" height="48" />
-                                <div>
-                                    <h3 class="h6 mb-0">Lê Bảo Trâm</h3>
-                                    <small class="text-muted">Cặp đôi tuần trăng mật</small>
-                                </div>
-                            </div>
-                            <p class="small text-muted mb-2">
-                                “Trang trí phòng honeymoon rất dễ thương, có bánh kem &amp;
-                                hoa. Nhìn chung trải nghiệm tuyệt vời, sẽ quay lại.”
-                            </p>
-                            <div class="text-warning small">
-                                ★★★★★ <span class="text-muted ms-1">4.9</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                @endforelse
             </div>
         </div>
     </section>
@@ -473,4 +565,166 @@
             </div>
         </div>
     </section>
+
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/vn.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.js-online-check-in').forEach(function (checkInInput) {
+                const form = checkInInput.closest('form');
+                if (!form) {
+                    return;
+                }
+
+                const checkOutInput = form.querySelector('.js-online-check-out');
+                const minCheckInDate = checkInInput.dataset.minCheckIn;
+
+                checkInInput.min = minCheckInDate;
+
+                if (checkInInput.value && checkInInput.value < minCheckInDate) {
+                    checkInInput.value = '';
+                }
+
+                if (typeof flatpickr !== 'undefined') {
+                    if (checkInInput._flatpickr) {
+                        checkInInput._flatpickr.destroy();
+                    }
+
+                    flatpickr(checkInInput, {
+                        locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
+                            ? 'vn'
+                            : 'default',
+                        altInput: true,
+                        altFormat: 'd/m/Y',
+                        dateFormat: 'Y-m-d',
+                        minDate: minCheckInDate,
+                        disableMobile: true,
+                        allowInput: false,
+                        onChange: function (selectedDates, dateStr) {
+                            syncCheckOutMinDate(dateStr);
+                        }
+                    });
+                }
+
+                function addOneDay(dateString) {
+                    const parts = dateString.split('-');
+
+                    const date = new Date(
+                        Number(parts[0]),
+                        Number(parts[1]) - 1,
+                        Number(parts[2])
+                    );
+
+                    date.setDate(date.getDate() + 1);
+
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+
+                    return `${year}-${month}-${day}`;
+                }
+
+                function syncCheckOutMinDate(checkInDate) {
+                    if (!checkOutInput || !checkInDate) {
+                        return;
+                    }
+
+                    const minCheckOutDate = addOneDay(checkInDate);
+
+                    checkOutInput.min = minCheckOutDate;
+                    checkOutInput.dataset.minCheckOut = minCheckOutDate;
+
+                    if (checkOutInput.value && checkOutInput.value < minCheckOutDate) {
+                        checkOutInput.value = minCheckOutDate;
+                    }
+
+                    if (typeof flatpickr !== 'undefined') {
+                        if (checkOutInput._flatpickr) {
+                            checkOutInput._flatpickr.destroy();
+                        }
+
+                        flatpickr(checkOutInput, {
+                            locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
+                                ? 'vn'
+                                : 'default',
+                            altInput: true,
+                            altFormat: 'd/m/Y',
+                            dateFormat: 'Y-m-d',
+                            minDate: minCheckOutDate,
+                            disableMobile: true,
+                            allowInput: false
+                        });
+                    }
+                }
+
+                if (checkInInput.value) {
+                    syncCheckOutMinDate(checkInInput.value);
+                } else if (checkOutInput) {
+                    const defaultMinCheckOutDate = checkOutInput.dataset.minCheckOut || checkOutInput.min;
+
+                    checkOutInput.min = defaultMinCheckOutDate;
+
+                    if (checkOutInput.value && checkOutInput.value < defaultMinCheckOutDate) {
+                        checkOutInput.value = '';
+                    }
+
+                    if (typeof flatpickr !== 'undefined') {
+                        if (checkOutInput._flatpickr) {
+                            checkOutInput._flatpickr.destroy();
+                        }
+
+                        flatpickr(checkOutInput, {
+                            locale: typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.vn
+                                ? 'vn'
+                                : 'default',
+                            altInput: true,
+                            altFormat: 'd/m/Y',
+                            dateFormat: 'Y-m-d',
+                            minDate: defaultMinCheckOutDate,
+                            disableMobile: true,
+                            allowInput: false
+                        });
+                    }
+                }
+            });
+
+             const categorySelect = document.getElementById('home_room_category_id');
+        const adultSelect = document.getElementById('home_adult_count');
+        const childSelect = document.getElementById('home_child_count');
+
+        if (!categorySelect || !adultSelect || !childSelect) {
+            return;
+        }
+
+        function applyCapacityFromSelectedCategory() {
+            const selectedOption = categorySelect.options[categorySelect.selectedIndex];
+
+            if (!selectedOption || !selectedOption.value) {
+                adultSelect.value = '';
+                childSelect.value = '';
+                adultSelect.disabled = false;
+                childSelect.disabled = false;
+                return;
+            }
+
+            const adultCapacity = selectedOption.dataset.adultCapacity || '';
+            const childCapacity = selectedOption.dataset.childCapacity || '0';
+
+            adultSelect.value = adultCapacity;
+            childSelect.value = childCapacity;
+
+            adultSelect.disabled = false;
+            childSelect.disabled = false;
+        }
+
+        categorySelect.addEventListener('change', applyCapacityFromSelectedCategory);
+
+        if (categorySelect.value) {
+            applyCapacityFromSelectedCategory();
+        }
+        });
+    </script>
 @endsection

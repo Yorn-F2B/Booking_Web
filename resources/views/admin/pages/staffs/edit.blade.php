@@ -153,17 +153,18 @@
 
                         <select name="position" class="form-select">
                             <option value="">— Chọn chức vụ —</option>
+
                             <option value="Quản lý" {{ old('position', $staff->position) == 'Quản lý' ? 'selected' : '' }}>
-                                Quản lý</option>
-                            <option value="Lễ tân" {{ old('position', $staff->position) == 'Lễ tân' ? 'selected' : '' }}>Lễ
-                                tân</option>
-                            <option value="Housekeeping" {{ old('position', $staff->position) == 'Housekeeping' ? 'selected' : '' }}>Housekeeping</option>
-                            <option value="Kế toán" {{ old('position', $staff->position) == 'Kế toán' ? 'selected' : '' }}>Kế
-                                toán</option>
-                            <option value="Bảo vệ" {{ old('position', $staff->position) == 'Bảo vệ' ? 'selected' : '' }}>Bảo
-                                vệ</option>
-                            <option value="Kỹ thuật" {{ old('position', $staff->position) == 'Kỹ thuật' ? 'selected' : '' }}>
-                                Kỹ thuật</option>
+                                Quản lý
+                            </option>
+
+                            <option value="Lễ tân" {{ old('position', $staff->position) == 'Lễ tân' ? 'selected' : '' }}>
+                                Lễ tân
+                            </option>
+
+                            <option value="Buồng phòng" {{ old('position', $staff->position) == 'Buồng phòng' ? 'selected' : '' }}>
+                                Buồng phòng
+                            </option>
                         </select>
                     </div>
 

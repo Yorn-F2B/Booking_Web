@@ -34,17 +34,27 @@ class StaffController extends Controller
             'birthday' => 'nullable|date',
             'gender' => 'nullable|in:male,female,other',
             'address' => 'nullable',
-            'position' => 'nullable|in:Quản lý,Lễ tân,Housekeeping,Kế toán,Bảo vệ,Kỹ thuật',
+            'position' => 'nullable|in:Quản lý,Trưởng lễ tân,Lễ tân,Trưởng buồng phòng,Buồng phòng',
             'salary' => 'nullable|numeric|min:0',
             'hire_date' => 'nullable|date',
             'work_status' => 'nullable|in:working,resigned,temporary_leave',
         ]);
 
+        $role = match ($data['position'] ?? null) {
+            'Quản lý' => 'manager',
+            'Trưởng lễ tân' => 'receptionist_lead',
+            'Lễ tân' => 'receptionist',
+            'Trưởng buồng phòng' => 'housekeeping_supervisor',
+            'Buồng phòng' => 'housekeeping',
+            default => 'customer',
+        };
+
         $user = User::create([
             'name' => $data['full_name'],
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
-            'role' => 'staff',
+            'role' => $role,
+            'status' => 'active',
         ]);
 
         $avatarPath = null;
@@ -134,10 +144,7 @@ class StaffController extends Controller
                 'nullable',
             ],
 
-            'position' => [
-                'nullable',
-                'in:Quản lý,Lễ tân,Housekeeping,Kế toán,Bảo vệ,Kỹ thuật',
-            ],
+            'position' => 'nullable|in:Quản lý,Trưởng lễ tân,Lễ tân,Trưởng buồng phòng,Buồng phòng',
 
             'salary' => [
                 'nullable',
@@ -206,9 +213,17 @@ class StaffController extends Controller
         ]);
 
         if ($staff->user) {
+            $role = match ($data['position'] ?? null) {
+                'Quản lý' => 'manager',
+                'Trưởng lễ tân', 'Lễ tân' => 'receptionist',
+                'Trưởng buồng phòng', 'Buồng phòng' => 'housekeeping',
+                default => 'customer',
+            };
+
             $updateUserData = [
                 'name' => $data['full_name'],
                 'email' => $data['email'],
+                'role' => $role,
             ];
 
             if (!empty($data['password'])) {

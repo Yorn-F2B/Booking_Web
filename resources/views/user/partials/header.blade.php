@@ -24,15 +24,18 @@
                     </li>
 
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('rooms') ? 'active' : '' }}" href="{{ url('rooms') }}">Hạng phòng</a>
+                        <a class="nav-link {{ request()->is('rooms') ? 'active' : '' }}" href="{{ url('rooms') }}">Hạng
+                            phòng</a>
                     </li>
 
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('about') ? 'active' : '' }}" href="{{ url('about') }}">Giới thiệu</a>
+                        <a class="nav-link {{ request()->is('about') ? 'active' : '' }}" href="{{ url('about') }}">Giới
+                            thiệu</a>
                     </li>
 
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('contact') ? 'active' : '' }}" href="{{ url('contact') }}">Liên hệ</a>
+                        <a class="nav-link {{ request()->is('contact') ? 'active' : '' }}"
+                            href="{{ url('contact') }}">Liên hệ</a>
                     </li>
                 </ul>
 
@@ -71,30 +74,23 @@
                     @auth
 
                         {{-- USER --}}
-                        <li class="nav-item">
+                        @if (Auth::user()->role === 'customer')
+                            <li class="nav-item">
+                                <a class="nav-link {{ request()->routeIs('bookings.current') || request()->routeIs('bookings.show') ? 'active' : '' }}"
+                                    href="{{ route('bookings.current') }}" title="Đơn phòng">
+                                    <i class="bx bx-receipt me-1"></i>
+                                    Đơn phòng
+                                </a>
+                            </li>
 
-                            <a class="nav-link {{ request()->is('user-settings') ? 'active' : '' }}" href="{{ url('user-settings') }}"
-                                title="Tài khoản">
-
-                                <i class="bx bx-user-circle" style="font-size:1.25rem;vertical-align:middle"></i>
-
-                                {{ Auth::user()->name }}
-
-                            </a>
-
-                        </li>
-
-                        {{-- ADMIN --}}
-                        <li class="nav-item">
-
-                            <a class="nav-link" href="{{ route('staffs.index') }}">
-
-                                <i class="bx bx-shield-quarter me-1"></i>
-                                Admin
-
-                            </a>
-
-                        </li>
+                            <li class="nav-item">
+                                <a class="nav-link {{ request()->is('user-settings') ? 'active' : '' }}"
+                                    href="{{ url('user-settings') }}" title="Tài khoản">
+                                    <i class="bx bx-user-circle" style="font-size:1.25rem;vertical-align:middle"></i>
+                                    {{ Auth::user()->name }}
+                                </a>
+                            </li>
+                        @endif
 
                         {{-- LOGOUT --}}
                         <li class="nav-item">
@@ -115,21 +111,6 @@
                         </li>
 
                     @endauth
-
-                    {{-- DIVIDER --}}
-                    <li class="d-none d-lg-block nav-divider"></li>
-
-                    {{-- BOOKING HISTORY --}}
-                    <li class="nav-item">
-
-                        <a class="btn-nav-cta" href="{{ url('booking-history') }}">
-
-                            <i class="bx bx-calendar-check"></i>
-                            Lịch sử đặt phòng
-
-                        </a>
-
-                    </li>
 
                 </ul>
 
