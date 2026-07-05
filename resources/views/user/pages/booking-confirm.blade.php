@@ -503,6 +503,15 @@
 
                                 <div class="mb-3">
                                     <div class="small text-muted">
+                                        Tiền phòng ({{ $nightCount }} đêm)
+                                    </div>
+                                    <div class="fw-bold">
+                                        {{ number_format($estimatedTotal, 0, ',', '.') }}đ
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <div class="small text-muted">
                                         Dịch vụ đặt thêm
                                     </div>
                                     <div class="fw-bold text-danger" id="selectedServiceTotalText">
@@ -524,9 +533,9 @@
 
                                 <hr>
 
-                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
                                     <span class="fw-bold">
-                                        Tạm tính
+                                        Tổng tạm tính
                                     </span>
 
                                     <span class="fw-bold text-primary fs-5" id="finalEstimatedTotalText"
@@ -534,6 +543,10 @@
                                         {{ number_format($estimatedTotal, 0, ',', '.') }}đ
                                     </span>
                                 </div>
+
+                                <p class="small text-muted mb-3">
+                                    Giá đã bao gồm VAT theo quy định. Phụ thu phát sinh (nếu có) sẽ được tính khi nhận/trả phòng.
+                                </p>
 
                                 <div class="border rounded-3 p-3 mb-3 bg-light">
                                     <div class="fw-bold mb-2">

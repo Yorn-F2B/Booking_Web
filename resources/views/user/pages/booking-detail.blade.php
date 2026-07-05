@@ -213,28 +213,6 @@
                                         <td>{{ $booking->prefer_adjacent_rooms ? 'Có' : 'Không' }}</td>
                                     </tr>
 
-                                    @if ((float) ($booking->discount_amount ?? 0) > 0)
-                                        <tr>
-                                            <th>Tổng trước ưu đãi</th>
-                                            <td>{{ number_format((float) ($booking->subtotal_amount ?? ($booking->estimated_total + $booking->discount_amount)), 0, ',', '.') }}đ</td>
-                                        </tr>
-
-                                        <tr>
-                                            <th>Ưu đãi đã áp dụng</th>
-                                            <td class="text-success fw-bold">-{{ number_format((float) $booking->discount_amount, 0, ',', '.') }}đ</td>
-                                        </tr>
-                                    @endif
-
-                                    <tr>
-                                        <th>Tổng tiền tạm tính</th>
-                                        <td>{{ number_format($booking->estimated_total, 0, ',', '.') }}đ</td>
-                                    </tr>
-
-                                    <tr>
-                                        <th>Tiền cọc</th>
-                                        <td>{{ number_format($booking->deposit_amount, 0, ',', '.') }}đ</td>
-                                    </tr>
-
                                     <tr>
                                         <th>Trạng thái thanh toán</th>
                                         <td>
@@ -265,6 +243,17 @@
 
 
 
+
+                    <div class="settings-section mb-4">
+                        <h3 class="h6 fw-bold mb-1">
+                            Chi tiết thanh toán
+                        </h3>
+                        <p class="text-muted small mb-3">
+                            Bảng tổng hợp các khoản tiền của đơn: tạm tính, ưu đãi, phụ thu phát sinh, tổng cộng và số tiền còn phải thanh toán.
+                        </p>
+
+                        @include('partials.payment-breakdown', ['booking' => $booking])
+                    </div>
 
                     @if (($booking->bookingPromotions ?? collect())->count() > 0)
                         <div class="settings-section mb-4">

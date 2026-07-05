@@ -35,9 +35,10 @@
         ->values()
         ->implode(', ');
 
-    $totalAmount = (float) ($booking->estimated_total ?? 0);
-    $paidAmount = (float) ($booking->deposit_amount ?? 0);
-    $remainingAmount = max(0, $totalAmount - $paidAmount);
+    $billing = \App\Support\BookingBilling::summary($booking);
+    $totalAmount = $billing['total'];
+    $paidAmount = $billing['paid'];
+    $remainingAmount = $billing['remaining'];
 
     $latestPendingPayment = null;
 
@@ -155,8 +156,30 @@
                             <div style="border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;margin-bottom:18px;">
                                 <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
                                     <tr>
-                                        <td style="padding:12px 14px;color:#64748b;font-size:13px;">Tổng tiền sau ưu đãi</td>
-                                        <td style="padding:12px 14px;text-align:right;font-weight:800;">{{ number_format($totalAmount, 0, ',', '.') }}đ</td>
+                                        <td style="padding:12px 14px;color:#64748b;font-size:13px;">Tạm tính (phòng &amp; dịch vụ)</td>
+                                        <td style="padding:12px 14px;text-align:right;font-weight:700;">{{ number_format($billing['subtotal'], 0, ',', '.') }}đ</td>
+                                    </tr>
+                                    @if ($billing['discount'] > 0)
+                                        <tr>
+                                            <td style="padding:12px 14px;color:#64748b;font-size:13px;border-top:1px solid #eef2f7;">Ưu đãi / giảm giá</td>
+                                            <td style="padding:12px 14px;text-align:right;font-weight:700;border-top:1px solid #eef2f7;color:#047857;">-{{ number_format($billing['discount'], 0, ',', '.') }}đ</td>
+                                        </tr>
+                                    @endif
+                                    @if ($billing['extra_charges'] > 0)
+                                        <tr>
+                                            <td style="padding:12px 14px;color:#64748b;font-size:13px;border-top:1px solid #eef2f7;">Dịch vụ / phụ thu phát sinh</td>
+                                            <td style="padding:12px 14px;text-align:right;font-weight:700;border-top:1px solid #eef2f7;color:#b91c1c;">+{{ number_format($billing['extra_charges'], 0, ',', '.') }}đ</td>
+                                        </tr>
+                                    @endif
+                                    @if ($billing['vat_rate'] > 0)
+                                        <tr>
+                                            <td style="padding:12px 14px;color:#94a3b8;font-size:12px;border-top:1px solid #eef2f7;">Trong đó thuế VAT ({{ rtrim(rtrim(number_format($billing['vat_rate'], 2, ',', '.'), '0'), ',') }}%)</td>
+                                            <td style="padding:12px 14px;text-align:right;font-weight:600;border-top:1px solid #eef2f7;color:#94a3b8;">{{ number_format($billing['vat_amount'], 0, ',', '.') }}đ</td>
+                                        </tr>
+                                    @endif
+                                    <tr>
+                                        <td style="padding:12px 14px;color:#0f172a;font-size:14px;border-top:1px solid #eef2f7;font-weight:800;">Tổng cộng</td>
+                                        <td style="padding:12px 14px;text-align:right;font-weight:900;border-top:1px solid #eef2f7;font-size:16px;">{{ number_format($totalAmount, 0, ',', '.') }}đ</td>
                                     </tr>
                                     <tr>
                                         <td style="padding:12px 14px;color:#64748b;font-size:13px;border-top:1px solid #eef2f7;">Đã thanh toán / đã cọc</td>
