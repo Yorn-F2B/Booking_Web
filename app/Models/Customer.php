@@ -34,4 +34,9 @@ class Customer extends Model
     {
         return $this->hasMany(HotelReview::class);
     }
+
+    public function getFullNameAttribute(): string
+    {
+        return trim(($this->last_name ?? '') . ' ' . ($this->first_name ?? ''));
+    }
 }

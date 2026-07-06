@@ -141,9 +141,9 @@
             </a>
 
             <a href="{{ route('admin.reports.index') }}"
-                class="admin-nav-link {{ request()->routeIs('admin.reports.*') ? 'active' : '' }}">
+                class="admin-nav-link {{ request()->is('admin/reports*') ? 'active' : '' }}">
                 <i class="bx bx-bar-chart-alt-2"></i>
-                Báo cáo doanh thu
+                Báo cáo thống kê
             </a>
         @endif
 

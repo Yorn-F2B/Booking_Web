@@ -30,6 +30,15 @@ Route::middleware('role:super_admin,manager')->group(function () {
     Route::get('reports/export-csv', [\App\Http\Controllers\Admin\ReportController::class, 'exportCsv'])
         ->name('admin.reports.export-csv');
 
+    Route::get('reports/room', [\App\Http\Controllers\Admin\RoomReportController::class, 'index'])
+        ->name('admin.reports.room');
+
+    Route::get('reports/room/export-pdf', [\App\Http\Controllers\Admin\RoomReportController::class, 'exportPdf'])
+        ->name('admin.reports.room.export-pdf');
+
+    Route::get('reports/room/export-csv', [\App\Http\Controllers\Admin\RoomReportController::class, 'exportCsv'])
+        ->name('admin.reports.room.export-csv');
+
     Route::resource('customers', \App\Http\Controllers\Admin\CustomerController::class)
         ->names('admin.customers');
 });

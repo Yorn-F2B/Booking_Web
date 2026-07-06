@@ -46,8 +46,21 @@
         <main class="admin-content">
 
             <p class="admin-breadcrumb mb-3">
-                <a href="{{ route('admin.dashboard') }}">Admin</a> / Báo cáo doanh thu
+                <a href="{{ route('admin.dashboard') }}">Admin</a> / Báo cáo
             </p>
+
+            <ul class="nav nav-tabs mb-4">
+                <li class="nav-item">
+                    <a class="nav-link active" href="{{ route('admin.reports.index') }}">
+                        <i class="bx bx-bar-chart-alt-2 me-1"></i> Báo cáo doanh thu
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link text-dark" href="{{ route('admin.reports.room') }}">
+                        <i class="bx bx-pie-chart-alt-2 me-1"></i> Báo cáo tình trạng phòng
+                    </a>
+                </li>
+            </ul>
 
             <div class="admin-page-head">
 
