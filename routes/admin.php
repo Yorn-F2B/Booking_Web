@@ -5,6 +5,8 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])
     ->name('admin.dashboard');
 
+require __DIR__ . '/admin/rooms.php';
+
 Route::middleware('role:super_admin')->group(function () {
     require __DIR__ . '/admin/staffs.php';
 });
@@ -15,16 +17,22 @@ Route::middleware('role:super_admin,manager,receptionist_lead,housekeeping_super
 
 Route::middleware('role:super_admin,manager')->group(function () {
     require __DIR__ . '/admin/room-categories.php';
-    require __DIR__ . '/admin/rooms.php';
     require __DIR__ . '/admin/services.php';
     require __DIR__ . '/admin/promotions.php';
     require __DIR__ . '/admin/amenities.php';
     require __DIR__ . '/admin/reviews.php';
+
+
+    Route::resource('customers', \App\Http\Controllers\Admin\CustomerController::class)
+        ->names('admin.customers');
 });
 
 Route::middleware('role:super_admin,manager,receptionist_lead,receptionist')->group(function () {
     require __DIR__ . '/admin/bookings.php';
     require __DIR__ . '/admin/chats.php';
+
+    Route::get('bookings/{booking}/invoice', [\App\Http\Controllers\Admin\InvoiceController::class, 'generate'])
+        ->name('admin.bookings.invoice');
 });
 
 Route::middleware('role:super_admin,manager,housekeeping_supervisor,housekeeping')->group(function () {

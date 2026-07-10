@@ -380,6 +380,27 @@
                                     @enderror
                                 </div>
 
+                                <div class="col-md-3 d-none" id="overnightCheckOutTimeBox">
+                                    <label class="form-label">Giờ trả (tùy chọn)</label>
+                                    <select name="check_out_time" id="overnightCheckOutTime"
+                                        class="form-select @error('check_out_time') is-invalid @enderror">
+                                        <option value="">-- Mặc định 12:00 --</option>
+                                        <option value="13:00" {{ old('check_out_time') == '13:00' ? 'selected' : '' }}>13:00 (Phụ thu 20%)</option>
+                                        <option value="14:00" {{ old('check_out_time') == '14:00' ? 'selected' : '' }}>14:00 (Phụ thu 40%)</option>
+                                        <option value="15:00" {{ old('check_out_time') == '15:00' ? 'selected' : '' }}>15:00 (Phụ thu 60%)</option>
+                                        <option value="16:00" {{ old('check_out_time') == '16:00' ? 'selected' : '' }}>16:00 (Phụ thu 80%)</option>
+                                        <option value="18:00" {{ old('check_out_time') == '18:00' ? 'selected' : '' }}>18:00 (Tính 1 đêm thêm)</option>
+                                    </select>
+
+                                    @error('check_out_time')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+
+                                    <div class="booking-help-text mt-1">
+                                        Chọn giờ trả muộn để linh hoạt cho khách. Hệ thống tự tính phụ thu.
+                                    </div>
+                                </div>
+
                                 <div class="col-md-3 d-none" id="hourlyCheckOutTimeBox">
                                     <label class="form-label">Giờ ra dự kiến <span class="text-danger">*</span></label>
 
@@ -1276,6 +1297,7 @@
                 const checkInDateTime = parseDateTime(checkInDate.value, checkInTime.value);
                 const price = getSelectedRoomPrice();
                 const quantity = getRoomQuantity();
+                const checkoutTime = overnightCheckOutTime ? overnightCheckOutTime.value : '';
 
                 if (!checkInDateTime || Number.isNaN(checkInDateTime.getTime())) {
                     return null;
@@ -1285,6 +1307,8 @@
                 let extraPercent = 0;
                 let policyText = '';
                 let checkOutDateTime = new Date(checkInDateTime.getTime());
+                let lateCheckoutFee = 0;
+                let lateCheckoutText = '';
 
                 if (hour >= 0 && hour < 6) {
                     checkOutDateTime.setHours(12, 0, 0, 0);
@@ -1317,9 +1341,39 @@
                     policyText = 'Khách vào từ 14:00 trở đi, tính 1 đêm tiêu chuẩn, trả phòng 12:00 ngày hôm sau.';
                 }
 
+                // Calculate late checkout fee if selected
+                if (checkoutTime && checkoutTime !== '') {
+                    const checkoutHour = parseInt(checkoutTime.split(':')[0]);
+                    const baseTotal = price * quantity;
+
+                    if (checkoutHour >= 13 && checkoutHour < 14) {
+                        lateCheckoutFee = Math.round(baseTotal * 0.2);
+                        lateCheckoutText = 'Trả phòng muộn đến 13:00, phụ thu 20% giá phòng.';
+                    } else if (checkoutHour >= 14 && checkoutHour < 15) {
+                        lateCheckoutFee = Math.round(baseTotal * 0.4);
+                        lateCheckoutText = 'Trả phòng muộn đến 14:00, phụ thu 40% giá phòng.';
+                    } else if (checkoutHour >= 15 && checkoutHour < 16) {
+                        lateCheckoutFee = Math.round(baseTotal * 0.6);
+                        lateCheckoutText = 'Trả phòng muộn đến 15:00, phụ thu 60% giá phòng.';
+                    } else if (checkoutHour >= 16 && checkoutHour < 18) {
+                        lateCheckoutFee = Math.round(baseTotal * 0.8);
+                        lateCheckoutText = 'Trả phòng muộn đến 16:00, phụ thu 80% giá phòng.';
+                    } else if (checkoutHour >= 18) {
+                        lateCheckoutFee = baseTotal;
+                        lateCheckoutText = 'Trả phòng muộn từ 18:00, tính thêm 1 đêm.';
+                    }
+
+                    // Update checkout datetime
+                    checkOutDateTime.setHours(checkoutHour, 0, 0, 0);
+                }
+
                 const baseTotal = price * quantity;
                 const extraFee = Math.round(baseTotal * extraPercent);
-                const total = baseTotal + extraFee;
+                const total = baseTotal + extraFee + lateCheckoutFee;
+
+                if (lateCheckoutText) {
+                    policyText += ' ' + lateCheckoutText;
+                }
 
                 return {
                     checkInDateTime,
@@ -1360,6 +1414,18 @@
                 if (bookingMode.value === 'advance') {
                     const minCheckoutDate = addDays(checkInDate.value, 1);
 
+                    checkOutDate.min = minCheckoutDate;
+
+                    if (!checkOutDate.value || checkOutDate.value <= checkInDate.value) {
+                        checkOutDate.value = minCheckoutDate;
+                    }
+
+                    return;
+                }
+
+                // For walk-in overnight, default to next day
+                if (bookingMode.value === 'walk_in' && bookingType.value === 'overnight') {
+                    const minCheckoutDate = addDays(checkInDate.value, 1);
                     checkOutDate.min = minCheckoutDate;
 
                     if (!checkOutDate.value || checkOutDate.value <= checkInDate.value) {
@@ -1450,10 +1516,11 @@
                 checkInTimeBox.classList.remove('d-none');
                 hourlyCheckOutTimeBox.classList.add('d-none');
                 hourlyPreviewWrapper.classList.add('d-none');
-                walkInOvernightPolicyWrapper.classList.remove('d-none');
+                walkInOvernightPolicyWrapper.classList.add('d-none');
+                overnightCheckOutTimeBox.classList.remove('d-none');
 
-                checkOutDateBox.classList.add('d-none');
-                checkOutDate.required = false;
+                checkOutDateBox.classList.remove('d-none');
+                checkOutDate.required = true;
 
                 if (hourlyCheckOutTime) {
                     hourlyCheckOutTime.required = false;
@@ -1467,8 +1534,8 @@
                     confirmLowStock.checked = false;
                 }
 
-                bookingModeHelpText.innerText = 'Ở ngay qua đêm: giờ nhận là giờ thực tế. Từ 12:00 có thể yêu cầu dọn ưu tiên; từ 13:00–14:00 cho nhận nếu phòng đã sẵn sàng.';
-                bookingTypeHelpText.innerText = 'Qua đêm ở ngay: hệ thống tự tính giờ trả phòng theo 12:00 và chỉ phụ thu các ca vào quá sớm trước 12:00.';
+                bookingModeHelpText.innerText = 'Ở ngay qua đêm: giờ nhận là giờ thực tế. Có thể chọn ngày trả và giờ trả muộn.';
+                bookingTypeHelpText.innerText = 'Qua đêm ở ngay: chọn ngày nhận, ngày trả và giờ trả muộn (tùy chọn). Hệ thống tính phụ thu theo ca giờ vào và giờ trả muộn.';
             }
 
             function updateAdjacentRoomBox() {

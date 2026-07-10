@@ -66,6 +66,7 @@ class RoomController extends Controller
             'check_out_date' => 'nullable|required_with:check_in_date|date|after:check_in_date',
             'adult_count' => $guestCountRule . '|integer|min:1|max:' . $maxAdultCapacity,
             'child_count' => $guestCountRule . '|integer|min:0|max:' . $maxChildCapacity,
+            'room_quantity' => 'nullable|integer|min:1|max:10',
             'room_category_id' => 'nullable|exists:room_categories,id',
         ], [
             'check_in_date.required_with' => 'Vui lòng chọn ngày nhận phòng.',
@@ -83,6 +84,8 @@ class RoomController extends Controller
             'child_count.integer' => 'Số trẻ em không hợp lệ.',
             'child_count.min' => 'Số trẻ em không được âm.',
             'child_count.max' => 'Số trẻ em vượt quá sức chứa tối đa hiện có trong hệ thống là ' . $maxChildCapacity . ' trẻ em.',
+            'room_quantity.min' => 'Số phòng phải ít nhất là 1.',
+            'room_quantity.max' => 'Số phòng tối đa là 10.',
             'room_category_id.exists' => 'Hạng phòng không tồn tại.',
         ]);
 
@@ -110,7 +113,8 @@ class RoomController extends Controller
             || $request->filled('check_out_date')
             || $request->filled('adult_count')
             || $request->filled('child_count')
-            || $request->filled('room_category_id');
+            || $request->filled('room_category_id')
+            || $request->filled('room_quantity');
 
         $hasDateFilter = $checkInDate && $checkOutDate;
 
@@ -127,6 +131,8 @@ class RoomController extends Controller
 
             $query->whereNotIn('status', ['maintenance']);
         };
+
+        $requestedRoomQuantity = !empty($data['room_quantity']) ? (int) $data['room_quantity'] : 1;
 
         $roomCategories = RoomCategory::with(['images', 'amenities'])
             ->withCount([
@@ -151,8 +157,39 @@ class RoomController extends Controller
         }
 
         $roomCategories = $roomCategories
-            ->latest()
-            ->get();
+            ->get()
+            ->filter(function ($category) use ($requestedRoomQuantity) {
+                // Chỉ hiển thị hạng phòng có đủ số phòng trống theo yêu cầu
+                return ($category->available_rooms_count ?? 0) >= $requestedRoomQuantity;
+            })
+            ->sortBy(function ($category) use ($data, $requestedRoomQuantity) {
+                $score = 0;
+
+                // Ưu tiên hạng phòng được chọn
+                if (!empty($data['room_category_id']) && $category->id == $data['room_category_id']) {
+                    $score += 1000;
+                }
+
+                // Ưu tiên phòng có sức chứa gần với số người được chọn
+                if (!empty($data['adult_count'])) {
+                    $adultDiff = abs($category->adult_capacity - $data['adult_count']);
+                    $score -= $adultDiff * 10;
+                }
+
+                if (array_key_exists('child_count', $data) && $data['child_count'] !== null) {
+                    $childDiff = abs($category->child_capacity - $data['child_count']);
+                    $score -= $childDiff * 5;
+                }
+
+                // Ưu tiên phòng có nhiều phòng trống hơn (nhưng không quá nhiều dư thừa)
+                $availableCount = $category->available_rooms_count ?? 0;
+                if ($availableCount >= $requestedRoomQuantity) {
+                    $score += min($availableCount, $requestedRoomQuantity) * 2;
+                }
+
+                return -$score;
+            })
+            ->values();
 
         $filterRoomCategories = RoomCategory::where('status', 'active')
             ->orderBy('name')
@@ -180,6 +217,7 @@ class RoomController extends Controller
                 'check_out_time' => self::ONLINE_CHECK_OUT_LABEL,
                 'adult_count' => $data['adult_count'] ?? null,
                 'child_count' => $data['child_count'] ?? null,
+                'room_quantity' => $requestedRoomQuantity,
                 'room_category_id' => $data['room_category_id'] ?? null,
             ],
             'hasFilter' => $hasFilter,

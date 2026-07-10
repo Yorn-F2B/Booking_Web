@@ -153,6 +153,14 @@ class BookingLifecycleController extends Controller
                     $bookingRoom->room->update([
                         'status' => 'occupied',
                     ]);
+
+                    \App\Models\RoomActionLog::create([
+                        'room_id' => $bookingRoom->room->id,
+                        'user_id' => Auth::id(),
+                        'action_type' => 'check_in',
+                        'action_time' => now(),
+                        'note' => 'Khách check-in từ booking #' . $booking->booking_code,
+                    ]);
                 }
             }
 
@@ -1587,18 +1595,27 @@ class BookingLifecycleController extends Controller
                     'status' => 'inspection',
                 ]);
 
+                \App\Models\RoomActionLog::create([
+                    'room_id'     => $bookingRoom->room->id,
+                    'user_id'     => Auth::id(),
+                    'action_type' => 'status_change',
+                    'action_time' => now(),
+                    'note'        => 'Yêu cầu kiểm tra phòng trước check-out từ booking #' . $booking->booking_code,
+                ]);
+
                 RoomInspection::firstOrCreate(
                     [
                         'booking_id' => $booking->id,
-                        'room_id' => $bookingRoom->room_id,
-                        'status' => 'pending',
+                        'room_id'    => $bookingRoom->room_id,
+                        'status'     => 'pending',
                     ],
                     [
-                        'has_damage' => false,
+                        'has_damage'   => false,
                         'damage_total' => 0,
                     ]
                 );
             }
+
 
             $oldNote = $booking->note ? $booking->note . "\n" : '';
 
@@ -1969,6 +1986,14 @@ class BookingLifecycleController extends Controller
                 if ($bookingRoom->room) {
                     $bookingRoom->room->update([
                         'status' => 'cleaning',
+                    ]);
+
+                    \App\Models\RoomActionLog::create([
+                        'room_id' => $bookingRoom->room->id,
+                        'user_id' => Auth::id(),
+                        'action_type' => 'check_out',
+                        'action_time' => now(),
+                        'note' => 'Khách trả phòng từ booking #' . $booking->booking_code . '. Chuyển sang trạng thái dọn dẹp.',
                     ]);
                 }
             }

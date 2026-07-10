@@ -37,6 +37,21 @@ class NewPasswordController extends Controller
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
 
+        $email = mb_strtolower(trim((string) $request->input('email')));
+        $googleOnlyUser = User::query()
+            ->where('email', $email)
+            ->whereNotNull('google_id')
+            ->whereNull('password')
+            ->exists();
+
+        if ($googleOnlyUser) {
+            return redirect()
+                ->route('login')
+                ->with('error', 'Tài khoản này được tạo bằng Google nên không thể đặt mật khẩu.');
+        }
+
+        $request->merge(['email' => $email]);
+
         // Here we will attempt to reset the user's password. If it is successful we
         // will update the password on an actual user model and persist it to the
         // database. Otherwise we will parse the error and return the response.

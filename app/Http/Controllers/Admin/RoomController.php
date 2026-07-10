@@ -3,35 +3,46 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Booking;
 use App\Models\Room;
+use App\Models\RoomActionLog;
 use App\Models\RoomCategory;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class RoomController extends Controller
 {
+    private const TIMEZONE = 'Asia/Ho_Chi_Minh';
+    private const MAX_RANGE_DAYS = 31;
+
     public function index(Request $request)
     {
+        $today = now(self::TIMEZONE)->startOfDay();
+        $startDate = $this->safeDate($request->input('start_date'), $today);
+        $range = max(1, min((int) $request->input('range', 7), self::MAX_RANGE_DAYS));
+        $endDate = $request->filled('end_date')
+            ? $this->safeDate($request->input('end_date'), $startDate->copy()->addDays($range - 1))
+            : $startDate->copy()->addDays($range - 1);
+
+        if ($endDate->lt($startDate)) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+        if ($startDate->diffInDays($endDate) + 1 > self::MAX_RANGE_DAYS) {
+            $endDate = $startDate->copy()->addDays(self::MAX_RANGE_DAYS - 1);
+        }
+
         $roomQuery = Room::with('category');
-
         if ($request->filled('room_number')) {
-            $roomQuery->where('room_number', 'like', '%' . $request->room_number . '%');
+            $roomQuery->where('room_number', 'like', '%' . trim($request->room_number) . '%');
         }
-
-        if ($request->filled('status')) {
-            $roomQuery->where('status', $request->status);
-        }
-
         if ($request->filled('floor_number')) {
             $roomQuery->where('floor_number', $request->floor_number);
         }
-
         if ($request->filled('room_category_id')) {
             $roomQuery->where('room_category_id', $request->room_category_id);
         }
-
-        $maxFloor = Room::max('floor_number') ?? 0;
-
-        $roomCategories = RoomCategory::orderBy('name')->get();
 
         $rooms = $roomQuery
             ->orderByDesc('floor_number')
@@ -39,20 +50,73 @@ class RoomController extends Controller
             ->orderBy('room_number')
             ->get();
 
-        return view('admin.pages.rooms.index', compact(
-            'rooms',
-            'maxFloor',
-            'roomCategories'
-        ));
-    }
+        $dates = collect(CarbonPeriod::create($startDate, $endDate))
+            ->map(fn (Carbon $date) => $date->copy());
 
-    public function create()
-    {
-        $categories = RoomCategory::where('status', 'active')
-            ->orderBy('name')
+        $bookings = Booking::with(['customer', 'bookingRooms'])
+            ->whereIn('status', [
+                'pending', 'confirmed', 'checked_in', 'inspection_requested',
+                'checked_out', 'completed',
+            ])
+            ->whereDate('check_in_date', '<=', $endDate->toDateString())
+            ->whereDate('check_out_date', '>=', $startDate->toDateString())
             ->get();
 
-        return view('admin.pages.rooms.create', compact('categories'));
+        $bookingMap = [];
+        foreach ($bookings as $booking) {
+            foreach ($booking->bookingRooms as $bookingRoom) {
+                $bookingMap[$bookingRoom->room_id][] = $booking;
+            }
+        }
+
+        $timeline = [];
+        foreach ($rooms as $room) {
+            foreach ($dates as $date) {
+                $timeline[$room->id][$date->toDateString()] = $this->buildCell(
+                    $room,
+                    $date,
+                    $bookingMap[$room->id] ?? [],
+                    $today
+                );
+            }
+        }
+
+        if ($request->filled('timeline_status')) {
+            $wantedStatus = $request->timeline_status;
+            $rooms = $rooms->filter(function (Room $room) use ($timeline, $wantedStatus) {
+                return collect($timeline[$room->id] ?? [])->contains(
+                    fn (array $cell) => $cell['status'] === $wantedStatus
+                );
+            })->values();
+        }
+
+        $roomCategories = RoomCategory::orderBy('name')->get();
+        $activeCategories = $roomCategories->where('status', 'active')->values();
+        $floors = Room::query()->whereNotNull('floor_number')->distinct()->orderByDesc('floor_number')->pluck('floor_number');
+
+        $summary = [
+            'total' => $rooms->count(),
+            'available' => 0,
+            'reserved' => 0,
+            'occupied' => 0,
+            'inspection' => 0,
+            'cleaning' => 0,
+            'maintenance' => 0,
+        ];
+        $summaryDate = $today->betweenIncluded($startDate, $endDate)
+            ? $today->toDateString()
+            : $startDate->toDateString();
+        foreach ($rooms as $room) {
+            $status = $timeline[$room->id][$summaryDate]['status'] ?? 'available';
+            if (isset($summary[$status])) {
+                $summary[$status]++;
+            }
+        }
+
+        return view('admin.pages.rooms.index', compact(
+            'rooms', 'dates', 'timeline', 'summary', 'summaryDate',
+            'startDate', 'endDate', 'today', 'roomCategories', 'activeCategories', 'floors'
+        ));
     }
 
     public function store(Request $request)
@@ -61,31 +125,20 @@ class RoomController extends Controller
             'room_number' => 'required|max:20|unique:rooms,room_number',
             'room_category_id' => 'required|exists:room_categories,id',
             'floor_number' => 'nullable|integer|min:0',
-            'status' => 'required|in:available,reserved,occupied,inspection,cleaning,maintenance',
-            'note' => 'nullable|string',
+            'status' => 'required|in:available,cleaning,inspection,maintenance',
+            'note' => 'nullable|string|max:1000',
         ]);
 
         Room::create($data);
 
-        return redirect()
-            ->route('admin.rooms.index')
-            ->with('success', 'Thêm phòng thành công');
+        return redirect()->route('admin.rooms.index', ['tab' => 'catalog'])
+            ->with('success', 'Thêm phòng thành công.');
     }
 
     public function show(Room $room)
     {
-        $room->load('category');
-
+        $room->load(['category', 'bookingRooms.booking.customer']);
         return view('admin.pages.rooms.show', compact('room'));
-    }
-
-    public function edit(Room $room)
-    {
-        $categories = RoomCategory::where('status', 'active')
-            ->orderBy('name')
-            ->get();
-
-        return view('admin.pages.rooms.edit', compact('room', 'categories'));
     }
 
     public function update(Request $request, Room $room)
@@ -94,38 +147,135 @@ class RoomController extends Controller
             'room_number' => 'required|max:20|unique:rooms,room_number,' . $room->id,
             'room_category_id' => 'required|exists:room_categories,id',
             'floor_number' => 'nullable|integer|min:0',
-            'status' => 'required|in:available,reserved,occupied,inspection,cleaning,maintenance',
-            'note' => 'nullable|string',
+            'status' => 'required|in:available,cleaning,inspection,maintenance',
+            'note' => 'nullable|string|max:1000',
         ]);
 
         $room->update($data);
 
-        return redirect()
-            ->route('admin.rooms.index')
-            ->with('success', 'Cập nhật phòng thành công');
+        return redirect()->route('admin.rooms.index', ['tab' => 'catalog'])
+            ->with('success', 'Cập nhật phòng thành công.');
     }
 
     public function updateStatus(Request $request, Room $room)
     {
         $data = $request->validate([
-            'status' => 'required|in:available,reserved,occupied,inspection,cleaning,maintenance',
+            'status' => 'required|in:available,cleaning,inspection,maintenance',
+            'status_from' => 'nullable|string',
+            'status_until' => 'nullable|string',
+            'note' => 'nullable|string|max:500',
         ]);
 
+        $statusFrom = $this->parseVietnameseDateTime($data['status_from'] ?? null);
+        $statusUntil = $this->parseVietnameseDateTime($data['status_until'] ?? null);
+        if ($data['status'] === 'available') {
+            $statusFrom = $statusUntil = null;
+        }
+
+        $oldStatus = $room->status;
         $room->update([
             'status' => $data['status'],
+            'status_from' => $statusFrom,
+            'status_until' => $statusUntil,
+            'note' => $data['note'] ?? $room->note,
         ]);
 
-        return redirect()
-            ->route('admin.rooms.index')
-            ->with('success', 'Cập nhật trạng thái phòng thành công.');
+        if ($oldStatus !== $data['status']) {
+            RoomActionLog::create([
+                'room_id' => $room->id,
+                'user_id' => Auth::id(),
+                'action_type' => 'status_change',
+                'action_time' => now(),
+                'note' => "Chuyển trạng thái từ {$oldStatus} sang {$data['status']}" .
+                    (!empty($data['note']) ? '. Lý do: ' . $data['note'] : ''),
+            ]);
+        }
+
+        return back()->with('success', 'Cập nhật trạng thái phòng thành công.');
     }
 
     public function destroy(Room $room)
     {
-        $room->delete();
+        $hasActiveBooking = $room->bookingRooms()
+            ->whereHas('booking', fn ($query) => $query->whereIn('status', [
+                'pending', 'confirmed', 'checked_in', 'inspection_requested',
+            ]))
+            ->exists();
 
-        return redirect()
-            ->route('admin.rooms.index')
-            ->with('success', 'Xóa phòng thành công');
+        if ($hasActiveBooking) {
+            return back()->with('error', 'Không thể xóa phòng đang có booking hoạt động.');
+        }
+
+        $room->delete();
+        return redirect()->route('admin.rooms.index', ['tab' => 'catalog'])
+            ->with('success', 'Xóa phòng thành công.');
+    }
+
+    private function buildCell(Room $room, Carbon $date, array $bookings, Carbon $today): array
+    {
+        $dateStart = $date->copy()->startOfDay();
+        $dateEnd = $date->copy()->endOfDay();
+
+        $matched = collect($bookings)->filter(function (Booking $booking) use ($dateStart, $dateEnd) {
+            $checkIn = $booking->check_in_at
+                ? Carbon::parse($booking->check_in_at, self::TIMEZONE)
+                : Carbon::parse($booking->check_in_date . ' 14:00:00', self::TIMEZONE);
+            $checkOut = $booking->check_out_at
+                ? Carbon::parse($booking->check_out_at, self::TIMEZONE)
+                : Carbon::parse($booking->check_out_date . ' 12:00:00', self::TIMEZONE);
+
+            return $checkIn->lte($dateEnd) && $checkOut->gt($dateStart);
+        })->sortBy(fn (Booking $booking) => $booking->check_in_at ?? $booking->check_in_date);
+
+        $status = 'available';
+        $mainBooking = null;
+
+        foreach (['checked_in', 'inspection_requested', 'confirmed', 'pending', 'completed', 'checked_out'] as $priority) {
+            $candidate = $matched->firstWhere('status', $priority);
+            if ($candidate) {
+                $mainBooking = $candidate;
+                $status = match ($priority) {
+                    'checked_in' => 'occupied',
+                    'inspection_requested' => 'inspection',
+                    'confirmed', 'pending' => 'reserved',
+                    default => 'available',
+                };
+                break;
+            }
+        }
+
+        if ($date->isSameDay($today) && in_array($room->status, ['maintenance', 'cleaning', 'inspection'], true)) {
+            $status = $room->status;
+        }
+
+        return [
+            'status' => $status,
+            'booking' => $mainBooking,
+            'bookings' => $matched->values(),
+        ];
+    }
+
+    private function safeDate(?string $value, Carbon $fallback): Carbon
+    {
+        if (!$value) {
+            return $fallback->copy();
+        }
+        try {
+            return Carbon::createFromFormat('Y-m-d', $value, self::TIMEZONE)->startOfDay();
+        } catch (\Throwable) {
+            return $fallback->copy();
+        }
+    }
+
+    private function parseVietnameseDateTime(?string $value): ?string
+    {
+        if (!$value) {
+            return null;
+        }
+        try {
+            return Carbon::createFromFormat('d/m/Y H:i', $value, self::TIMEZONE)->toDateTimeString();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }

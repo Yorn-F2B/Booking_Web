@@ -39,7 +39,7 @@
 
                             @if ($errors->has('email') || $errors->has('password'))
                                 <div class="alert alert-danger">
-                                    Email hoặc mật khẩu không đúng
+                                    {{ $errors->first('email') ?: $errors->first('password') }}
                                 </div>
                             @endif
 

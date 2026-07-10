@@ -13,7 +13,7 @@ class CheckRole
         $user = $request->user();
 
         if (!$user) {
-            abort(403, 'Bạn cần đăng nhập để truy cập chức năng này.');
+            return redirect()->route('login')->with('error', 'Vui lòng đăng nhập để tiếp tục.');
         }
 
         if (!in_array($user->role, $roles)) {

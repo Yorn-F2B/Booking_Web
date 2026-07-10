@@ -21,6 +21,11 @@ use App\Http\Controllers\Payment\VnpayController;
 Route::get('room-availability', [RoomAvailabilityController::class, 'index'])
     ->name('admin.room-availability.index');
 
+Route::get('rooms/{room}/action-logs', [\App\Http\Controllers\Admin\RoomActionLogController::class, 'getLogsByDate'])
+    ->name('admin.rooms.action-logs.index');
+Route::put('room-action-logs/{log}', [\App\Http\Controllers\Admin\RoomActionLogController::class, 'updateLog'])
+    ->name('admin.room-action-logs.update');
+
 Route::get('bookings/create', [BookingCreateController::class, 'create'])
     ->name('admin.bookings.create');
 

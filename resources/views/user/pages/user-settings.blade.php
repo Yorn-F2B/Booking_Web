@@ -1,8 +1,12 @@
-@extends('layouts.user')
+﻿@extends('layouts.user')
 
 @section('title', 'User Settings')
 
 @section('content')
+    @php
+        $isGoogleOnly = !empty($user->google_id) && empty($user->password);
+    @endphp
+
     <section class="page-header">
         <div class="container">
             <h1 class="display-6 fw-bold mb-1">Cài đặt người dùng</h1>
@@ -41,6 +45,9 @@
 
                             <input type="file" id="avatarInput" form="userSettingsForm" name="avatar" accept="image/*"
                                 class="d-none" />
+                            @error('avatar')
+                                <div class="text-danger small mt-2">{{ $message }}</div>
+                            @enderror
                         </div>
                         <h2 class="h6 fw-bold mb-1" style="font-family:'DM Serif Display',serif">{{ Auth::user()->name }}
                         </h2>
@@ -67,12 +74,14 @@
                                     <i class="bx bx-user me-1"></i>Thông tin cá nhân
                                 </button>
                             </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="password-tab" data-bs-toggle="tab" data-bs-target="#password"
-                                    type="button" role="tab">
-                                    <i class="bx bx-lock-alt me-1"></i>Mật khẩu
-                                </button>
-                            </li>
+                            @unless($isGoogleOnly)
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="password-tab" data-bs-toggle="tab"
+                                        data-bs-target="#password" type="button" role="tab">
+                                        <i class="bx bx-lock-alt me-1"></i>Mật khẩu
+                                    </button>
+                                </li>
+                            @endunless
                             <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="bookings-tab" data-bs-toggle="tab" data-bs-target="#bookings"
                                     type="button" role="tab">
@@ -100,6 +109,16 @@
                                     </div>
                                 @endif
 
+                                @error('profile')
+                                    <div class="alert alert-danger">{{ $message }}</div>
+                                @enderror
+
+                                @if($errors->any() && !$errors->has('profile'))
+                                    <div class="alert alert-danger">
+                                        Vui lòng kiểm tra lại các trường được đánh dấu bên dưới.
+                                    </div>
+                                @endif
+
                                 <form id="userSettingsForm" method="POST" action="{{ route('user.settings.update') }}"
                                     enctype="multipart/form-data">
 
@@ -109,52 +128,47 @@
 
                                         {{-- HỌ --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">
-                                                Họ
-                                            </label>
-
-                                            <input type="text" name="first_name" class="form-control"
-                                                value="{{ $customer->first_name ?? ''}}" />
+                                            <label class="form-label small fw-semibold">Họ <span class="text-danger">*</span></label>
+                                            <input type="text" name="last_name"
+                                                class="form-control @error('last_name') is-invalid @enderror"
+                                                value="{{ old('last_name', $customer->last_name ?? '') }}" required>
+                                            @error('last_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- TÊN --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">
-                                                Tên
-                                            </label>
-
-                                            <input type="text" name="last_name" class="form-control"
-                                                value="{{ $customer->last_name ?? ''}}" />
+                                            <label class="form-label small fw-semibold">Tên <span class="text-danger">*</span></label>
+                                            <input type="text" name="first_name"
+                                                class="form-control @error('first_name') is-invalid @enderror"
+                                                value="{{ old('first_name', $customer->first_name ?? '') }}" required>
+                                            @error('first_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- CCCD --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">
-                                                Số CCCD
-                                            </label>
-
-                                            <input type="text" name="cccd" class="form-control"
-                                                value="{{ $customer->cccd ?? ''}}" />
+                                            <label class="form-label small fw-semibold">Số CCCD <span class="text-danger">*</span></label>
+                                            <input type="text" name="cccd" inputmode="numeric" maxlength="12"
+                                                class="form-control @error('cccd') is-invalid @enderror"
+                                                value="{{ old('cccd', $customer->cccd ?? '') }}" required>
+                                            @error('cccd')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- PHONE --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">
-                                                Số điện thoại
-                                            </label>
-
-                                            <input type="tel" name="phone" class="form-control"
-                                                value="{{ $customer->phone ?? ''}}" />
+                                            <label class="form-label small fw-semibold">Số điện thoại <span class="text-danger">*</span></label>
+                                            <input type="tel" name="phone" inputmode="numeric" maxlength="10"
+                                                class="form-control @error('phone') is-invalid @enderror"
+                                                value="{{ old('phone', $customer->phone ?? '') }}" required>
+                                            @error('phone')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- EMAIL --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">
-                                                Email
-                                            </label>
-
-                                            <input type="email" name="email" class="form-control"
-                                                value="{{ $customer->email ?? ''}}" />
+                                            <label class="form-label small fw-semibold">Email <span class="text-danger">*</span></label>
+                                            <input type="email" name="email"
+                                                class="form-control @error('email') is-invalid @enderror"
+                                                value="{{ old('email', $customer->email ?: $user->email) }}" required>
+                                            @error('email')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- BIRTHDAY --}}
@@ -163,9 +177,34 @@
                                                 Ngày sinh
                                             </label>
 
-                                            <input type="text" name="birthday" class="form-control js-birthday-picker"
-                                                value="{{ old('birthday', $customer?->birthday ? \Carbon\Carbon::parse($customer->birthday)->format('Y-m-d') : '') }}"
-                                                placeholder="dd/mm/yyyy" autocomplete="off" />
+                                            @php
+                                                $bdVal   = old('birthday', $customer?->birthday ? \Carbon\Carbon::parse($customer->birthday)->format('Y-m-d') : '');
+                                                $bdDay   = $bdVal ? (int)\Carbon\Carbon::parse($bdVal)->format('d') : '';
+                                                $bdMonth = $bdVal ? (int)\Carbon\Carbon::parse($bdVal)->format('m') : '';
+                                                $bdYear  = $bdVal ? (int)\Carbon\Carbon::parse($bdVal)->format('Y') : '';
+                                            @endphp
+                                            <input type="hidden" name="birthday" id="us_birthday_hidden" value="{{ $bdVal }}">
+                                            <div class="birthday-dropdowns" id="us_birthday_dropdowns">
+                                                <select class="bd-select" id="us_bd_day">
+                                                    <option value="">Ngày</option>
+                                                    @for ($d = 1; $d <= 31; $d++)
+                                                        <option value="{{ $d }}" {{ $bdDay == $d ? 'selected' : '' }}>{{ $d }}</option>
+                                                    @endfor
+                                                </select>
+                                                <select class="bd-select" id="us_bd_month">
+                                                    <option value="">Tháng</option>
+                                                    @foreach(['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Tháng 6','Tháng 7','Tháng 8','Tháng 9','Tháng 10','Tháng 11','Tháng 12'] as $mi => $ml)
+                                                        <option value="{{ $mi+1 }}" {{ $bdMonth == $mi+1 ? 'selected' : '' }}>{{ $ml }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <select class="bd-select" id="us_bd_year">
+                                                    <option value="">Năm</option>
+                                                    @for ($y = date('Y'); $y >= date('Y')-120; $y--)
+                                                        <option value="{{ $y }}" {{ $bdYear == $y ? 'selected' : '' }}>{{ $y }}</option>
+                                                    @endfor
+                                                </select>
+                                            </div>
+
                                         </div>
 
                                         {{-- GENDER --}}
@@ -174,31 +213,33 @@
                                                 Giới tính
                                             </label>
 
-                                            <select name="gender" class="form-select">
+                                            <select name="gender" class="form-select @error('gender') is-invalid @enderror" required>
 
-                                                <option value="male" {{ $customer->gender == 'male' ? 'selected' : '' }}>
+                                                <option value="male" {{ old('gender', $customer->gender ?? '') == 'male' ? 'selected' : '' }}>
                                                     Nam
                                                 </option>
 
-                                                <option value="female" {{ $customer->gender == 'female' ? 'selected' : '' }}>
+                                                <option value="female" {{ old('gender', $customer->gender ?? '') == 'female' ? 'selected' : '' }}>
                                                     Nữ
                                                 </option>
 
-                                                <option value="other" {{ $customer->gender == 'other' ? 'selected' : '' }}>
+                                                <option value="other" {{ old('gender', $customer->gender ?? '') == 'other' ? 'selected' : '' }}>
                                                     Khác
                                                 </option>
 
                                             </select>
+                                            @error('gender')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- ADDRESS --}}
                                         <div class="col-12">
                                             <label class="form-label small fw-semibold">
-                                                Địa chỉ liên hệ
+                                                Địa chỉ liên hệ <span class="text-danger">*</span>
                                             </label>
 
-                                            <textarea name="address" class="form-control"
-                                                rows="2">{{ $customer->address ?? ''}}</textarea>
+                                            <textarea name="address" class="form-control @error('address') is-invalid @enderror"
+                                                rows="2" required>{{ old('address', $customer->address ?? '') }}</textarea>
+                                            @error('address')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                     </div>
@@ -221,6 +262,7 @@
                             </div>
                         </div>
 
+                        @unless($isGoogleOnly)
                         <!-- Tab 2: Đổi mật khẩu -->
                         <div class="tab-pane fade" id="password" role="tabpanel">
                             <div class="settings-section">
@@ -284,6 +326,8 @@
                                 </form>
                             </div>
                         </div>
+
+                        @endunless
 
                         <!-- Tab 3: Đơn phòng -->
                         <div class="tab-pane fade" id="bookings" role="tabpanel">
@@ -456,137 +500,52 @@
         </div>
     </main>
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-
     <style>
-        .flatpickr-calendar {
-            font-family: inherit;
-        }
-
-        .flatpickr-current-month {
+        .birthday-dropdowns {
             display: flex;
-            align-items: center;
-            justify-content: center;
             gap: 8px;
-            left: 0;
-            width: 100%;
-            height: 34px;
-            padding: 0;
         }
-
-        .flatpickr-current-month .flatpickr-monthDropdown-months {
-            height: 32px;
+        .bd-select {
+            flex: 1;
+            height: 42px;
             border: 1px solid #dbe3ef;
-            border-radius: 8px;
-            padding: 2px 8px;
+            border-radius: 10px;
+            padding: 0 10px;
             background: #fff;
             font-size: 15px;
-            font-weight: 600;
-        }
-
-        .flatpickr-current-month .numInputWrapper {
-            display: none !important;
-        }
-
-        .birthday-year-select {
-            height: 32px;
-            min-width: 88px;
-            border: 1px solid #dbe3ef;
-            border-radius: 8px;
-            background: #fff;
-            padding: 2px 8px;
-            font-size: 15px;
-            font-weight: 600;
             color: #1f2937;
+            appearance: auto;
+            cursor: pointer;
             outline: none;
+            transition: border-color .15s, box-shadow .15s;
         }
-
-        .birthday-year-select:focus,
-        .flatpickr-current-month .flatpickr-monthDropdown-months:focus {
+        .bd-select:focus {
             border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+            box-shadow: 0 0 0 3px rgba(59,130,246,.18);
         }
     </style>
-
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/vn.js"></script>
-
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            if (typeof flatpickr === 'undefined') {
-                return;
+            function syncBirthday(dayId, monthId, yearId, hiddenId) {
+                var d = document.getElementById(dayId);
+                var m = document.getElementById(monthId);
+                var y = document.getElementById(yearId);
+                var h = document.getElementById(hiddenId);
+                if (!d || !m || !y || !h) return;
+                function update() {
+                    if (d.value && m.value && y.value) {
+                        var dd = String(d.value).padStart(2,'0');
+                        var mm = String(m.value).padStart(2,'0');
+                        h.value = y.value + '-' + mm + '-' + dd;
+                    } else {
+                        h.value = '';
+                    }
+                }
+                d.addEventListener('change', update);
+                m.addEventListener('change', update);
+                y.addEventListener('change', update);
             }
-
-            const currentYear = new Date().getFullYear();
-            const minYear = currentYear - 120;
-            const defaultYear = currentYear - 18;
-
-            function addYearSelect(instance) {
-                const currentMonth = instance.calendarContainer.querySelector('.flatpickr-current-month');
-
-                if (!currentMonth) {
-                    return;
-                }
-
-                let select = currentMonth.querySelector('.birthday-year-select');
-
-                if (!select) {
-                    select = document.createElement('select');
-                    select.className = 'birthday-year-select';
-
-                    for (let year = currentYear; year >= minYear; year--) {
-                        const option = document.createElement('option');
-                        option.value = year;
-                        option.textContent = year;
-                        select.appendChild(option);
-                    }
-
-                    select.addEventListener('change', function () {
-                        instance.changeYear(Number(this.value));
-                    });
-
-                    currentMonth.appendChild(select);
-                }
-
-                select.value = instance.currentYear;
-            }
-
-            flatpickr('.js-birthday-picker', {
-                locale: flatpickr.l10ns.vn,
-                dateFormat: 'Y-m-d',
-                altInput: true,
-                altFormat: 'd/m/Y',
-                allowInput: true,
-                disableMobile: true,
-                monthSelectorType: 'dropdown',
-                maxDate: 'today',
-                minDate: `${minYear}-01-01`,
-                defaultDate: null,
-
-                onReady: function (selectedDates, dateStr, instance) {
-                    if (!selectedDates.length) {
-                        instance.jumpToDate(new Date(defaultYear, 0, 1));
-                    }
-
-                    addYearSelect(instance);
-                },
-
-                onOpen: function (selectedDates, dateStr, instance) {
-                    if (!selectedDates.length) {
-                        instance.jumpToDate(new Date(defaultYear, 0, 1));
-                    }
-
-                    addYearSelect(instance);
-                },
-
-                onMonthChange: function (selectedDates, dateStr, instance) {
-                    addYearSelect(instance);
-                },
-
-                onYearChange: function (selectedDates, dateStr, instance) {
-                    addYearSelect(instance);
-                }
-            });
+            syncBirthday('us_bd_day','us_bd_month','us_bd_year','us_birthday_hidden');
         });
     </script>
 @endsection

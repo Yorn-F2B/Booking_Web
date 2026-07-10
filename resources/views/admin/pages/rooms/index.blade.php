@@ -1,696 +1,872 @@
 @extends('layouts.admin')
 
-@section('title', 'Sơ đồ phòng')
+@section('title', 'Quản lý phòng')
 
 @section('content')
-
     @php
         $statusLabels = [
             'available' => 'Trống',
-            'reserved' => 'Đặt trước',
+            'reserved' => 'Đã đặt',
             'occupied' => 'Đang ở',
             'inspection' => 'Chờ kiểm tra',
             'cleaning' => 'Đang dọn',
             'maintenance' => 'Bảo trì',
         ];
-
-        $statusFullLabels = [
-            'available' => 'Còn trống',
-            'reserved' => 'Đã đặt trước',
-            'occupied' => 'Đang sử dụng',
-            'inspection' => 'Chờ kiểm tra',
-            'cleaning' => 'Đang dọn dẹp',
-            'maintenance' => 'Bảo trì',
+        $bookingLabels = [
+            'pending' => 'Chờ xác nhận',
+            'confirmed' => 'Đã xác nhận',
+            'checked_in' => 'Đang ở',
+            'inspection_requested' => 'Chờ kiểm tra',
+            'checked_out' => 'Đã trả phòng',
+            'completed' => 'Hoàn tất',
         ];
-
-        $statusClasses = [
-            'available' => 'room-card-available',
-            'reserved' => 'room-card-reserved',
-            'occupied' => 'room-card-occupied',
-            'inspection' => 'room-card-inspection',
-            'cleaning' => 'room-card-cleaning',
-            'maintenance' => 'room-card-maintenance',
-        ];
-
-        $statusSelectClasses = [
-            'available' => 'room-status-available',
-            'reserved' => 'room-status-reserved',
-            'occupied' => 'room-status-occupied',
-            'inspection' => 'room-status-inspection',
-            'cleaning' => 'room-status-cleaning',
-            'maintenance' => 'room-status-maintenance',
-        ];
-
-        $roomCollection = $rooms;
-
-        $totalRooms = $roomCollection->count();
-        $availableRooms = $roomCollection->where('status', 'available')->count();
-        $reservedRooms = $roomCollection->where('status', 'reserved')->count();
-        $occupiedRooms = $roomCollection->where('status', 'occupied')->count();
-        $inspectionRooms = $roomCollection->where('status', 'inspection')->count();
-        $cleaningRooms = $roomCollection->where('status', 'cleaning')->count();
-        $maintenanceRooms = $roomCollection->where('status', 'maintenance')->count();
-
-        $roomsByFloor = $roomCollection
-            ->groupBy(function ($room) {
-                return $room->floor_number ?: 'unknown';
-            })
-            ->sortKeysDesc();
+        $role = auth()->user()->role ?? null;
+        $canEditCatalog = in_array($role, ['super_admin', 'manager'], true);
+        $activeTab = request('tab', 'calendar');
+        $prevStart = $startDate->copy()->subDays($dates->count())->toDateString();
+        $nextStart = $startDate->copy()->addDays($dates->count())->toDateString();
     @endphp
 
     <style>
-        .room-map-page {
-            color: #0f172a;
+        .room-management {
+            padding: 24px;
+            color: #0f172a
         }
 
-        .room-map-toolbar {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 16px;
-            align-items: center;
-            margin-bottom: 18px;
-        }
-
-        .room-map-title h2 {
-            margin-bottom: 4px;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-        }
-
-        .room-map-title p {
-            margin: 0;
-            color: #64748b;
-            font-size: 14px;
-        }
-
-        .room-filter-box {
-            border: 1px solid #e5e7eb;
-            border-radius: 18px;
-            padding: 16px;
-            background: #fff;
-            margin-bottom: 18px;
-            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
-        }
-
-        .room-summary-grid {
-            display: grid;
-            grid-template-columns: repeat(7, minmax(120px, 1fr));
-            gap: 12px;
-            margin-bottom: 18px;
-        }
-
-        .room-summary-item {
-            background: #fff;
-            border: 1px solid #e5e7eb;
-            border-radius: 16px;
-            padding: 12px 14px;
-            min-height: 78px;
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.035);
-        }
-
-        .room-summary-item span {
-            display: flex;
-            align-items: center;
-            gap: 7px;
-            font-size: 13px;
-            color: #64748b;
-            margin-bottom: 6px;
-            white-space: nowrap;
-        }
-
-        .room-summary-item strong {
-            display: block;
-            font-size: 26px;
-            line-height: 1;
-            font-weight: 800;
-            color: #0f172a;
-        }
-
-        .room-dot {
-            width: 9px;
-            height: 9px;
-            border-radius: 999px;
-            display: inline-block;
-            flex: 0 0 auto;
-        }
-
-        .dot-total {
-            background: #0f172a;
-        }
-
-        .dot-available {
-            background: #16a34a;
-        }
-
-        .dot-reserved {
-            background: #f59e0b;
-        }
-
-        .dot-occupied {
-            background: #ef4444;
-        }
-
-        .dot-inspection {
-            background: #06b6d4;
-        }
-
-        .dot-cleaning {
-            background: #3b82f6;
-        }
-
-        .dot-maintenance {
-            background: #64748b;
-        }
-
-        .room-legend {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 18px;
-        }
-
-        .room-legend-item {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            border: 1px solid #e5e7eb;
-            border-radius: 999px;
-            background: #fff;
-            padding: 8px 12px;
-            font-size: 13px;
-            color: #475569;
-            box-shadow: 0 8px 18px rgba(15, 23, 42, 0.035);
-        }
-
-        .floor-section {
-            background: #fff;
-            border: 1px solid #e5e7eb;
-            border-radius: 22px;
-            padding: 18px;
-            margin-bottom: 18px;
-            box-shadow: 0 14px 34px rgba(15, 23, 42, 0.045);
-        }
-
-        .floor-head {
+        .rm-head {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            gap: 12px;
-            border-bottom: 1px solid #eef2f7;
-            padding-bottom: 14px;
-            margin-bottom: 16px;
-        }
-
-        .floor-head h5 {
-            margin: 0;
-            font-weight: 800;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .floor-head span {
-            color: #64748b;
-            font-size: 13px;
-        }
-
-        .room-map-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-            gap: 14px;
-        }
-
-        .room-card {
-            position: relative;
-            border-radius: 20px;
-            border: 1px solid transparent;
-            padding: 15px;
-            min-height: 188px;
-            overflow: hidden;
-            transition: 0.18s ease;
-        }
-
-        .room-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 16px 30px rgba(15, 23, 42, 0.12);
-        }
-
-        .room-card-top {
-            display: flex;
             align-items: flex-start;
-            justify-content: space-between;
-            gap: 10px;
-            margin-bottom: 12px;
+            gap: 16px;
+            margin-bottom: 18px
         }
 
-        .room-number {
-            font-size: 28px;
-            line-height: 1;
-            font-weight: 900;
-            letter-spacing: -0.03em;
+        .rm-head h2 {
+            font-weight: 850;
+            margin: 0 0 4px
         }
 
-        .room-floor-badge {
+        .rm-subtitle {
+            color: #64748b;
+            margin: 0
+        }
+
+        .rm-tabs {
             display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            padding: 6px 9px;
-            border-radius: 999px;
+            padding: 4px;
+            border: 1px solid #e2e8f0;
+            border-radius: 13px;
+            background: #f8fafc;
+            margin-bottom: 16px
+        }
+
+        .rm-tab {
+            border: 0;
+            background: transparent;
+            padding: 9px 15px;
+            border-radius: 9px;
+            font-weight: 700;
+            color: #64748b;
+            cursor: pointer
+        }
+
+        .rm-tab.active {
+            background: #fff;
+            color: #0f172a;
+            box-shadow: 0 2px 9px rgba(15, 23, 42, .1)
+        }
+
+        .rm-panel {
+            display: none
+        }
+
+        .rm-panel.active {
+            display: block
+        }
+
+        .rm-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            box-shadow: 0 6px 22px rgba(15, 23, 42, .045)
+        }
+
+        .rm-filter {
+            padding: 16px;
+            margin-bottom: 14px
+        }
+
+        .rm-filter-grid {
+            display: grid;
+            grid-template-columns: 1.15fr 1.15fr .8fr 1fr 1fr auto;
+            gap: 10px;
+            align-items: end
+        }
+
+        .rm-field label {
+            display: block;
             font-size: 12px;
             font-weight: 700;
-            background: rgba(255, 255, 255, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.85);
-            color: #334155;
-            white-space: nowrap;
-        }
-
-        .room-category {
-            font-weight: 700;
-            margin-bottom: 6px;
-            color: #1e293b;
-        }
-
-        .room-note {
-            min-height: 38px;
-            font-size: 13px;
             color: #64748b;
-            margin-bottom: 12px;
+            margin-bottom: 5px
         }
 
-        .room-status-select {
-            font-weight: 800;
-            border-radius: 999px;
-            border-width: 1px;
-            padding: 7px 12px;
-            cursor: pointer;
-            font-size: 13px;
-            box-shadow: none !important;
+        .rm-field input,
+        .rm-field select,
+        .rm-modal input,
+        .rm-modal select,
+        .rm-modal textarea {
+            width: 100%;
+            border: 1px solid #dbe3ee;
+            border-radius: 10px;
+            padding: 9px 11px;
+            background: #fff;
+            color: #0f172a;
+            outline: none
         }
 
-        .room-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 7px;
-            margin-top: 12px;
+        .rm-field input:focus,
+        .rm-field select:focus,
+        .rm-modal input:focus,
+        .rm-modal select:focus,
+        .rm-modal textarea:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, .12)
         }
 
-        .room-action-btn {
-            width: 34px;
-            height: 34px;
+        .rm-btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border-radius: 11px;
-            border: 1px solid rgba(15, 23, 42, 0.08);
-            background: rgba(255, 255, 255, 0.8);
+            gap: 6px;
+            border: 1px solid #dbe3ee;
+            border-radius: 10px;
+            padding: 9px 13px;
+            background: #fff;
             color: #334155;
-            transition: 0.15s ease;
+            font-weight: 700;
+            text-decoration: none;
+            cursor: pointer;
+            white-space: nowrap
         }
 
-        .room-action-btn:hover {
-            background: #fff;
+        .rm-btn:hover {
             color: #0f172a;
-            transform: translateY(-1px);
+            background: #f8fafc
         }
 
-        .room-action-btn.danger {
-            color: #dc2626;
+        .rm-btn-primary {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: #fff
         }
 
-        .room-action-btn.danger:hover {
-            background: #fee2e2;
-            border-color: #fecaca;
-            color: #b91c1c;
+        .rm-btn-primary:hover {
+            background: #1d4ed8;
+            color: #fff
         }
 
-        .room-card-available {
-            background: linear-gradient(145deg, #ecfdf5, #d1fae5);
-            border-color: #bbf7d0;
+        .rm-btn-danger {
+            color: #dc2626
         }
 
-        .room-card-reserved {
-            background: linear-gradient(145deg, #fffbeb, #fef3c7);
-            border-color: #fde68a;
+        .rm-quickbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 14px
         }
 
-        .room-card-occupied {
-            background: linear-gradient(145deg, #fef2f2, #fee2e2);
-            border-color: #fecaca;
+        .rm-nav {
+            display: flex;
+            gap: 7px;
+            align-items: center
         }
 
-        .room-card-inspection {
-            background: linear-gradient(145deg, #ecfeff, #cffafe);
-            border-color: #a5f3fc;
+        .rm-range-title {
+            font-weight: 800
         }
 
-        .room-card-cleaning {
-            background: linear-gradient(145deg, #eff6ff, #dbeafe);
-            border-color: #bfdbfe;
+        .rm-summary {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(105px, 1fr));
+            gap: 9px;
+            margin-bottom: 14px
         }
 
-        .room-card-maintenance {
-            background: linear-gradient(145deg, #f8fafc, #e2e8f0);
-            border-color: #cbd5e1;
+        .rm-stat {
+            padding: 12px 13px
         }
 
-        .room-status-available {
-            color: #166534;
-            background-color: #dcfce7;
-            border-color: #86efac;
-        }
-
-        .room-status-reserved {
-            color: #92400e;
-            background-color: #fef3c7;
-            border-color: #fcd34d;
-        }
-
-        .room-status-occupied {
-            color: #991b1b;
-            background-color: #fee2e2;
-            border-color: #fca5a5;
-        }
-
-        .room-status-inspection {
-            color: #155e75;
-            background-color: #cffafe;
-            border-color: #67e8f9;
-        }
-
-        .room-status-cleaning {
-            color: #1d4ed8;
-            background-color: #dbeafe;
-            border-color: #93c5fd;
-        }
-
-        .room-status-maintenance {
-            color: #334155;
-            background-color: #e2e8f0;
-            border-color: #cbd5e1;
-        }
-
-        .empty-room-map {
-            border: 1px dashed #cbd5e1;
-            border-radius: 20px;
-            padding: 40px 20px;
-            text-align: center;
+        .rm-stat small {
+            display: flex;
+            align-items: center;
+            gap: 6px;
             color: #64748b;
+            font-weight: 650
+        }
+
+        .rm-stat strong {
+            display: block;
+            font-size: 24px;
+            margin-top: 4px
+        }
+
+        .rm-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%
+        }
+
+        .s-available {
+            --status: #16a34a;
+            --soft: #dcfce7;
+            --border: #86efac
+        }
+
+        .s-reserved {
+            --status: #d97706;
+            --soft: #fef3c7;
+            --border: #fcd34d
+        }
+
+        .s-occupied {
+            --status: #dc2626;
+            --soft: #fee2e2;
+            --border: #fca5a5
+        }
+
+        .s-inspection {
+            --status: #0891b2;
+            --soft: #cffafe;
+            --border: #67e8f9
+        }
+
+        .s-cleaning {
+            --status: #2563eb;
+            --soft: #dbeafe;
+            --border: #93c5fd
+        }
+
+        .s-maintenance {
+            --status: #64748b;
+            --soft: #e2e8f0;
+            --border: #cbd5e1
+        }
+
+        .rm-dot {
+            background: var(--status)
+        }
+
+        .rm-legend {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 12px
+        }
+
+        .rm-legend span {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid #e2e8f0;
             background: #fff;
+            border-radius: 999px;
+            padding: 6px 10px;
+            color: #475569;
+            font-size: 12px
         }
 
-        @media (max-width: 1200px) {
-            .room-summary-grid {
-                grid-template-columns: repeat(4, minmax(120px, 1fr));
+        .rm-timeline-wrap {
+            overflow: auto;
+            max-height: calc(100vh - 325px);
+            border-radius: 18px
+        }
+
+        .rm-timeline {
+            border-collapse: separate;
+            border-spacing: 0;
+            min-width: 1100px;
+            width: 100%
+        }
+
+        .rm-timeline th,
+        .rm-timeline td {
+            border-right: 1px solid #e8edf4;
+            border-bottom: 1px solid #e8edf4
+        }
+
+        .rm-timeline thead th {
+            position: sticky;
+            top: 0;
+            z-index: 4;
+            background: #f8fafc;
+            padding: 10px 8px;
+            text-align: center;
+            font-size: 12px;
+            min-width: 135px
+        }
+
+        .rm-timeline thead th.today {
+            background: #eff6ff;
+            color: #1d4ed8
+        }
+
+        .rm-timeline .room-col {
+            position: sticky;
+            left: 0;
+            z-index: 3;
+            background: #fff;
+            min-width: 185px;
+            width: 185px;
+            padding: 12px
+        }
+
+        .rm-timeline thead .room-col {
+            z-index: 6;
+            background: #f8fafc;
+            text-align: left
+        }
+
+        .room-main {
+            font-size: 20px;
+            font-weight: 850
+        }
+
+        .room-meta {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 3px
+        }
+
+        .room-link {
+            font-size: 11px;
+            text-decoration: none;
+            color: #2563eb
+        }
+
+        .rm-cell {
+            height: 86px;
+            padding: 6px;
+            background: #fff;
+            vertical-align: top;
+            position: relative
+        }
+
+        .rm-cell.today {
+            background: #f8fbff
+        }
+
+        .rm-booking {
+            display: block;
+            height: 100%;
+            border: 1px solid var(--border);
+            background: var(--soft);
+            border-radius: 10px;
+            padding: 7px;
+            text-decoration: none;
+            color: #334155;
+            overflow: hidden
+        }
+
+        .rm-booking:hover {
+            filter: brightness(.985);
+            color: #0f172a
+        }
+
+        .rm-booking strong {
+            display: block;
+            color: var(--status);
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis
+        }
+
+        .rm-booking small {
+            display: block;
+            font-size: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px
+        }
+
+        .rm-empty {
+            height: 100%;
+            border: 1px dashed #dbe3ee;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
+            font-size: 11px
+        }
+
+        .rm-empty.operational {
+            background: var(--soft);
+            border-style: solid;
+            border-color: var(--border);
+            color: var(--status);
+            font-weight: 750
+        }
+
+        .catalog-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px
+        }
+
+        .catalog-table {
+            width: 100%;
+            border-collapse: collapse
+        }
+
+        .catalog-table th,
+        .catalog-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #edf2f7;
+            text-align: left
+        }
+
+        .catalog-table th {
+            font-size: 12px;
+            color: #64748b;
+            background: #f8fafc
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 9px;
+            border-radius: 999px;
+            background: var(--soft);
+            color: var(--status);
+            border: 1px solid var(--border);
+            font-size: 11px;
+            font-weight: 750
+        }
+
+        .action-row {
+            display: flex;
+            gap: 6px
+        }
+
+        .rm-alert {
+            padding: 11px 14px;
+            border-radius: 11px;
+            margin-bottom: 14px
+        }
+
+        .rm-alert-success {
+            background: #ecfdf5;
+            color: #166534;
+            border: 1px solid #bbf7d0
+        }
+
+        .rm-alert-error {
+            background: #fef2f2;
+            color: #991b1b;
+            border: 1px solid #fecaca
+        }
+
+        .rm-modal-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, .52);
+            z-index: 2000;
+            padding: 20px;
+            align-items: center;
+            justify-content: center
+        }
+
+        .rm-modal-backdrop.open {
+            display: flex
+        }
+
+        .rm-modal {
+            width: min(620px, 100%);
+            max-height: 92vh;
+            overflow: auto;
+            background: #fff;
+            border-radius: 18px;
+            box-shadow: 0 28px 80px rgba(15, 23, 42, .3)
+        }
+
+        .rm-modal-head,
+        .rm-modal-foot {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 16px 18px;
+            border-bottom: 1px solid #e2e8f0
+        }
+
+        .rm-modal-foot {
+            border-top: 1px solid #e2e8f0;
+            border-bottom: 0;
+            justify-content: flex-end
+        }
+
+        .rm-modal-body {
+            padding: 18px
+        }
+
+        .rm-modal-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px
+        }
+
+        .rm-modal-field {
+            margin-bottom: 12px
+        }
+
+        .rm-modal-field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 750;
+            color: #475569;
+            margin-bottom: 5px
+        }
+
+        .rm-close {
+            border: 0;
+            background: #f1f5f9;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            font-size: 20px
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 50px 20px;
+            color: #64748b
+        }
+
+        @media(max-width:1200px) {
+            .rm-filter-grid {
+                grid-template-columns: repeat(3, 1fr)
+            }
+
+            .rm-summary {
+                grid-template-columns: repeat(4, 1fr)
             }
         }
 
-        @media (max-width: 768px) {
-            .room-map-toolbar {
-                grid-template-columns: 1fr;
+        @media(max-width:768px) {
+            .room-management {
+                padding: 14px
             }
 
-            .room-summary-grid {
-                grid-template-columns: repeat(2, minmax(120px, 1fr));
+            .rm-head {
+                flex-direction: column
             }
 
-            .room-map-grid {
-                grid-template-columns: 1fr;
+            .rm-filter-grid {
+                grid-template-columns: 1fr
             }
 
-            .floor-head {
-                align-items: flex-start;
-                flex-direction: column;
+            .rm-summary {
+                grid-template-columns: repeat(2, 1fr)
+            }
+
+            .rm-modal-grid {
+                grid-template-columns: 1fr
             }
         }
     </style>
 
-    <div class="admin-wrapper room-map-page">
-
+    <div class="admin-wrapper room-management">
         <main class="admin-content">
-
-            <p class="admin-breadcrumb mb-3">
-                <a href="{{ route('admin.dashboard') }}">Admin</a> / Phòng
-            </p>
-
-            <div class="room-map-toolbar">
-
-                <div class="room-map-title">
-                    <h2>Sơ đồ phòng</h2>
-                    <p>Theo dõi nhanh trạng thái phòng theo tầng, đổi trạng thái ngay trên từng phòng.</p>
+            <div class="rm-head">
+                <div>
+                    <p class="admin-breadcrumb mb-2"><a href="{{ route('admin.dashboard') }}">Admin</a> / Quản lý phòng</p>
+                    <h2>Quản lý phòng</h2>
+                    <p class="rm-subtitle">Theo dõi lịch sử dụng phòng và cấu hình danh mục trên cùng một màn hình.</p>
                 </div>
-
-                <a href="{{ route('admin.rooms.create') }}" class="btn btn-gold">
-                    <i class="bx bx-plus me-1"></i>
-                    Thêm phòng
-                </a>
-
             </div>
 
-            @if (session('success'))
-                <div class="alert alert-success">
-                    {{ session('success') }}
-                </div>
+            @if(session('success'))
+            <div class="rm-alert rm-alert-success">{{ session('success') }}</div>@endif
+            @if(session('error'))
+            <div class="rm-alert rm-alert-error">{{ session('error') }}</div>@endif
+            @if($errors->any())
+                <div class="rm-alert rm-alert-error"><strong>Dữ liệu chưa hợp lệ:</strong> {{ $errors->first() }}</div>
             @endif
 
-            <div class="room-filter-box">
+            <div class="rm-tabs">
+                <button class="rm-tab {{ $activeTab !== 'catalog' ? 'active' : '' }}" data-tab="calendar"><i
+                        class="bx bx-calendar"></i> Lịch sử dụng phòng</button>
+                <button class="rm-tab {{ $activeTab === 'catalog' ? 'active' : '' }}" data-tab="catalog"><i
+                        class="bx bx-list-ul"></i> Danh mục phòng</button>
+            </div>
 
-                <form action="{{ route('admin.rooms.index') }}" method="GET">
-
-                    <div class="row g-3 align-items-end">
-
-                        <div class="col-xl-3 col-lg-4 col-md-6">
-                            <label class="form-label">Tìm số phòng</label>
-                            <input type="text" name="room_number" class="form-control"
-                                value="{{ request('room_number') }}" placeholder="Ví dụ: 101, 202...">
-                        </div>
-
-                        <div class="col-xl-3 col-lg-4 col-md-6">
-                            <label class="form-label">Hạng phòng</label>
-                            <select name="room_category_id" class="form-select">
-                                <option value="">Tất cả hạng phòng</option>
-
-                                @foreach ($roomCategories as $category)
-                                    <option value="{{ $category->id }}"
-                                        {{ request('room_category_id') == $category->id ? 'selected' : '' }}>
-                                        {{ $category->name }}
-                                    </option>
+            <section id="panel-calendar" class="rm-panel {{ $activeTab !== 'catalog' ? 'active' : '' }}">
+                <form method="GET" action="{{ route('admin.rooms.index') }}" class="rm-card rm-filter">
+                    <input type="hidden" name="tab" value="calendar">
+                    <div class="rm-filter-grid">
+                        <div class="rm-field"><label>Từ ngày</label><input type="date" name="start_date"
+                                value="{{ $startDate->toDateString() }}"></div>
+                        <div class="rm-field"><label>Đến ngày</label><input type="date" name="end_date"
+                                value="{{ $endDate->toDateString() }}"></div>
+                        <div class="rm-field"><label>Tầng</label><select name="floor_number">
+                                <option value="">Tất cả tầng</option>@foreach($floors as $floor)<option value="{{ $floor }}"
+                                    @selected((string) request('floor_number') === (string) $floor)>Tầng {{ $floor }}</option>
                                 @endforeach
-                            </select>
+                            </select></div>
+                        <div class="rm-field"><label>Hạng phòng</label><select name="room_category_id">
+                                <option value="">Tất cả hạng</option>@foreach($roomCategories as $category)<option
+                                    value="{{ $category->id }}"
+                                    @selected((string) request('room_category_id') === (string) $category->id)>
+                                {{ $category->name }}</option>@endforeach
+                            </select></div>
+                        <div class="rm-field"><label>Số phòng / trạng thái</label>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px"><input name="room_number"
+                                    value="{{ request('room_number') }}" placeholder="VD: 401"><select
+                                    name="timeline_status">
+                                    <option value="">Tất cả</option>@foreach($statusLabels as $key => $label)<option
+                                        value="{{ $key }}" @selected(request('timeline_status') === $key)>{{ $label }}
+                                    </option>@endforeach
+                                </select></div>
                         </div>
-
-                        <div class="col-xl-2 col-lg-4 col-md-6">
-                            <label class="form-label">Trạng thái</label>
-                            <select name="status" class="form-select">
-                                <option value="">Tất cả trạng thái</option>
-
-                                @foreach ($statusFullLabels as $key => $label)
-                                    <option value="{{ $key }}" {{ request('status') == $key ? 'selected' : '' }}>
-                                        {{ $label }}
-                                    </option>
-                                @endforeach
-                            </select>
-                        </div>
-
-                        <div class="col-xl-2 col-lg-4 col-md-6">
-                            <label class="form-label">Tầng</label>
-                            <select name="floor_number" class="form-select">
-                                <option value="">Tất cả tầng</option>
-
-                                @for ($i = 1; $i <= $maxFloor; $i++)
-                                    <option value="{{ $i }}" {{ request('floor_number') == $i ? 'selected' : '' }}>
-                                        Tầng {{ $i }}
-                                    </option>
-                                @endfor
-                            </select>
-                        </div>
-
-                        <div class="col-xl-1 col-lg-4 col-md-6">
-                            <button type="submit" class="btn btn-primary w-100">
-                                <i class="bx bx-filter-alt"></i>
-                            </button>
-                        </div>
-
-                        <div class="col-xl-1 col-lg-4 col-md-6">
-                            <a href="{{ route('admin.rooms.index') }}" class="btn btn-outline-secondary w-100">
-                                Reset
-                            </a>
-                        </div>
-
+                        <button class="rm-btn rm-btn-primary" type="submit"><i class="bx bx-filter-alt"></i> Lọc</button>
                     </div>
-
                 </form>
 
-            </div>
-
-            <div class="room-summary-grid">
-
-                <div class="room-summary-item">
-                    <span><i class="room-dot dot-total"></i> Tổng phòng</span>
-                    <strong>{{ $totalRooms }}</strong>
-                </div>
-
-                <div class="room-summary-item">
-                    <span><i class="room-dot dot-available"></i> Trống</span>
-                    <strong>{{ $availableRooms }}</strong>
-                </div>
-
-                <div class="room-summary-item">
-                    <span><i class="room-dot dot-reserved"></i> Đặt trước</span>
-                    <strong>{{ $reservedRooms }}</strong>
-                </div>
-
-                <div class="room-summary-item">
-                    <span><i class="room-dot dot-occupied"></i> Đang ở</span>
-                    <strong>{{ $occupiedRooms }}</strong>
-                </div>
-
-                <div class="room-summary-item">
-                    <span><i class="room-dot dot-inspection"></i> Kiểm tra</span>
-                    <strong>{{ $inspectionRooms }}</strong>
-                </div>
-
-                <div class="room-summary-item">
-                    <span><i class="room-dot dot-cleaning"></i> Đang dọn</span>
-                    <strong>{{ $cleaningRooms }}</strong>
-                </div>
-
-                <div class="room-summary-item">
-                    <span><i class="room-dot dot-maintenance"></i> Bảo trì</span>
-                    <strong>{{ $maintenanceRooms }}</strong>
-                </div>
-
-            </div>
-
-            <div class="room-legend">
-
-                @foreach ($statusLabels as $key => $label)
-                    <div class="room-legend-item">
-                        <i class="room-dot dot-{{ $key }}"></i>
-                        {{ $label }}
+                <div class="rm-quickbar">
+                    <div class="rm-nav">
+                        <a class="rm-btn"
+                            href="{{ route('admin.rooms.index', array_merge(request()->except(['start_date', 'end_date']), ['start_date' => $prevStart, 'end_date' => $startDate->copy()->subDay()->toDateString()])) }}"><i
+                                class="bx bx-chevron-left"></i></a>
+                        <a class="rm-btn"
+                            href="{{ route('admin.rooms.index', ['start_date' => $today->toDateString(), 'end_date' => $today->copy()->addDays(6)->toDateString()]) }}">Hôm
+                            nay</a>
+                        <a class="rm-btn"
+                            href="{{ route('admin.rooms.index', array_merge(request()->except(['start_date', 'end_date']), ['start_date' => $nextStart, 'end_date' => $endDate->copy()->addDays($dates->count())->toDateString()])) }}"><i
+                                class="bx bx-chevron-right"></i></a>
+                        <span class="rm-range-title">{{ $startDate->format('d/m/Y') }} –
+                            {{ $endDate->format('d/m/Y') }}</span>
                     </div>
-                @endforeach
-
-            </div>
-
-            @forelse ($roomsByFloor as $floor => $floorRooms)
-
-                <section class="floor-section">
-
-                    <div class="floor-head">
-
-                        <h5>
-                            <i class="bx bx-buildings"></i>
-                            {{ $floor === 'unknown' ? 'Chưa rõ tầng' : 'Tầng ' . $floor }}
-                        </h5>
-
-                        <span>
-                            {{ $floorRooms->count() }} phòng
-                        </span>
-
-                    </div>
-
-                    <div class="room-map-grid">
-
-                        @foreach ($floorRooms->sortBy('room_number') as $room)
-
-                            @php
-                                $currentCardClass = $statusClasses[$room->status] ?? 'room-card-maintenance';
-                                $currentSelectClass = $statusSelectClasses[$room->status] ?? 'room-status-maintenance';
-                                $currentStatusLabel = $statusFullLabels[$room->status] ?? 'Không xác định';
-                            @endphp
-
-                            <article class="room-card {{ $currentCardClass }}">
-
-                                <div class="room-card-top">
-
-                                    <div class="room-number">
-                                        {{ $room->room_number }}
-                                    </div>
-
-                                    <span class="room-floor-badge">
-                                        <i class="bx bx-layer"></i>
-                                        {{ $room->floor_number ? 'Tầng ' . $room->floor_number : 'Chưa rõ' }}
-                                    </span>
-
-                                </div>
-
-                                <div class="room-category">
-                                    {{ $room->category->name ?? 'Không xác định' }}
-                                </div>
-
-                                <div class="room-note">
-                                    @if ($room->note)
-                                        {{ \Illuminate\Support\Str::limit($room->note, 55) }}
-                                    @else
-                                        Không có ghi chú
-                                    @endif
-                                </div>
-
-                                <form action="{{ route('admin.rooms.update-status', $room->id) }}" method="POST">
-                                    @csrf
-                                    @method('PATCH')
-
-                                    <select name="status"
-                                        class="form-select form-select-sm room-status-select {{ $currentSelectClass }}"
-                                        title="{{ $currentStatusLabel }}" onchange="this.form.submit()">
-
-                                        @foreach ($statusFullLabels as $key => $label)
-                                            <option value="{{ $key }}" {{ $room->status == $key ? 'selected' : '' }}>
-                                                {{ $label }}
-                                            </option>
-                                        @endforeach
-
-                                    </select>
-
-                                </form>
-
-                                <div class="room-actions">
-
-                                    <a href="{{ route('admin.rooms.show', $room->id) }}" class="room-action-btn"
-                                        title="Xem chi tiết">
-                                        <i class="bx bx-show"></i>
-                                    </a>
-
-                                    <a href="{{ route('admin.rooms.edit', $room->id) }}" class="room-action-btn"
-                                        title="Sửa phòng">
-                                        <i class="bx bx-edit"></i>
-                                    </a>
-
-                                    <form action="{{ route('admin.rooms.destroy', $room->id) }}" method="POST"
-                                        onsubmit="return confirm('Bạn có chắc muốn xóa phòng {{ $room->room_number }} không?')">
-                                        @csrf
-                                        @method('DELETE')
-
-                                        <button type="submit" class="room-action-btn danger" title="Xóa phòng">
-                                            <i class="bx bx-trash"></i>
-                                        </button>
-                                    </form>
-
-                                </div>
-
-                            </article>
-
+                    <div class="rm-nav">
+                        @foreach([1 => '1 ngày', 7 => '7 ngày', 14 => '14 ngày', 31 => '31 ngày'] as $days => $label)
+                            <a class="rm-btn"
+                                href="{{ route('admin.rooms.index', array_merge(request()->except(['start_date', 'end_date']), ['start_date' => $startDate->toDateString(), 'end_date' => $startDate->copy()->addDays($days - 1)->toDateString()])) }}">{{ $label }}</a>
                         @endforeach
-
                     </div>
-
-                </section>
-
-            @empty
-
-                <div class="empty-room-map">
-                    <i class="bx bx-hotel fs-1 d-block mb-2"></i>
-                    Không có phòng phù hợp với bộ lọc hiện tại.
                 </div>
 
-            @endforelse
+                <div class="rm-summary">
+                    <div class="rm-card rm-stat"><small><span class="rm-dot" style="background:#0f172a"></span>Tổng
+                            phòng</small><strong>{{ $summary['total'] }}</strong></div>
+                    @foreach($statusLabels as $key => $label)
+                        <div class="rm-card rm-stat s-{{ $key }}"><small><span
+                                    class="rm-dot"></span>{{ $label }}</small><strong>{{ $summary[$key] }}</strong></div>
+                    @endforeach
+                </div>
 
+                <div class="rm-legend">@foreach($statusLabels as $key => $label)<span class="s-{{ $key }}"><i
+                class="rm-dot"></i>{{ $label }}</span>@endforeach</div>
+
+                <div class="rm-card rm-timeline-wrap">
+                    @if($rooms->isEmpty())
+                        <div class="empty-state"><i class="bx bx-bed" style="font-size:42px"></i>
+                            <p>Không có phòng phù hợp bộ lọc.</p>
+                        </div>
+                    @else
+                        <table class="rm-timeline">
+                            <thead>
+                                <tr>
+                                    <th class="room-col">Phòng</th>@foreach($dates as $date)<th
+                                        class="{{ $date->isSameDay($today) ? 'today' : '' }}">
+                                        <div>{{ $date->translatedFormat('D') }}</div><strong>{{ $date->format('d/m') }}</strong>
+                                    </th>@endforeach
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($rooms as $room)
+                                    <tr>
+                                        <td class="room-col">
+                                            <div class="room-main">{{ $room->room_number }}</div>
+                                            <div class="room-meta">Tầng {{ $room->floor_number ?? '?' }} ·
+                                                {{ $room->category->name ?? 'Chưa xếp hạng' }}</div><a class="room-link"
+                                                href="{{ route('admin.rooms.show', $room) }}">Xem chi tiết</a>
+                                        </td>
+                                        @foreach($dates as $date)
+                                            @php $cell = $timeline[$room->id][$date->toDateString()];
+                                            $booking = $cell['booking']; @endphp
+                                            <td class="rm-cell {{ $date->isSameDay($today) ? 'today' : '' }}">
+                                                @if($booking)
+                                                    <a class="rm-booking s-{{ $cell['status'] }}"
+                                                        href="{{ route('admin.bookings.show', $booking) }}"
+                                                        title="Xem booking {{ $booking->booking_code }}">
+                                                        <strong>{{ $booking->customer->name ?? 'Khách lẻ' }}</strong>
+                                                        <small>{{ $booking->booking_code }}</small>
+                                                        <small>{{ $bookingLabels[$booking->status] ?? $booking->status }}</small>
+                                                        <small>{{ optional($booking->check_in_at)->format('H:i d/m') ?? $booking->check_in_date }}
+                                                            →
+                                                            {{ optional($booking->check_out_at)->format('H:i d/m') ?? $booking->check_out_date }}</small>
+                                                    </a>
+                                                @elseif($cell['status'] !== 'available')
+                                                    <div class="rm-empty operational s-{{ $cell['status'] }}">
+                                                        {{ $statusLabels[$cell['status']] }}</div>
+                                                @else
+                                                    <div class="rm-empty">Trống</div>
+                                                @endif
+                                            </td>
+                                        @endforeach
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    @endif
+                </div>
+            </section>
+
+            <section id="panel-catalog" class="rm-panel {{ $activeTab === 'catalog' ? 'active' : '' }}">
+                <div class="catalog-toolbar">
+                    <div><strong>Danh mục phòng</strong>
+                        <div class="rm-subtitle">Thêm, sửa, đặt bảo trì và quản lý thông tin phòng.</div>
+                    </div>@if($canEditCatalog)<button class="rm-btn rm-btn-primary" data-open-modal="roomCreateModal"><i
+                    class="bx bx-plus"></i> Thêm phòng</button>@endif
+                </div>
+                <div class="rm-card" style="overflow:auto">
+                    <table class="catalog-table">
+                        <thead>
+                            <tr>
+                                <th>Số phòng</th>
+                                <th>Tầng</th>
+                                <th>Hạng phòng</th>
+                                <th>Trạng thái vật lý</th>
+                                <th>Ghi chú</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($rooms as $room)
+                                <tr>
+                                    <td><strong>{{ $room->room_number }}</strong></td>
+                                    <td>{{ $room->floor_number ?? '—' }}</td>
+                                    <td>{{ $room->category->name ?? '—' }}</td>
+                                    <td><span class="status-pill s-{{ $room->status }}"><i
+                                                class="rm-dot"></i>{{ $statusLabels[$room->status] ?? $room->status }}</span>
+                                    </td>
+                                    <td>{{ $room->note ?: '—' }}</td>
+                                    <td>
+                                        <div class="action-row"><a class="rm-btn"
+                                                href="{{ route('admin.rooms.show', $room) }}"><i
+                                                    class="bx bx-show"></i></a>@if($canEditCatalog)<button type="button"
+                                                            class="rm-btn edit-room-btn"
+                                                            data-room="{{ json_encode(['id' => $room->id, 'room_number' => $room->room_number, 'floor_number' => $room->floor_number, 'room_category_id' => $room->room_category_id, 'status' => $room->status, 'note' => $room->note]) }}"><i
+                                                                class="bx bx-edit"></i></button>
+                                                        <form method="POST" action="{{ route('admin.rooms.destroy', $room) }}"
+                                                            onsubmit="return confirm('Xóa phòng {{ $room->room_number }}?')">@csrf
+                                                            @method('DELETE')<button class="rm-btn rm-btn-danger"><i
+                                                    class="bx bx-trash"></i></button></form>@endif
+                                        </div>
+                                    </td>
+                                </tr>
+                            @empty<tr>
+                                <td colspan="6" class="empty-state">Chưa có phòng.</td>
+                            </tr>@endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </main>
-
-        <footer class="admin-footer">
-            <span>MCuong Hotel Admin</span>
-        </footer>
-
     </div>
 
+    @if($canEditCatalog)
+        <div class="rm-modal-backdrop" id="roomCreateModal">
+            <div class="rm-modal">
+                <form method="POST" action="{{ route('admin.rooms.store') }}">@csrf<div class="rm-modal-head"><strong>Thêm
+                            phòng</strong><button type="button" class="rm-close" data-close-modal>&times;</button></div>
+                    <div class="rm-modal-body">
+                        <div class="rm-modal-grid">
+                            <div class="rm-modal-field"><label>Số phòng *</label><input name="room_number" required></div>
+                            <div class="rm-modal-field"><label>Tầng</label><input type="number" min="0" name="floor_number">
+                            </div>
+                            <div class="rm-modal-field"><label>Hạng phòng *</label><select name="room_category_id" required>
+                                    <option value="">Chọn hạng phòng</option>@foreach($activeCategories as $category)<option
+                                    value="{{ $category->id }}">{{ $category->name }}</option>@endforeach
+                                </select></div>
+                            <div class="rm-modal-field"><label>Trạng thái ban đầu</label><select name="status">
+                                    <option value="available">Trống</option>
+                                    <option value="cleaning">Đang dọn</option>
+                                    <option value="inspection">Chờ kiểm tra</option>
+                                    <option value="maintenance">Bảo trì</option>
+                                </select></div>
+                        </div>
+                        <div class="rm-modal-field"><label>Ghi chú</label><textarea name="note" rows="3"></textarea></div>
+                    </div>
+                    <div class="rm-modal-foot"><button type="button" class="rm-btn" data-close-modal>Hủy</button><button
+                            class="rm-btn rm-btn-primary">Lưu phòng</button></div>
+                </form>
+            </div>
+        </div>
+        <div class="rm-modal-backdrop" id="roomEditModal">
+            <div class="rm-modal">
+                <form method="POST" id="roomEditForm">@csrf @method('PUT')<div class="rm-modal-head"><strong>Chỉnh sửa
+                            phòng</strong><button type="button" class="rm-close" data-close-modal>&times;</button></div>
+                    <div class="rm-modal-body">
+                        <div class="rm-modal-grid">
+                            <div class="rm-modal-field"><label>Số phòng *</label><input id="edit_room_number" name="room_number"
+                                    required></div>
+                            <div class="rm-modal-field"><label>Tầng</label><input id="edit_floor_number" type="number" min="0"
+                                    name="floor_number"></div>
+                            <div class="rm-modal-field"><label>Hạng phòng *</label><select id="edit_room_category_id"
+                                    name="room_category_id" required>@foreach($activeCategories as $category)<option
+                                    value="{{ $category->id }}">{{ $category->name }}</option>@endforeach</select></div>
+                            <div class="rm-modal-field"><label>Trạng thái vật lý</label><select id="edit_status" name="status">
+                                    <option value="available">Trống</option>
+                                    <option value="cleaning">Đang dọn</option>
+                                    <option value="inspection">Chờ kiểm tra</option>
+                                    <option value="maintenance">Bảo trì</option>
+                                </select><small style="color:#64748b">Đã đặt/đang ở được lấy tự động từ booking.</small></div>
+                        </div>
+                        <div class="rm-modal-field"><label>Ghi chú</label><textarea id="edit_note" name="note"
+                                rows="3"></textarea></div>
+                    </div>
+                    <div class="rm-modal-foot"><button type="button" class="rm-btn" data-close-modal>Hủy</button><button
+                            class="rm-btn rm-btn-primary">Cập nhật</button></div>
+                </form>
+            </div>
+        </div>
+    @endif
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const tabs = document.querySelectorAll('.rm-tab');
+            tabs.forEach(tab => tab.addEventListener('click', () => {
+                tabs.forEach(x => x.classList.remove('active'));
+                document.querySelectorAll('.rm-panel').forEach(x => x.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+                const url = new URL(window.location.href); url.searchParams.set('tab', tab.dataset.tab); history.replaceState({}, '', url);
+            }));
+            const openModal = id => document.getElementById(id)?.classList.add('open');
+            const closeModal = modal => modal?.classList.remove('open');
+            document.querySelectorAll('[data-open-modal]').forEach(btn => btn.addEventListener('click', () => openModal(btn.dataset.openModal)));
+            document.querySelectorAll('[data-close-modal]').forEach(btn => btn.addEventListener('click', () => closeModal(btn.closest('.rm-modal-backdrop'))));
+            document.querySelectorAll('.rm-modal-backdrop').forEach(modal => modal.addEventListener('click', e => { if (e.target === modal) closeModal(modal); }));
+            document.querySelectorAll('.edit-room-btn').forEach(btn => btn.addEventListener('click', () => {
+                const room = JSON.parse(btn.dataset.room);
+                document.getElementById('roomEditForm').action = '{{ url("admin/rooms") }}/' + room.id;
+                document.getElementById('edit_room_number').value = room.room_number ?? '';
+                document.getElementById('edit_floor_number').value = room.floor_number ?? '';
+                document.getElementById('edit_room_category_id').value = room.room_category_id ?? '';
+                document.getElementById('edit_status').value = ['available', 'cleaning', 'inspection', 'maintenance'].includes(room.status) ? room.status : 'available';
+                document.getElementById('edit_note').value = room.note ?? '';
+                openModal('roomEditModal');
+            }));
+        });
+    </script>
 @endsection

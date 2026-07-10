@@ -14,16 +14,10 @@
 
                 flatpickr(input, {
                     locale: 'vn',
-
-                    // Laravel nhận Y-m-d
                     dateFormat: 'Y-m-d',
-
-                    // Người dùng nhìn thấy dd/mm/yyyy
                     altInput: true,
                     altFormat: 'd/m/Y',
-
-                    minDate: 'today',
-
+                    minDate: input.hasAttribute('data-no-min') ? null : 'today',
                     allowInput: false,
 
                     onChange: function (selectedDates) {

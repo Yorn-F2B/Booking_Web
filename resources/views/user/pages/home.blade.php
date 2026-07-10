@@ -101,37 +101,55 @@
 
                                 <div class="row g-2 mb-3">
 
-                                    <div class="col-6">
+                                    <div class="col-4">
                                         <label class="form-label">
                                             Người lớn
                                         </label>
 
                                         <select name="adult_count" id="home_adult_count" class="form-select" required>
                                             <option value="" disabled {{ empty($homeSelectedAdultCount) ? 'selected' : '' }}>
-                                                Chọn số người lớn
+                                                Số người lớn
                                             </option>
 
                                             @for ($i = 1; $i <= $maxAdultCapacity; $i++)
                                                 <option value="{{ $i }}" {{ (string) $homeSelectedAdultCount === (string) $i ? 'selected' : '' }}>
-                                                    {{ $i }} người lớn
+                                                    {{ $i }}
                                                 </option>
                                             @endfor
                                         </select>
                                     </div>
 
-                                    <div class="col-6">
+                                    <div class="col-4">
                                         <label class="form-label">
                                             Trẻ em
                                         </label>
 
                                         <select name="child_count" id="home_child_count" class="form-select" required>
                                             <option value="" disabled {{ $homeSelectedChildCount === '' || $homeSelectedChildCount === null ? 'selected' : '' }}>
-                                                Chọn số trẻ em
+                                                Số trẻ em
                                             </option>
 
                                             @for ($i = 0; $i <= $maxChildCapacity; $i++)
                                                 <option value="{{ $i }}" {{ (string) $homeSelectedChildCount === (string) $i ? 'selected' : '' }}>
-                                                    {{ $i }} trẻ em
+                                                    {{ $i }}
+                                                </option>
+                                            @endfor
+                                        </select>
+                                    </div>
+
+                                    <div class="col-4">
+                                        <label class="form-label">
+                                            Số phòng
+                                        </label>
+
+                                        <select name="room_quantity" id="home_room_quantity" class="form-select" required>
+                                            <option value="" disabled>
+                                                Số phòng
+                                            </option>
+
+                                            @for ($i = 1; $i <= 10; $i++)
+                                                <option value="{{ $i }}" {{ (string) (request('room_quantity', 1)) === (string) $i ? 'selected' : '' }}>
+                                                    {{ $i }} phòng
                                                 </option>
                                             @endfor
                                         </select>
