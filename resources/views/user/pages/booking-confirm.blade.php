@@ -154,7 +154,7 @@
                                             Số điện thoại
                                         </label>
                                         <input type="text" name="phone" class="form-control"
-                                            value="{{ old('phone', $customer->phone ?? '') }}" required>
+                                            value="{{ old('phone', $customer->phone ?? '') }}" inputmode="numeric" maxlength="10" required>
                                         @error('phone')
                                             <div class="text-danger small mt-1">{{ $message }}</div>
                                         @enderror
@@ -162,10 +162,10 @@
 
                                     <div class="col-md-6">
                                         <label class="form-label">
-                                            CCCD
+                                            CCCD <span class="text-danger">*</span>
                                         </label>
                                         <input type="text" name="cccd" class="form-control"
-                                            value="{{ old('cccd', $customer->cccd ?? '') }}">
+                                            value="{{ old('cccd', $customer->cccd ?? '') }}" inputmode="numeric" maxlength="12" required>
                                         @error('cccd')
                                             <div class="text-danger small mt-1">{{ $message }}</div>
                                         @enderror
@@ -173,10 +173,10 @@
 
                                     <div class="col-md-12">
                                         <label class="form-label">
-                                            Email
+                                            Email <span class="text-danger">*</span>
                                         </label>
                                         <input type="email" name="email" class="form-control"
-                                            value="{{ old('email', $customer->email ?? auth()->user()->email) }}">
+                                            value="{{ old('email', $customer->email ?? auth()->user()->email) }}" required>
                                         @error('email')
                                             <div class="text-danger small mt-1">{{ $message }}</div>
                                         @enderror
@@ -184,10 +184,10 @@
 
                                     <div class="col-md-12">
                                         <label class="form-label">
-                                            Địa chỉ
+                                            Địa chỉ <span class="text-danger">*</span>
                                         </label>
                                         <textarea name="address" rows="3"
-                                            class="form-control">{{ old('address', $customer->address ?? '') }}</textarea>
+                                            class="form-control" required>{{ old('address', $customer->address ?? '') }}</textarea>
                                         @error('address')
                                             <div class="text-danger small mt-1">{{ $message }}</div>
                                         @enderror

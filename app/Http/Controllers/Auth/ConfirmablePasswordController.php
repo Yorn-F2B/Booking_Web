@@ -14,8 +14,16 @@ class ConfirmablePasswordController extends Controller
     /**
      * Show the confirm password view.
      */
-    public function show(): View
+    public function show(): View|RedirectResponse
     {
+        $user = request()->user();
+
+        if (!empty($user->google_id) && empty($user->password)) {
+            return redirect()
+                ->route('home')
+                ->with('error', 'Tài khoản Google không sử dụng chức năng xác nhận mật khẩu.');
+        }
+
         return view('auth.confirm-password');
     }
 
@@ -24,6 +32,14 @@ class ConfirmablePasswordController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        $user = $request->user();
+
+        if (!empty($user->google_id) && empty($user->password)) {
+            return redirect()
+                ->route('home')
+                ->with('error', 'Tài khoản Google không sử dụng chức năng xác nhận mật khẩu.');
+        }
+
         if (! Auth::guard('web')->validate([
             'email' => $request->user()->email,
             'password' => $request->password,

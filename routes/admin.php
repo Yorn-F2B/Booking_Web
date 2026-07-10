@@ -5,6 +5,8 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])
     ->name('admin.dashboard');
 
+require __DIR__ . '/admin/rooms.php';
+
 Route::middleware('role:super_admin')->group(function () {
     require __DIR__ . '/admin/staffs.php';
 });
@@ -15,29 +17,11 @@ Route::middleware('role:super_admin,manager,receptionist_lead,housekeeping_super
 
 Route::middleware('role:super_admin,manager')->group(function () {
     require __DIR__ . '/admin/room-categories.php';
-    require __DIR__ . '/admin/rooms.php';
     require __DIR__ . '/admin/services.php';
     require __DIR__ . '/admin/promotions.php';
     require __DIR__ . '/admin/amenities.php';
     require __DIR__ . '/admin/reviews.php';
 
-    Route::get('reports', [\App\Http\Controllers\Admin\ReportController::class, 'index'])
-        ->name('admin.reports.index');
-
-    Route::get('reports/export-pdf', [\App\Http\Controllers\Admin\ReportController::class, 'exportPdf'])
-        ->name('admin.reports.export-pdf');
-
-    Route::get('reports/export-csv', [\App\Http\Controllers\Admin\ReportController::class, 'exportCsv'])
-        ->name('admin.reports.export-csv');
-
-    Route::get('reports/room', [\App\Http\Controllers\Admin\RoomReportController::class, 'index'])
-        ->name('admin.reports.room');
-
-    Route::get('reports/room/export-pdf', [\App\Http\Controllers\Admin\RoomReportController::class, 'exportPdf'])
-        ->name('admin.reports.room.export-pdf');
-
-    Route::get('reports/room/export-csv', [\App\Http\Controllers\Admin\RoomReportController::class, 'exportCsv'])
-        ->name('admin.reports.room.export-csv');
 
     Route::resource('customers', \App\Http\Controllers\Admin\CustomerController::class)
         ->names('admin.customers');

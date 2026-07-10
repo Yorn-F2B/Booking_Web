@@ -10,7 +10,6 @@ use App\Http\Controllers\Admin\InspectionApprovalController;
 use App\Http\Controllers\Admin\HousekeepingController;
 use App\Http\Controllers\Admin\BookingCreateController;
 use App\Http\Controllers\Admin\RoomAvailabilityController;
-use App\Http\Controllers\Admin\RoomDailyViewController;
 use App\Http\Controllers\Payment\VnpayController;
 
 /*
@@ -21,9 +20,6 @@ use App\Http\Controllers\Payment\VnpayController;
 
 Route::get('room-availability', [RoomAvailabilityController::class, 'index'])
     ->name('admin.room-availability.index');
-
-Route::get('room-daily', [RoomDailyViewController::class, 'index'])
-    ->name('admin.room-daily.index');
 
 Route::get('rooms/{room}/action-logs', [\App\Http\Controllers\Admin\RoomActionLogController::class, 'getLogsByDate'])
     ->name('admin.rooms.action-logs.index');

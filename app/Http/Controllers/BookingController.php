@@ -25,6 +25,7 @@ use App\Support\Realtime;
 use App\Mail\BookingCreatedMail;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class BookingController extends Controller
 {
@@ -164,34 +165,72 @@ class BookingController extends Controller
     {
         $minOnlineCheckInDate = $this->getOnlineMinCheckInDate();
 
+        $currentUser = Auth::user();
+        $currentCustomer = Customer::where('user_id', Auth::id())->first();
+
+        $request->merge([
+            'first_name' => trim((string) $request->input('first_name')),
+            'last_name' => trim((string) $request->input('last_name')),
+            'phone' => preg_replace('/\s+/', '', (string) $request->input('phone')),
+            'cccd' => preg_replace('/\s+/', '', (string) $request->input('cccd')),
+            'email' => mb_strtolower(trim((string) $request->input('email'))),
+            'address' => trim((string) $request->input('address')),
+        ]);
+
         $data = $request->validate([
-            'room_category_id' => 'required|exists:room_categories,id',
-            'check_in_date' => 'required|date|after_or_equal:' . $minOnlineCheckInDate,
-            'check_out_date' => 'required|date|after:check_in_date',
-            'adult_count' => 'required|integer|min:1',
-            'child_count' => 'nullable|integer|min:0',
-            'room_quantity' => 'required|integer|min:1|max:10',
+            'room_category_id' => ['required', 'exists:room_categories,id'],
+            'check_in_date' => ['required', 'date', 'after_or_equal:' . $minOnlineCheckInDate],
+            'check_out_date' => ['required', 'date', 'after:check_in_date'],
+            'adult_count' => ['required', 'integer', 'min:1'],
+            'child_count' => ['nullable', 'integer', 'min:0'],
+            'room_quantity' => ['required', 'integer', 'min:1', 'max:10'],
 
-            'first_name' => 'required|string|max:100',
-            'last_name' => 'required|string|max:100',
-            'phone' => 'required|string|max:20',
-            'cccd' => 'nullable|string|max:20',
-            'email' => 'nullable|email|max:255',
-            'address' => 'nullable|string|max:1000',
+            'last_name' => ['required', 'string', 'max:100'],
+            'first_name' => ['required', 'string', 'max:100'],
+            'phone' => [
+                'required',
+                'regex:/^0[0-9]{9}$/',
+                Rule::unique('customers', 'phone')->ignore($currentCustomer?->id),
+            ],
+            'cccd' => [
+                'required',
+                'regex:/^[0-9]{12}$/',
+                Rule::unique('customers', 'cccd')->ignore($currentCustomer?->id),
+            ],
+            'email' => [
+                'required',
+                'email:rfc',
+                'max:255',
+                Rule::unique('users', 'email')->ignore($currentUser?->id),
+                Rule::unique('customers', 'email')->ignore($currentCustomer?->id),
+            ],
+            'address' => ['required', 'string', 'max:1000'],
 
-            'note' => 'nullable|string|max:1000',
-            'payment_type' => 'required|in:deposit_30,full_100',
+            'note' => ['nullable', 'string', 'max:1000'],
+            'payment_type' => ['required', Rule::in(['deposit_30', 'full_100'])],
 
-            'services' => 'nullable|array',
-            'services.*.service_id' => 'nullable|exists:services,id',
-            'services.*.quantity' => 'nullable|integer|min:1',
-            'services.*.note' => 'nullable|string|max:1000',
+            'services' => ['nullable', 'array'],
+            'services.*.service_id' => ['nullable', 'exists:services,id'],
+            'services.*.quantity' => ['nullable', 'integer', 'min:1'],
+            'services.*.note' => ['nullable', 'string', 'max:1000'],
 
-            'promotion_codes' => 'nullable|array',
-            'promotion_codes.*' => 'nullable|string|max:50',
+            'promotion_codes' => ['nullable', 'array'],
+            'promotion_codes.*' => ['nullable', 'string', 'max:50'],
         ], [
             'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . self::ONLINE_CHECK_IN_LABEL . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
             'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
+            'last_name.required' => 'Vui lòng nhập họ của khách lưu trú.',
+            'first_name.required' => 'Vui lòng nhập tên của khách lưu trú.',
+            'phone.required' => 'Vui lòng nhập số điện thoại.',
+            'phone.regex' => 'Số điện thoại phải gồm 10 chữ số và bắt đầu bằng số 0.',
+            'phone.unique' => 'Số điện thoại này đã được một tài khoản khác sử dụng.',
+            'cccd.required' => 'Vui lòng nhập số CCCD để đặt phòng.',
+            'cccd.regex' => 'Số CCCD phải gồm đúng 12 chữ số.',
+            'cccd.unique' => 'Số CCCD này đã được một tài khoản khác sử dụng.',
+            'email.required' => 'Vui lòng nhập email.',
+            'email.email' => 'Email không đúng định dạng.',
+            'email.unique' => 'Email này đã được một tài khoản khác sử dụng.',
+            'address.required' => 'Vui lòng nhập địa chỉ liên hệ.',
             'payment_type.required' => 'Vui lòng chọn hình thức thanh toán.',
             'payment_type.in' => 'Hình thức thanh toán không hợp lệ.',
             'room_quantity.min' => 'Số phòng phải ít nhất là 1.',
@@ -227,12 +266,20 @@ class BookingController extends Controller
                     'first_name' => $data['first_name'],
                     'last_name' => $data['last_name'],
                     'phone' => $data['phone'],
-                    'cccd' => $data['cccd'] ?? null,
-                    'email' => $data['email'] ?? Auth::user()->email,
-                    'address' => $data['address'] ?? null,
+                    'cccd' => $data['cccd'],
+                    'email' => $data['email'],
+                    'address' => $data['address'],
                     'status' => 'active',
                 ]
             );
+
+            $user = Auth::user();
+
+            if ($user instanceof \App\Models\User) {
+                $user->name = trim($data['last_name'] . ' ' . $data['first_name']);
+                $user->email = $data['email'];
+                $user->save();
+            }
 
             if (
                 $this->hasActiveBookingInDateRange(

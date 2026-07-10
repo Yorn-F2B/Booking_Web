@@ -15,6 +15,14 @@ class PasswordController extends Controller
      */
     public function update(Request $request): RedirectResponse
     {
+        $user = $request->user();
+
+        if (!empty($user->google_id) && empty($user->password)) {
+            return back()->withErrors([
+                'password' => 'Tài khoản này được tạo bằng Google nên không sử dụng mật khẩu tại hệ thống.',
+            ], 'updatePassword');
+        }
+
         $validated = $request->validateWithBag('updatePassword', [
             'current_password' => ['required', 'current_password'],
             'password' => ['required', Password::defaults(), 'confirmed'],

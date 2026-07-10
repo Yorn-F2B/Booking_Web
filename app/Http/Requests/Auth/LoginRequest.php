@@ -4,6 +4,7 @@ namespace App\Http\Requests\Auth;
 
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Validation\ValidationRule;
+use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -42,7 +43,19 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+        $email = mb_strtolower(trim((string) $this->input('email')));
+        $user = User::query()->where('email', $email)->first();
+
+        if ($user && !empty($user->google_id) && empty($user->password)) {
+            throw ValidationException::withMessages([
+                'email' => 'Tài khoản này được tạo bằng Google. Vui lòng chọn “Đăng nhập bằng Google”.',
+            ]);
+        }
+
+        if (! Auth::attempt([
+            'email' => $email,
+            'password' => (string) $this->input('password'),
+        ], $this->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([

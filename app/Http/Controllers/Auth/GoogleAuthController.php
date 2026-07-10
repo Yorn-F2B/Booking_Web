@@ -93,20 +93,6 @@ class GoogleAuthController extends Controller
                 return redirect()->route('admin.dashboard');
             }
 
-            $customer = $user->customer;
-
-            $profileIncomplete = !$customer
-                || blank($customer->first_name)
-                || blank($customer->last_name)
-                || blank($customer->phone)
-                || blank($customer->cccd)
-                || blank($customer->email);
-
-            if ($profileIncomplete) {
-                return redirect()->route('user.settings')
-                    ->with('success', 'Đăng nhập Google thành công. Vui lòng hoàn thiện thông tin cá nhân trước khi đặt phòng.');
-            }
-
             return redirect()->route('home')
                 ->with('success', 'Đăng nhập bằng Google thành công.');
         } catch (\RuntimeException $e) {

@@ -3,6 +3,10 @@
 @section('title', 'User Settings')
 
 @section('content')
+    @php
+        $isGoogleOnly = !empty($user->google_id) && empty($user->password);
+    @endphp
+
     <section class="page-header">
         <div class="container">
             <h1 class="display-6 fw-bold mb-1">Cài đặt người dùng</h1>
@@ -41,6 +45,9 @@
 
                             <input type="file" id="avatarInput" form="userSettingsForm" name="avatar" accept="image/*"
                                 class="d-none" />
+                            @error('avatar')
+                                <div class="text-danger small mt-2">{{ $message }}</div>
+                            @enderror
                         </div>
                         <h2 class="h6 fw-bold mb-1" style="font-family:'DM Serif Display',serif">{{ Auth::user()->name }}
                         </h2>
@@ -67,12 +74,14 @@
                                     <i class="bx bx-user me-1"></i>Thông tin cá nhân
                                 </button>
                             </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="password-tab" data-bs-toggle="tab" data-bs-target="#password"
-                                    type="button" role="tab">
-                                    <i class="bx bx-lock-alt me-1"></i>Mật khẩu
-                                </button>
-                            </li>
+                            @unless($isGoogleOnly)
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="password-tab" data-bs-toggle="tab"
+                                        data-bs-target="#password" type="button" role="tab">
+                                        <i class="bx bx-lock-alt me-1"></i>Mật khẩu
+                                    </button>
+                                </li>
+                            @endunless
                             <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="bookings-tab" data-bs-toggle="tab" data-bs-target="#bookings"
                                     type="button" role="tab">
@@ -100,6 +109,16 @@
                                     </div>
                                 @endif
 
+                                @error('profile')
+                                    <div class="alert alert-danger">{{ $message }}</div>
+                                @enderror
+
+                                @if($errors->any() && !$errors->has('profile'))
+                                    <div class="alert alert-danger">
+                                        Vui lòng kiểm tra lại các trường được đánh dấu bên dưới.
+                                    </div>
+                                @endif
+
                                 <form id="userSettingsForm" method="POST" action="{{ route('user.settings.update') }}"
                                     enctype="multipart/form-data">
 
@@ -109,52 +128,47 @@
 
                                         {{-- HỌ --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">
-                                                Họ
-                                            </label>
-
-                                            <input type="text" name="first_name" class="form-control"
-                                                value="{{ $customer->first_name ?? ''}}" />
+                                            <label class="form-label small fw-semibold">Họ <span class="text-danger">*</span></label>
+                                            <input type="text" name="last_name"
+                                                class="form-control @error('last_name') is-invalid @enderror"
+                                                value="{{ old('last_name', $customer->last_name ?? '') }}" required>
+                                            @error('last_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- TÊN --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">
-                                                Tên
-                                            </label>
-
-                                            <input type="text" name="last_name" class="form-control"
-                                                value="{{ $customer->last_name ?? ''}}" />
+                                            <label class="form-label small fw-semibold">Tên <span class="text-danger">*</span></label>
+                                            <input type="text" name="first_name"
+                                                class="form-control @error('first_name') is-invalid @enderror"
+                                                value="{{ old('first_name', $customer->first_name ?? '') }}" required>
+                                            @error('first_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- CCCD --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">
-                                                Số CCCD
-                                            </label>
-
-                                            <input type="text" name="cccd" class="form-control"
-                                                value="{{ $customer->cccd ?? ''}}" />
+                                            <label class="form-label small fw-semibold">Số CCCD <span class="text-danger">*</span></label>
+                                            <input type="text" name="cccd" inputmode="numeric" maxlength="12"
+                                                class="form-control @error('cccd') is-invalid @enderror"
+                                                value="{{ old('cccd', $customer->cccd ?? '') }}" required>
+                                            @error('cccd')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- PHONE --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">
-                                                Số điện thoại
-                                            </label>
-
-                                            <input type="tel" name="phone" class="form-control"
-                                                value="{{ $customer->phone ?? ''}}" />
+                                            <label class="form-label small fw-semibold">Số điện thoại <span class="text-danger">*</span></label>
+                                            <input type="tel" name="phone" inputmode="numeric" maxlength="10"
+                                                class="form-control @error('phone') is-invalid @enderror"
+                                                value="{{ old('phone', $customer->phone ?? '') }}" required>
+                                            @error('phone')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- EMAIL --}}
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-semibold">
-                                                Email
-                                            </label>
-
-                                            <input type="email" name="email" class="form-control"
-                                                value="{{ $customer->email ?? ''}}" />
+                                            <label class="form-label small fw-semibold">Email <span class="text-danger">*</span></label>
+                                            <input type="email" name="email"
+                                                class="form-control @error('email') is-invalid @enderror"
+                                                value="{{ old('email', $customer->email ?: $user->email) }}" required>
+                                            @error('email')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- BIRTHDAY --}}
@@ -199,31 +213,33 @@
                                                 Giới tính
                                             </label>
 
-                                            <select name="gender" class="form-select">
+                                            <select name="gender" class="form-select @error('gender') is-invalid @enderror" required>
 
-                                                <option value="male" {{ $customer->gender == 'male' ? 'selected' : '' }}>
+                                                <option value="male" {{ old('gender', $customer->gender ?? '') == 'male' ? 'selected' : '' }}>
                                                     Nam
                                                 </option>
 
-                                                <option value="female" {{ $customer->gender == 'female' ? 'selected' : '' }}>
+                                                <option value="female" {{ old('gender', $customer->gender ?? '') == 'female' ? 'selected' : '' }}>
                                                     Nữ
                                                 </option>
 
-                                                <option value="other" {{ $customer->gender == 'other' ? 'selected' : '' }}>
+                                                <option value="other" {{ old('gender', $customer->gender ?? '') == 'other' ? 'selected' : '' }}>
                                                     Khác
                                                 </option>
 
                                             </select>
+                                            @error('gender')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                         {{-- ADDRESS --}}
                                         <div class="col-12">
                                             <label class="form-label small fw-semibold">
-                                                Địa chỉ liên hệ
+                                                Địa chỉ liên hệ <span class="text-danger">*</span>
                                             </label>
 
-                                            <textarea name="address" class="form-control"
-                                                rows="2">{{ $customer->address ?? ''}}</textarea>
+                                            <textarea name="address" class="form-control @error('address') is-invalid @enderror"
+                                                rows="2" required>{{ old('address', $customer->address ?? '') }}</textarea>
+                                            @error('address')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
                                     </div>
@@ -246,6 +262,7 @@
                             </div>
                         </div>
 
+                        @unless($isGoogleOnly)
                         <!-- Tab 2: Đổi mật khẩu -->
                         <div class="tab-pane fade" id="password" role="tabpanel">
                             <div class="settings-section">
@@ -309,6 +326,8 @@
                                 </form>
                             </div>
                         </div>
+
+                        @endunless
 
                         <!-- Tab 3: Đơn phòng -->
                         <div class="tab-pane fade" id="bookings" role="tabpanel">
