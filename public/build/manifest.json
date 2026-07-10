@@ -1,13 +1,38 @@
 {
+  "_bootstrap-_7LyetRs.js": {
+    "file": "assets/bootstrap-_7LyetRs.js",
+    "name": "bootstrap"
+  },
   "resources/css/app.css": {
-    "file": "assets/app-DdXsXPWM.css",
+    "file": "assets/app-BSRrWAqT.css",
     "src": "resources/css/app.css",
     "isEntry": true
   },
+  "resources/js/admin/bookings-realtime.js": {
+    "file": "assets/bookings-realtime-BlPHesTW.js",
+    "name": "bookings-realtime",
+    "src": "resources/js/admin/bookings-realtime.js",
+    "isEntry": true,
+    "imports": [
+      "_bootstrap-_7LyetRs.js"
+    ]
+  },
   "resources/js/app.js": {
-    "file": "assets/app-7uDXesUi.js",
+    "file": "assets/app-BiWRXFg0.js",
     "name": "app",
     "src": "resources/js/app.js",
-    "isEntry": true
+    "isEntry": true,
+    "imports": [
+      "_bootstrap-_7LyetRs.js"
+    ]
+  },
+  "resources/js/user/realtime-user.js": {
+    "file": "assets/realtime-user-DXmDNoW_.js",
+    "name": "realtime-user",
+    "src": "resources/js/user/realtime-user.js",
+    "isEntry": true,
+    "imports": [
+      "_bootstrap-_7LyetRs.js"
+    ]
   }
 }

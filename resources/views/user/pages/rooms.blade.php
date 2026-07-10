@@ -34,6 +34,11 @@
         $searchData['child_count'] ?? 0
     );
 
+    $currentRoomQuantity = old(
+        'room_quantity',
+        $searchData['room_quantity'] ?? 1
+    );
+
     $hasCompleteBookingSearch = $hasCompleteBookingSearch ?? (
         !empty($searchData['check_in_date'])
         && !empty($searchData['check_out_date'])
@@ -121,12 +126,12 @@
                                 </label>
 <select name="adult_count" id="rooms_adult_count" class="form-select" required>
     <option value="" disabled {{ empty($currentAdultCount) ? 'selected' : '' }}>
-        Chọn số người lớn
+        Số người lớn
     </option>
 
     @for ($i = 1; $i <= $maxAdultCapacity; $i++)
         <option value="{{ $i }}" {{ (string) $currentAdultCount === (string) $i ? 'selected' : '' }}>
-            {{ $i }} người lớn
+            {{ $i }}
         </option>
     @endfor
 </select>
@@ -139,18 +144,36 @@
 
                 <select name="child_count" id="rooms_child_count" class="form-select" required>
     <option value="" disabled {{ $currentChildCount === '' || $currentChildCount === null ? 'selected' : '' }}>
-        Chọn số trẻ em
+        Số trẻ em
     </option>
 
     @for ($i = 0; $i <= $maxChildCapacity; $i++)
         <option value="{{ $i }}" {{ (string) $currentChildCount === (string) $i ? 'selected' : '' }}>
-            {{ $i }} trẻ em
+            {{ $i }}
         </option>
     @endfor
 </select>
                             </div>
 
                             <div class="col-md-2">
+                                <label class="form-label">
+                                    Số phòng
+                                </label>
+
+                <select name="room_quantity" id="rooms_room_quantity" class="form-select" required>
+    <option value="" disabled>
+        Số phòng
+    </option>
+
+    @for ($i = 1; $i <= 10; $i++)
+        <option value="{{ $i }}" {{ (string) $currentRoomQuantity === (string) $i ? 'selected' : '' }}>
+            {{ $i }} phòng
+        </option>
+    @endfor
+</select>
+                            </div>
+
+                            <div class="col-md-3">
                                 <label class="form-label">
                                     Hạng phòng
                                 </label>
@@ -346,6 +369,7 @@
             <input type="hidden" name="check_out_date" value="{{ $searchData['check_out_date'] }}">
             <input type="hidden" name="adult_count" value="{{ $searchData['adult_count'] }}">
             <input type="hidden" name="child_count" value="{{ $searchData['child_count'] ?? 0 }}">
+            <input type="hidden" name="room_quantity" value="{{ $searchData['room_quantity'] ?? 1 }}">
 
             @auth
     <button type="submit" class="btn btn-primary btn-sm">

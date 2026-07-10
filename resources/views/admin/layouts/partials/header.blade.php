@@ -15,8 +15,10 @@
     $canManageCatalog = $isSuperAdmin || $isManager;
     $canManageFrontDesk = $isSuperAdmin || $isManager || $isReceptionistLead || $isReceptionist;
     $canManageRooms = $isSuperAdmin || $isManager || $isHousekeepingSupervisor || $isHousekeeping;
+    $canViewManagement = $isSuperAdmin || $isManager;
 
     $operationsOpen = request()->routeIs([
+        'admin.room-daily.*',
         'admin.room-availability.*',
         'admin.bookings.*',
         'admin.chats.*',
@@ -41,6 +43,11 @@
         'staffs.*',
         'admin.staff-assignments.*',
     ]);
+
+    $managementOpen = request()->routeIs([
+        'admin.customers.*',
+        'admin.reports.*',
+    ]) || request()->is('admin/reports*');
 @endphp
 
 <style>
@@ -56,7 +63,7 @@
 
 <aside class="admin-sidebar" id="adminSidebar">
     <div class="admin-sidebar-brand">
-        <a href="{{ route('admin.dashboard') }}">
+        <a href="{{ route('home') }}" target="_blank">
             <span class="logo-mark">MC</span>
             <span>MCuong Hotel<small>Bảng quản trị</small></span>
         </a>
@@ -76,6 +83,12 @@
                     Vận hành lễ tân
                     <i class="bx bx-chevron-down group-chevron"></i>
                 </summary>
+
+                <a href="{{ route('admin.room-daily.index') }}"
+                   class="admin-nav-link {{ request()->routeIs('admin.room-daily.*') ? 'active' : '' }}">
+                    <i class="bx bx-calendar-event"></i>
+                    Trạng thái phòng theo ngày
+                </a>
 
                 <a href="{{ route('admin.room-availability.index') }}"
                    class="admin-nav-link {{ request()->routeIs('admin.room-availability.*') ? 'active' : '' }}">
@@ -196,6 +209,28 @@
                         Phân công công việc
                     </a>
                 @endif
+            </details>
+        @endif
+
+        @if($canViewManagement)
+            <details class="admin-nav-group" {{ $managementOpen ? 'open' : '' }}>
+                <summary>
+                    <i class="bx bx-line-chart"></i>
+                    Quản lý và báo cáo
+                    <i class="bx bx-chevron-down group-chevron"></i>
+                </summary>
+
+                <a href="{{ route('admin.customers.index') }}"
+                   class="admin-nav-link {{ request()->routeIs('admin.customers.*') ? 'active' : '' }}">
+                    <i class="bx bx-user"></i>
+                    Khách hàng
+                </a>
+
+                <a href="{{ route('admin.reports.index') }}"
+                   class="admin-nav-link {{ request()->routeIs('admin.reports.*') || request()->is('admin/reports*') ? 'active' : '' }}">
+                    <i class="bx bx-bar-chart-alt-2"></i>
+                    Báo cáo thống kê
+                </a>
             </details>
         @endif
     </nav>

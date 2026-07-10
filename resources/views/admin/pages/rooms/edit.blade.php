@@ -139,7 +139,8 @@
                                     Trạng thái
                                 </label>
 
-                                <select name="status" class="form-select">
+                                <select name="status" id="editStatusSelect" class="form-select"
+                                    onchange="toggleScheduleFields(this.value)">
 
                                     <option value="available"
                                         {{ old('status', $room->status) == 'available' ? 'selected' : '' }}>
@@ -154,6 +155,11 @@
                                     <option value="occupied"
                                         {{ old('status', $room->status) == 'occupied' ? 'selected' : '' }}>
                                         Đang có khách
+                                    </option>
+
+                                    <option value="inspection"
+                                        {{ old('status', $room->status) == 'inspection' ? 'selected' : '' }}>
+                                        Chờ kiểm tra
                                     </option>
 
                                     <option value="cleaning"
@@ -179,6 +185,36 @@
                         </div>
 
                     </div>
+
+                    {{-- Ngày giờ hiệu lực: hiện khi chọn trạng thái cần lịch --}}
+                    <div class="row" id="scheduleFields"
+                        style="{{ in_array(old('status', $room->status), ['maintenance','cleaning','inspection','reserved','occupied']) ? '' : 'display:none' }}">
+
+                        <div class="col-lg-6">
+                            <div class="mb-3">
+                                <label class="form-label">Từ ngày giờ</label>
+                                <input type="text" name="status_from" id="editStatusFrom" class="form-control"
+                                    autocomplete="off" readonly placeholder="dd/mm/yyyy HH:MM"
+                                    value="{{ old('status_from', $room->status_from ? \Carbon\Carbon::parse($room->status_from)->setTimezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') : '') }}">
+                                @error('status_from')
+                                    <small class="text-danger">{{ $message }}</small>
+                                @enderror
+                            </div>
+                        </div>
+
+                        <div class="col-lg-6">
+                            <div class="mb-3">
+                                <label class="form-label">Đến ngày giờ</label>
+                                <input type="text" name="status_until" id="editStatusUntil" class="form-control"
+                                    autocomplete="off" readonly placeholder="dd/mm/yyyy HH:MM"
+                                    value="{{ old('status_until', $room->status_until ? \Carbon\Carbon::parse($room->status_until)->setTimezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') : '') }}">
+                                @error('status_until')
+                                    <small class="text-danger">{{ $message }}</small>
+                                @enderror
+                            </div>
+                        </div>
+
+                    </div> {{-- end scheduleFields --}}
 
                     <div class="mb-4">
 
@@ -220,5 +256,48 @@
         </footer>
 
     </div>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+<script>
+flatpickr.localize({
+    weekdays: {
+        shorthand: ['CN','T2','T3','T4','T5','T6','T7'],
+        longhand:  ['Chủ Nhật','Thứ Hai','Thứ Ba','Thứ Tư','Thứ Năm','Thứ Sáu','Thứ Bảy']
+    },
+    months: {
+        shorthand: ['Th1','Th2','Th3','Th4','Th5','Th6','Th7','Th8','Th9','Th10','Th11','Th12'],
+        longhand:  ['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Tháng 6',
+                    'Tháng 7','Tháng 8','Tháng 9','Tháng 10','Tháng 11','Tháng 12']
+    },
+    firstDayOfWeek: 1,
+    rangeSeparator: ' đến ',
+    time_24hr: true,
+});
+
+const dtOpts = {
+    enableTime: true,
+    dateFormat: 'd/m/Y H:i',
+    time_24hr: true,
+    minuteIncrement: 15,
+    allowInput: false,
+    disableMobile: true,
+};
+
+const fpEditFrom  = flatpickr('#editStatusFrom',  {
+    ...dtOpts,
+    onChange: function(d) { if (d[0]) fpEditUntil.set('minDate', d[0]); }
+});
+const fpEditUntil = flatpickr('#editStatusUntil', {
+    ...dtOpts,
+    onChange: function(d) { if (d[0]) fpEditFrom.set('maxDate', d[0]); }
+});
+
+function toggleScheduleFields(status) {
+    const needsSchedule = ['maintenance', 'cleaning', 'inspection', 'reserved', 'occupied'];
+    document.getElementById('scheduleFields').style.display =
+        needsSchedule.includes(status) ? '' : 'none';
+}
+</script>
 
 @endsection

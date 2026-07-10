@@ -40,6 +40,14 @@ class HousekeepingController extends Controller
             'note' => null,
         ]);
 
+        \App\Models\RoomActionLog::create([
+            'room_id' => $room->id,
+            'user_id' => Auth::id(),
+            'action_type' => 'cleaning',
+            'action_time' => now(),
+            'note' => 'Nhân viên hoàn tất dọn phòng. Chuyển phòng sang trạng thái trống.',
+        ]);
+
         $user = Auth::user();
 
         if ($user && $user->role === 'housekeeping') {

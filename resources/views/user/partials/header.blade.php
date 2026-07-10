@@ -54,7 +54,7 @@
 
                             </a>
 
-                        </li>
+                       </li>
 
                         {{-- REGISTER --}}
                         <li class="nav-item">
@@ -72,6 +72,27 @@
 
 
                     @auth
+
+                        {{-- ADMIN --}}
+                        @if (in_array(Auth::user()->role, ['super_admin', 'manager', 'receptionist_lead', 'receptionist', 'housekeeping_supervisor', 'housekeeping']))
+                            <li class="nav-item">
+                                <a class="nav-link {{ request()->is('admin/*') ? 'active' : '' }}"
+                                    href="{{ url('admin') }}" title="Trang quản trị">
+                                    <i class="bx bx-cog me-1"></i>
+                                    Quản trị
+                                </a>
+                            </li>
+
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" id="navbarDropdownAdmin" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bx bx-user-circle" style="font-size:1.25rem;vertical-align:middle"></i>
+                                    {{ Auth::user()->name }}
+                                </a>
+                                <ul class="dropdown-menu" aria-labelledby="navbarDropdownAdmin">
+                                    <li><a class="dropdown-item" href="{{ url('user-settings') }}">Thông tin tài khoản</a></li>
+                                </ul>
+                            </li>
+                        @endif
 
                         {{-- USER --}}
                         @if (Auth::user()->role === 'customer')

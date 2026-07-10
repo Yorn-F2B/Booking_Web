@@ -22,9 +22,12 @@ class UserSettingController extends Controller
         /** @var User $user */
         $user = Auth::user();
 
-        // Không tạo Customer rỗng ở đây vì phone/cccd có unique.
+// Không tạo Customer rỗng tại đây vì phone và CCCD đều có ràng buộc unique.
+        // Tài khoản đăng nhập Google chưa có hồ sơ sẽ được tạo Customer khi người dùng lưu thông tin.
         $customer = $user->customer ?? new Customer([
+            'user_id' => $user->id,
             'email' => $user->email,
+            'status' => 'active',
         ]);
 
         $bookings = $customer->exists

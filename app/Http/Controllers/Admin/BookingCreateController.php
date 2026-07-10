@@ -72,7 +72,8 @@ class BookingCreateController extends Controller
             'check_out_date' => 'nullable|date',
             'check_in_time' => 'nullable|date_format:H:i',
             'check_out_time' => 'nullable|date_format:H:i',
-            'confirm_low_stock' => 'nullable|accepted',
+            'allow_late_checkout' => 'nullable|boolean',
+            'confirm_low_stock' => 'nullable|boolean',
 
             'adult_count' => 'required|integer|min:1',
             'child_count' => 'nullable|integer|min:0',
@@ -105,7 +106,6 @@ class BookingCreateController extends Controller
             'check_out_date.date' => 'Ngày trả phòng không hợp lệ.',
             'check_in_time.date_format' => 'Giờ nhận phòng phải đúng định dạng 24 giờ, ví dụ 13:30 hoặc 14:00.',
             'check_out_time.date_format' => 'Giờ trả phòng phải đúng định dạng 24 giờ, ví dụ 16:30 hoặc 18:00.',
-            'confirm_low_stock.accepted' => 'Vui lòng xác nhận rủi ro tồn phòng thấp nếu vẫn muốn tạo booking ở ngay theo giờ.',
             'adult_count.required' => 'Vui lòng nhập số người lớn.',
             'room_quantity.required' => 'Vui lòng nhập số phòng.',
             'payment_method.required' => 'Vui lòng chọn phương thức thanh toán.',
@@ -424,7 +424,15 @@ class BookingCreateController extends Controller
             }
 
             DB::commit();
-            Realtime::booking($booking, $bookingMode === 'walk_in' ? 'walk_in_created' : 'staff_created');
+
+            try {
+                Realtime::booking($booking, $bookingMode === 'walk_in' ? 'walk_in_created' : 'staff_created');
+            } catch (\Throwable $realtimeError) {
+                Log::warning('Failed to send realtime notification', [
+                    'booking_id' => $booking->id,
+                    'error' => $realtimeError->getMessage(),
+                ]);
+            }
 
             if ($pendingVnpayPayment) {
                 session()->flash('success', 'Tạo booking và gán phòng thành công. Chưa gửi email xác nhận booking vì khách chưa thanh toán VNPay. Email xác nhận sẽ gửi sau khi VNPay báo thanh toán thành công.');
@@ -738,13 +746,58 @@ class BookingCreateController extends Controller
                 'Asia/Ho_Chi_Minh'
             );
 
-            $policy = $this->getWalkInOvernightPolicy($checkInAt, $roomCategory, $roomQuantity);
+            // If user provides check_out_date, use it (multi-night walk-in)
+            if (!empty($data['check_out_date'])) {
+                if (strtotime($data['check_out_date']) <= strtotime($data['check_in_date'])) {
+                    throw new \Exception('Ngày trả phòng phải sau ngày nhận phòng.');
+                }
 
-            $checkOutAt = $policy['check_out_at'];
-            $nightCount = $policy['night_count'];
-            $policyFeeAmount = $policy['extra_fee_amount'];
-            $policyFeeNote = $policy['policy_text'];
-            $policyExtraPercent = $policy['extra_percent'];
+                // Handle late checkout time if provided
+                $checkoutTime = !empty($data['check_out_time']) ? $data['check_out_time'] : self::STANDARD_CHECK_OUT_TIME;
+                $checkOutAt = Carbon::parse(
+                    $data['check_out_date'] . ' ' . $checkoutTime,
+                    'Asia/Ho_Chi_Minh'
+                );
+
+                $nightCount = max(
+                    1,
+                    $checkInAt->copy()->startOfDay()->diffInDays($checkOutAt->copy()->startOfDay())
+                );
+
+                // Calculate early check-in fee for first night only
+                $policy = $this->getWalkInOvernightPolicy($checkInAt, $roomCategory, $roomQuantity);
+                $policyFeeAmount = $policy['extra_fee_amount'];
+                $policyFeeNote = $policy['policy_text'];
+                $policyExtraPercent = $policy['extra_percent'];
+
+                // Calculate late checkout fee if applicable
+                if (!empty($data['check_out_time']) && $data['check_out_time'] !== self::STANDARD_CHECK_OUT_TIME) {
+                    $lateCheckoutPolicy = $this->calculateLateCheckoutFee(
+                        $data['check_out_time'],
+                        $roomCategory->price,
+                        $roomQuantity
+                    );
+
+                    if ($lateCheckoutPolicy['extra_fee_amount'] > 0) {
+                        $policyFeeAmount += $lateCheckoutPolicy['extra_fee_amount'];
+                        $policyFeeNote .= ' ' . $lateCheckoutPolicy['policy_text'];
+
+                        // If checkout is 18:00 or later, count as additional night
+                        if ($lateCheckoutPolicy['add_night']) {
+                            $nightCount += 1;
+                        }
+                    }
+                }
+            } else {
+                // Original logic: auto-calculate checkout based on check-in time
+                $policy = $this->getWalkInOvernightPolicy($checkInAt, $roomCategory, $roomQuantity);
+
+                $checkOutAt = $policy['check_out_at'];
+                $nightCount = $policy['night_count'];
+                $policyFeeAmount = $policy['extra_fee_amount'];
+                $policyFeeNote = $policy['policy_text'];
+                $policyExtraPercent = $policy['extra_percent'];
+            }
         } else {
             throw new \Exception('Hình thức booking không hợp lệ.');
         }
@@ -871,6 +924,43 @@ class BookingCreateController extends Controller
             . $overnightStartAt->format('d/m/Y H:i') . ' → '
             . $overnightEndAt->format('d/m/Y H:i')
             . '. Lễ tân vẫn được tạo booking nếu khách xác nhận thuê theo giờ.';
+    }
+
+    private function calculateLateCheckoutFee(string $checkoutTime, float $roomPrice, int $roomQuantity): array
+    {
+        $baseRoomTotal = $roomPrice * max(1, $roomQuantity);
+        $checkoutHour = (int) substr($checkoutTime, 0, 2);
+        $extraFeeAmount = 0;
+        $policyText = '';
+        $addNight = false;
+
+        if ($checkoutHour >= 13 && $checkoutHour < 14) {
+            $extraPercent = 0.2;
+            $extraFeeAmount = $baseRoomTotal * $extraPercent;
+            $policyText = 'Trả phòng muộn đến 13:00, phụ thu 20% giá phòng.';
+        } elseif ($checkoutHour >= 14 && $checkoutHour < 15) {
+            $extraPercent = 0.4;
+            $extraFeeAmount = $baseRoomTotal * $extraPercent;
+            $policyText = 'Trả phòng muộn đến 14:00, phụ thu 40% giá phòng.';
+        } elseif ($checkoutHour >= 15 && $checkoutHour < 16) {
+            $extraPercent = 0.6;
+            $extraFeeAmount = $baseRoomTotal * $extraPercent;
+            $policyText = 'Trả phòng muộn đến 15:00, phụ thu 60% giá phòng.';
+        } elseif ($checkoutHour >= 16 && $checkoutHour < 18) {
+            $extraPercent = 0.8;
+            $extraFeeAmount = $baseRoomTotal * $extraPercent;
+            $policyText = 'Trả phòng muộn đến 16:00, phụ thu 80% giá phòng.';
+        } elseif ($checkoutHour >= 18) {
+            $addNight = true;
+            $extraFeeAmount = $baseRoomTotal;
+            $policyText = 'Trả phòng muộn từ 18:00, tính thêm 1 đêm.';
+        }
+
+        return [
+            'extra_fee_amount' => $extraFeeAmount,
+            'policy_text' => $policyText,
+            'add_night' => $addNight,
+        ];
     }
 
     private function createOrUpdateCustomer(array $data)

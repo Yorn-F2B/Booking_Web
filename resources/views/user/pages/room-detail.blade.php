@@ -123,12 +123,44 @@
                             <div class="mb-4">
 
                                 <h4 class="h6 fw-bold mb-3">
-                                    Sức chứa & Tiện nghi
+                                    Thông số phòng
                                 </h4>
 
                                 <div class="row g-3 mb-3">
 
-                                    <div class="col-md-6">
+                                    <div class="col-md-4">
+                                        <div class="d-flex align-items-center gap-2 p-3 border rounded">
+                                            <i class="bx bx-ruler text-primary fs-4"></i>
+
+                                            <div>
+                                                <div class="small fw-bold">
+                                                    Diện tích
+                                                </div>
+
+                                                <div class="small text-muted">
+                                                    {{ $roomCategory->area ?? 'Chưa cập nhật' }}m²
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4">
+                                        <div class="d-flex align-items-center gap-2 p-3 border rounded">
+                                            <i class="bx bx-bed text-primary fs-4"></i>
+
+                                            <div>
+                                                <div class="small fw-bold">
+                                                    Số giường
+                                                </div>
+
+                                                <div class="small text-muted">
+                                                    {{ $roomCategory->bed_count ?? 1 }} giường
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4">
                                         <div class="d-flex align-items-center gap-2 p-3 border rounded">
                                             <i class="bx bx-user text-primary fs-4"></i>
 
@@ -297,7 +329,7 @@
 
                 <div class="col-lg-4">
 
-                    <div class="card border-0 shadow-sm sticky-top mb-4" style="top: 90px;">
+                    <div class="card border-0 shadow-sm mb-4">
 
                         <div class="card-body">
 
@@ -367,7 +399,7 @@
 
                                     <div class="row g-2 mb-3">
 
-                                        <div class="col-6">
+                                        <div class="col-4">
                                             <label class="form-label small">
                                                 Người lớn
                                             </label>
@@ -381,7 +413,7 @@
                                             </select>
                                         </div>
 
-                                        <div class="col-6">
+                                        <div class="col-4">
                                             <label class="form-label small">
                                                 Trẻ em
                                             </label>
@@ -390,6 +422,20 @@
                                                 @for ($i = 0; $i <= $roomCategory->child_capacity; $i++)
                                                     <option value="{{ $i }}">
                                                         {{ $i }}
+                                                    </option>
+                                                @endfor
+                                            </select>
+                                        </div>
+
+                                        <div class="col-4">
+                                            <label class="form-label small">
+                                                Số phòng
+                                            </label>
+
+                                            <select name="room_quantity" class="form-select" required>
+                                                @for ($i = 1; $i <= 10; $i++)
+                                                    <option value="{{ $i }}" {{ $i === 1 ? 'selected' : '' }}>
+                                                        {{ $i }} phòng
                                                     </option>
                                                 @endfor
                                             </select>
@@ -508,7 +554,7 @@
 
                                     <li class="mb-1">
                                         <i class="bx bx-time text-success me-1"></i>
-                                        Nhận phòng từ 14:00 đến 15:00
+                                        Nhận phòng linh hoạt 13:00-14:00 nếu phòng sẵn sàng
                                     </li>
 
                                     <li class="mb-1">

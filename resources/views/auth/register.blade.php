@@ -1,4 +1,4 @@
-@extends('layouts.user')
+﻿@extends('layouts.user')
 
 @section('title', 'Register')
 
@@ -55,7 +55,7 @@
                                             Họ
                                         </label>
 
-                                        <input name="first_name" type="text" class="form-control" required />
+                                        <input name="last_name" type="text" class="form-control" required />
 
                                     </div>
 
@@ -66,7 +66,7 @@
                                             Tên
                                         </label>
 
-                                        <input name="last_name" type="text" class="form-control" required />
+                                        <input name="first_name" type="text" class="form-control" required />
 
                                     </div>
 
@@ -111,8 +111,34 @@
                                             Ngày sinh
                                         </label>
 
-                                        <input name="birthday" type="text" class="form-control js-birthday-picker"
-                                            value="{{ old('birthday') }}" placeholder="dd/mm/yyyy" autocomplete="off" />
+                                        @php
+                                            $bdVal = old('birthday', '');
+                                            $bdDay   = $bdVal ? (int)\Carbon\Carbon::parse($bdVal)->format('d') : '';
+                                            $bdMonth = $bdVal ? (int)\Carbon\Carbon::parse($bdVal)->format('m') : '';
+                                            $bdYear  = $bdVal ? (int)\Carbon\Carbon::parse($bdVal)->format('Y') : '';
+                                        @endphp
+                                        <input type="hidden" name="birthday" id="reg_birthday_hidden" value="{{ $bdVal }}">
+                                        <div class="birthday-dropdowns" id="reg_birthday_dropdowns">
+                                            <select class="bd-select" id="reg_bd_day">
+                                                <option value="">Ngày</option>
+                                                @for ($d = 1; $d <= 31; $d++)
+                                                    <option value="{{ $d }}" {{ $bdDay == $d ? 'selected' : '' }}>{{ $d }}</option>
+                                                @endfor
+                                            </select>
+                                            <select class="bd-select" id="reg_bd_month">
+                                                <option value="">Tháng</option>
+                                                @foreach(['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Tháng 6','Tháng 7','Tháng 8','Tháng 9','Tháng 10','Tháng 11','Tháng 12'] as $mi => $ml)
+                                                    <option value="{{ $mi+1 }}" {{ $bdMonth == $mi+1 ? 'selected' : '' }}>{{ $ml }}</option>
+                                                @endforeach
+                                            </select>
+                                            <select class="bd-select" id="reg_bd_year">
+                                                <option value="">Năm</option>
+                                                @for ($y = date('Y'); $y >= date('Y')-120; $y--)
+                                                    <option value="{{ $y }}" {{ $bdYear == $y ? 'selected' : '' }}>{{ $y }}</option>
+                                                @endfor
+                                            </select>
+                                        </div>
+
                                     </div>
 
                                     {{-- GIỚI TÍNH --}}
@@ -219,137 +245,52 @@
         </div>
 
     </main>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-
     <style>
-        .flatpickr-calendar {
-            font-family: inherit;
-        }
-
-        .flatpickr-current-month {
+        .birthday-dropdowns {
             display: flex;
-            align-items: center;
-            justify-content: center;
             gap: 8px;
-            left: 0;
-            width: 100%;
-            height: 34px;
-            padding: 0;
         }
-
-        .flatpickr-current-month .flatpickr-monthDropdown-months {
-            height: 32px;
+        .bd-select {
+            flex: 1;
+            height: 42px;
             border: 1px solid #dbe3ef;
-            border-radius: 8px;
-            padding: 2px 8px;
+            border-radius: 10px;
+            padding: 0 10px;
             background: #fff;
             font-size: 15px;
-            font-weight: 600;
-        }
-
-        .flatpickr-current-month .numInputWrapper {
-            display: none !important;
-        }
-
-        .birthday-year-select {
-            height: 32px;
-            min-width: 88px;
-            border: 1px solid #dbe3ef;
-            border-radius: 8px;
-            background: #fff;
-            padding: 2px 8px;
-            font-size: 15px;
-            font-weight: 600;
             color: #1f2937;
+            appearance: auto;
+            cursor: pointer;
             outline: none;
+            transition: border-color .15s, box-shadow .15s;
         }
-
-        .birthday-year-select:focus,
-        .flatpickr-current-month .flatpickr-monthDropdown-months:focus {
+        .bd-select:focus {
             border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+            box-shadow: 0 0 0 3px rgba(59,130,246,.18);
         }
     </style>
-
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/vn.js"></script>
-
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            if (typeof flatpickr === 'undefined') {
-                return;
+            function syncBirthday(dayId, monthId, yearId, hiddenId) {
+                var d = document.getElementById(dayId);
+                var m = document.getElementById(monthId);
+                var y = document.getElementById(yearId);
+                var h = document.getElementById(hiddenId);
+                if (!d || !m || !y || !h) return;
+                function update() {
+                    if (d.value && m.value && y.value) {
+                        var dd = String(d.value).padStart(2,'0');
+                        var mm = String(m.value).padStart(2,'0');
+                        h.value = y.value + '-' + mm + '-' + dd;
+                    } else {
+                        h.value = '';
+                    }
+                }
+                d.addEventListener('change', update);
+                m.addEventListener('change', update);
+                y.addEventListener('change', update);
             }
-
-            const currentYear = new Date().getFullYear();
-            const minYear = currentYear - 120;
-            const defaultYear = currentYear - 18;
-
-            function addYearSelect(instance) {
-                const currentMonth = instance.calendarContainer.querySelector('.flatpickr-current-month');
-
-                if (!currentMonth) {
-                    return;
-                }
-
-                let select = currentMonth.querySelector('.birthday-year-select');
-
-                if (!select) {
-                    select = document.createElement('select');
-                    select.className = 'birthday-year-select';
-
-                    for (let year = currentYear; year >= minYear; year--) {
-                        const option = document.createElement('option');
-                        option.value = year;
-                        option.textContent = year;
-                        select.appendChild(option);
-                    }
-
-                    select.addEventListener('change', function () {
-                        instance.changeYear(Number(this.value));
-                    });
-
-                    currentMonth.appendChild(select);
-                }
-
-                select.value = instance.currentYear;
-            }
-
-            flatpickr('.js-birthday-picker', {
-                locale: flatpickr.l10ns.vn,
-                dateFormat: 'Y-m-d',
-                altInput: true,
-                altFormat: 'd/m/Y',
-                allowInput: true,
-                disableMobile: true,
-                monthSelectorType: 'dropdown',
-                maxDate: 'today',
-                minDate: `${minYear}-01-01`,
-                defaultDate: null,
-
-                onReady: function (selectedDates, dateStr, instance) {
-                    if (!selectedDates.length) {
-                        instance.jumpToDate(new Date(defaultYear, 0, 1));
-                    }
-
-                    addYearSelect(instance);
-                },
-
-                onOpen: function (selectedDates, dateStr, instance) {
-                    if (!selectedDates.length) {
-                        instance.jumpToDate(new Date(defaultYear, 0, 1));
-                    }
-
-                    addYearSelect(instance);
-                },
-
-                onMonthChange: function (selectedDates, dateStr, instance) {
-                    addYearSelect(instance);
-                },
-
-                onYearChange: function (selectedDates, dateStr, instance) {
-                    addYearSelect(instance);
-                }
-            });
+            syncBirthday('reg_bd_day','reg_bd_month','reg_bd_year','reg_birthday_hidden');
         });
     </script>
 @endsection
