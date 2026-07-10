@@ -105,6 +105,9 @@ Route::post('/chat/send', [ChatController::class, 'send'])
 Route::post('/chat/close', [ChatController::class, 'close'])
     ->name('chat.close');
 
+Route::get('/chat/attachments/{attachment}/download', [ChatController::class, 'download'])
+    ->name('chat.attachments.download');
+
 /*
 |--------------------------------------------------------------------------
 | USER SETTINGS

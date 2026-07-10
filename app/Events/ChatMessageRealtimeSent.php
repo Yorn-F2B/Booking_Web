@@ -12,10 +12,9 @@ class ChatMessageRealtimeSent implements ShouldBroadcastNow
 {
     use Dispatchable, SerializesModels;
 
-    public function __construct(
-        public ChatMessage $message,
-        public string $action = 'sent'
-    ) {
+    public function __construct(public ChatMessage $message)
+    {
+        $this->message->loadMissing(['sender', 'attachments', 'conversation']);
     }
 
     public function broadcastOn(): array
@@ -25,11 +24,10 @@ class ChatMessageRealtimeSent implements ShouldBroadcastNow
             new PrivateChannel('chat.conversation.' . $this->message->conversation_id),
         ];
 
-        $conversation = $this->message->relationLoaded('conversation') ? $this->message->conversation : null;
-        $customerUserId = $conversation->customer_id ?? null;
-
-        if ($customerUserId) {
-            $channels[] = new PrivateChannel('chat.customer.' . $customerUserId);
+        if ($this->message->conversation?->customer_id) {
+            $channels[] = new PrivateChannel(
+                'chat.customer.' . $this->message->conversation->customer_id
+            );
         }
 
         return $channels;
@@ -42,19 +40,28 @@ class ChatMessageRealtimeSent implements ShouldBroadcastNow
 
     public function broadcastWith(): array
     {
-        $sender = $this->message->relationLoaded('sender') ? $this->message->sender : null;
-
         return [
             'id' => $this->message->id,
             'conversation_id' => $this->message->conversation_id,
             'sender_type' => $this->message->sender_type,
             'sender_id' => $this->message->sender_id,
-            'sender_name' => $sender->name ?? ($this->message->sender_type === 'customer' ? 'Khách hàng' : 'Nhân viên'),
+            'sender_name' => $this->message->sender?->name
+                ?? ($this->message->sender_type === 'staff' ? 'Nhân viên' : 'Khách hàng'),
             'message' => $this->message->message,
-            'action' => $this->action,
+            'conversation_status' => $this->message->conversation?->status,
+            'is_unread_customer' => $this->message->sender_type === 'customer'
+                && !$this->message->is_read,
             'created_at' => $this->message->created_at
-                ? $this->message->created_at->timezone('Asia/Ho_Chi_Minh')->format('H:i d/m/Y')
-                : now('Asia/Ho_Chi_Minh')->format('H:i d/m/Y'),
+                ->timezone('Asia/Ho_Chi_Minh')
+                ->format('H:i d/m/Y'),
+            'attachments' => $this->message->attachments->map(fn ($file) => [
+                'id' => $file->id,
+                'name' => $file->original_name,
+                'mime_type' => $file->mime_type,
+                'size' => $file->size,
+                'type' => $file->type,
+                'download_url' => route('chat.attachments.download', $file),
+            ])->values()->all(),
         ];
     }
 }

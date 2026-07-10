@@ -3,86 +3,127 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Laravel\Socialite\Facades\Socialite;
 use Throwable;
 
 class GoogleAuthController extends Controller
 {
-    /**
-     * Redirect người dùng đến Google OAuth.
-     */
     public function redirect(): RedirectResponse
     {
         return Socialite::driver('google')->redirect();
     }
 
-    /**
-     * Xử lý callback từ Google OAuth.
-     */
     public function callback(): RedirectResponse
     {
         try {
             $googleUser = Socialite::driver('google')->user();
+
+            $googleId = (string) $googleUser->getId();
+            $email = mb_strtolower(trim((string) $googleUser->getEmail()));
+            $name = trim((string) $googleUser->getName());
+            $avatar = $googleUser->getAvatar();
+
+            if ($googleId === '' || $email === '') {
+                return redirect()->route('login')
+                    ->with('error', 'Google không cung cấp đủ thông tin tài khoản. Vui lòng dùng tài khoản Google có email.');
+            }
+
+            $user = DB::transaction(function () use ($googleId, $email, $name, $avatar): User {
+                $userByGoogleId = User::where('google_id', $googleId)->lockForUpdate()->first();
+                $userByEmail = User::where('email', $email)->lockForUpdate()->first();
+
+                if ($userByGoogleId && $userByEmail && $userByGoogleId->id !== $userByEmail->id) {
+                    throw new \RuntimeException('GOOGLE_ACCOUNT_CONFLICT');
+                }
+
+                $user = $userByGoogleId ?: $userByEmail;
+
+                if ($user) {
+                    if (!empty($user->google_id) && $user->google_id !== $googleId) {
+                        throw new \RuntimeException('GOOGLE_ACCOUNT_CONFLICT');
+                    }
+
+                    $updates = [
+                        'google_id' => $googleId,
+                    ];
+
+                    if (empty($user->name) && $name !== '') {
+                        $updates['name'] = $name;
+                    }
+
+                    // Không ghi đè ảnh người dùng tự tải lên.
+                    if (empty($user->avatar) && !empty($avatar)) {
+                        $updates['avatar'] = $avatar;
+                    }
+
+                    if (empty($user->email_verified_at)) {
+                        $updates['email_verified_at'] = now();
+                    }
+
+                    $user->forceFill($updates)->save();
+
+                    return $user->refresh();
+                }
+
+                return User::create([
+                    'name' => $name !== '' ? $name : $email,
+                    'email' => $email,
+                    'email_verified_at' => now(),
+                    'google_id' => $googleId,
+                    'avatar' => $avatar,
+                    'role' => 'customer',
+                    'status' => 'active',
+                    'password' => null,
+                ]);
+            });
+
+            if (in_array($user->status, ['banned', 'inactive'], true)) {
+                return redirect()->route('login')
+                    ->with('error', 'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.');
+            }
+
+            Auth::login($user, true);
+            request()->session()->regenerate();
+
+            if ($user->role !== 'customer') {
+                return redirect()->route('admin.dashboard');
+            }
+
+            $customer = $user->customer;
+
+            $profileIncomplete = !$customer
+                || blank($customer->first_name)
+                || blank($customer->last_name)
+                || blank($customer->phone)
+                || blank($customer->cccd)
+                || blank($customer->email);
+
+            if ($profileIncomplete) {
+                return redirect()->route('user.settings')
+                    ->with('success', 'Đăng nhập Google thành công. Vui lòng hoàn thiện thông tin cá nhân trước khi đặt phòng.');
+            }
+
+            return redirect()->route('home')
+                ->with('success', 'Đăng nhập bằng Google thành công.');
+        } catch (\RuntimeException $e) {
+            if ($e->getMessage() === 'GOOGLE_ACCOUNT_CONFLICT') {
+                return redirect()->route('login')
+                    ->with('error', 'Tài khoản Google này đang liên kết với một tài khoản khác.');
+            }
+
+            report($e);
+
+            return redirect()->route('login')
+                ->with('error', 'Không thể xử lý tài khoản Google. Vui lòng thử lại.');
         } catch (Throwable $e) {
+            report($e);
+
             return redirect()->route('login')
                 ->with('error', 'Đăng nhập bằng Google thất bại. Vui lòng thử lại.');
         }
-
-        // Kiểm tra email có trong hệ thống chưa
-        $user = User::where('email', $googleUser->getEmail())->first();
-
-        if ($user) {
-            // Tài khoản đã tồn tại → cập nhật google_id nếu chưa có, rồi đăng nhập
-            if (!$user->google_id) {
-                $user->update(['google_id' => $googleUser->getId()]);
-            }
-        } else {
-            // Tạo User mới với role customer
-            $nameParts = explode(' ', trim($googleUser->getName()), 2);
-            $firstName = $nameParts[0] ?? $googleUser->getName();
-            $lastName  = $nameParts[1] ?? '';
-
-            $user = User::create([
-                'name'       => $googleUser->getName(),
-                'email'      => $googleUser->getEmail(),
-                'google_id'  => $googleUser->getId(),
-                'avatar'     => $googleUser->getAvatar(),
-                'role'       => 'customer',
-                'status'     => 'active',
-                'password'   => null,
-            ]);
-
-            // Tạo Customer record tương ứng
-            Customer::create([
-                'user_id'    => $user->id,
-                'first_name' => $firstName,
-                'last_name'  => $lastName,
-                'email'      => $googleUser->getEmail(),
-                'status'     => 'active',
-            ]);
-        }
-
-        // Kiểm tra tài khoản có bị khoá không
-        if ($user->status === 'banned' || $user->status === 'inactive') {
-            return redirect()->route('login')
-                ->with('error', 'Tài khoản của bạn đã bị khoá. Vui lòng liên hệ quản trị viên.');
-        }
-
-        Auth::login($user, true);
-
-        request()->session()->regenerate();
-
-        // Chỉ cho phép nhân viên vào admin, customer về trang chủ
-        return match ($user->role) {
-            'super_admin'  => redirect()->route('admin.dashboard'),
-            'manager'      => redirect()->route('admin.dashboard'),
-            'receptionist' => redirect()->route('admin.dashboard'),
-            'housekeeping' => redirect()->route('admin.dashboard'),
-            default        => redirect()->route('home'),
-        };
     }
 }

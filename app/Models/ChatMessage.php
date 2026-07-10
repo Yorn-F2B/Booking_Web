@@ -12,10 +12,12 @@ class ChatMessage extends Model
         'sender_id',
         'message',
         'is_read',
+        'read_at',
     ];
 
     protected $casts = [
         'is_read' => 'boolean',
+        'read_at' => 'datetime',
     ];
 
     public function conversation()
@@ -26,5 +28,10 @@ class ChatMessage extends Model
     public function sender()
     {
         return $this->belongsTo(User::class, 'sender_id');
+    }
+
+    public function attachments()
+    {
+        return $this->hasMany(ChatAttachment::class, 'message_id');
     }
 }

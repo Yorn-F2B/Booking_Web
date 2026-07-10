@@ -1,1034 +1,1001 @@
 @extends('layouts.admin')
 
-@section('title', 'Tư vấn trực tuyến')
+@section('title', 'Tin nhắn khách hàng')
 
 @section('content')
     @php
-        $statusLabels = [
-            'waiting' => 'Đang chờ',
-            'assigned' => 'Đã nhận',
-            'active' => 'Đang chat',
-            'closed' => 'Đã đóng',
+        $currentFilter = $filter ?? 'messages';
+        $counts = [
+            'messages_unread' => $messagesUnreadCount ?? 0,
+            'archived_unread' => $archivedUnreadCount ?? 0,
         ];
 
-        $statusClasses = [
-            'waiting' => 'chat-status-waiting',
-            'assigned' => 'chat-status-assigned',
-            'active' => 'chat-status-active',
-            'closed' => 'chat-status-closed',
-        ];
-
-        $totalWaiting = $waitingConversations->count();
-        $totalMine = $myConversations->count();
-        $totalOther = $otherConversations->count();
-        $totalClosed = $closedConversations->count();
-
-        $currentFilter = $filter ?? 'mine';
-
-        $activeFilterClass = function ($name) use ($currentFilter) {
-            return $currentFilter === $name ? 'active' : '';
-        };
-
-        $getLastMessage = function ($conversation) {
-            return $conversation->messages?->last();
-        };
-
-        $needsReply = function ($conversation) use ($getLastMessage) {
-            $lastMessage = $getLastMessage($conversation);
-
-            return $conversation->status !== 'closed'
-                && $lastMessage
-                && $lastMessage->sender_type !== 'staff';
-        };
-
-        $formatContact = function ($conversation) {
-            return $conversation->guest_phone
-                ?? $conversation->guest_email
-                ?? $conversation->customer?->email
-                ?? 'Chưa có liên hệ';
-        };
-
-        $formatTime = function ($date) {
-            return $date ? $date->format('H:i') : '--:--';
-        };
-
-        $selectedStatus = $selectedConversation?->status ?? null;
-        $selectedStatusLabel = $selectedStatus ? ($statusLabels[$selectedStatus] ?? $selectedStatus) : '';
-        $selectedStatusClass = $selectedStatus ? ($statusClasses[$selectedStatus] ?? 'chat-status-assigned') : '';
+        $lastMessage = fn($conversation) => $conversation->messages?->first();
     @endphp
 
     <style>
         .chat-page {
-            --chat-border: #e5e7eb;
-            --chat-soft: #f8fafc;
-            --chat-muted: #64748b;
-            --chat-ink: #111827;
-            --chat-blue: #2563eb;
-            --chat-blue-soft: #eff6ff;
-            --chat-gold: #d4af37;
-            --chat-danger: #dc2626;
-            --chat-success: #16a34a;
+            --line: #e5e7eb;
+            --muted: #64748b;
+            --blue: #2563eb;
+            --soft: #f8fafc
         }
 
-        .chat-page-head {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 16px;
-            margin-bottom: 14px;
-        }
-
-        .chat-page-head h2 {
-            margin: 0;
-            font-size: 24px;
-            font-weight: 800;
-            color: var(--chat-ink);
-        }
-
-        .chat-page-head p {
-            margin: 5px 0 0;
-            color: var(--chat-muted);
-            font-size: 13px;
-        }
-
-        .chat-refresh-btn {
-            border-radius: 999px;
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .chat-app-shell {
-            height: calc(100vh - 210px);
+        .chat-shell {
+            height: calc(100vh - 170px);
             min-height: 620px;
-            background: #fff;
-            border: 1px solid var(--chat-border);
-            border-radius: 18px;
-            overflow: hidden;
-            box-shadow: 0 12px 34px rgba(15, 23, 42, 0.045);
             display: grid;
-            grid-template-columns: 360px minmax(0, 1fr) 300px;
+            grid-template-columns: 340px minmax(0, 1fr) 280px;
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            overflow: hidden
         }
 
-        .chat-sidebar {
-            border-right: 1px solid var(--chat-border);
-            background: #fff;
-            min-width: 0;
+        .chat-list {
+            border-right: 1px solid var(--line);
             display: flex;
             flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden
         }
 
-        .chat-sidebar-head {
+        .chat-list-head {
             padding: 16px;
-            border-bottom: 1px solid var(--chat-border);
+            border-bottom: 1px solid var(--line)
         }
 
-        .chat-sidebar-title {
-            margin: 0;
-            font-size: 18px;
-            font-weight: 800;
-            color: var(--chat-ink);
-        }
-
-        .chat-sidebar-sub {
-            margin-top: 4px;
-            color: var(--chat-muted);
-            font-size: 12px;
-        }
-
-        .chat-filter-tabs {
+        .chat-tabs {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            border-bottom: 1px solid var(--chat-border);
+            grid-template-columns: repeat(2, 1fr);
+            border-bottom: 1px solid var(--line)
         }
 
-        .chat-filter-tab {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
+        .chat-tab {
             padding: 11px 6px;
-            color: #64748b;
+            text-align: center;
             text-decoration: none;
+            color: var(--muted);
             font-size: 12px;
-            font-weight: 700;
-            border-bottom: 2px solid transparent;
-            background: #fff;
-        }
-
-        .chat-filter-tab:hover {
-            color: var(--chat-blue);
-            background: #f8fafc;
-        }
-
-        .chat-filter-tab.active {
-            color: var(--chat-blue);
-            border-bottom-color: var(--chat-blue);
-            background: #eff6ff;
-        }
-
-        .chat-filter-count {
-            min-width: 21px;
-            height: 21px;
-            padding: 0 6px;
-            border-radius: 999px;
-            background: #f1f5f9;
-            color: #475569;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
             font-weight: 800;
+            border-bottom: 2px solid transparent
         }
 
-        .chat-filter-tab.active .chat-filter-count {
-            background: #dbeafe;
-            color: #1d4ed8;
+        .chat-tab.active {
+            color: var(--blue);
+            background: #eff6ff;
+            border-bottom-color: var(--blue)
         }
 
-        .chat-conversation-list {
-            flex: 1;
+        .chat-scroll {
+            flex: 1 1 auto;
+            min-height: 0;
             overflow-y: auto;
-            padding: 10px;
-            background: #fff;
+            overflow-x: hidden;
+            padding: 9px
         }
 
-        .chat-list-item {
+        .chat-item {
             display: block;
+            padding: 12px;
+            border-radius: 13px;
             text-decoration: none;
             color: inherit;
-            border: 1px solid transparent;
-            border-radius: 14px;
-            padding: 12px;
-            margin-bottom: 8px;
-            transition: .16s ease;
-            background: #fff;
+            margin-bottom: 7px;
+            border: 1px solid transparent
         }
 
-        .chat-list-item:hover {
-            background: #f8fafc;
-            border-color: #e2e8f0;
+        .chat-item:hover {
+            background: #f8fafc
         }
 
-        .chat-list-item.active {
+        .chat-item.active {
             background: #eff6ff;
-            border-color: #bfdbfe;
+            border-color: #bfdbfe
         }
 
-        .chat-list-item.need-reply {
-            background: #fff7ed;
-            border-color: #fed7aa;
+        .chat-item.pending {
+            position: relative;
+            background: #fff7d6;
+            border-color: #f6d365;
         }
 
-        .chat-list-item.need-reply.active {
-            background: #eff6ff;
-            border-color: #60a5fa;
+        .chat-item.pending:hover,
+        .chat-item.pending.active {
+            background: #fff1b8;
+            border-color: #eab308;
         }
 
-        .chat-list-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 10px;
+        .chat-item-pending-dot {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: #dc2626;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, .12);
         }
 
-        .chat-customer-name {
-            color: var(--chat-ink);
-            font-size: 14px;
-            font-weight: 800;
-            line-height: 1.3;
-        }
-
-        .chat-customer-contact {
-            margin-top: 2px;
-            color: var(--chat-muted);
-            font-size: 12px;
-            line-height: 1.35;
-        }
-
-        .chat-list-time {
-            color: #64748b;
-            font-size: 12px;
-            white-space: nowrap;
-        }
-
-        .chat-last-message {
-            margin-top: 8px;
-            color: #475569;
-            font-size: 12px;
-            line-height: 1.4;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
-
-        .chat-list-bottom {
-            margin-top: 9px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .chat-badge {
+        .chat-tab-count {
             display: inline-flex;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            margin-left: 4px;
             align-items: center;
             justify-content: center;
             border-radius: 999px;
-            padding: 5px 9px;
+            background: #dc2626;
+            color: #fff;
             font-size: 11px;
-            font-weight: 700;
             line-height: 1;
+        }
+
+        .chat-tab-count.is-empty {
+            display: none;
+        }
+
+        .chat-name {
+            font-weight: 800;
+            font-size: 14px
+        }
+
+        .chat-preview {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 5px;
             white-space: nowrap;
-            border: 1px solid transparent;
-        }
-
-        .chat-status-waiting {
-            color: #92400e;
-            background: #fffbeb;
-            border-color: #fde68a;
-        }
-
-        .chat-status-assigned {
-            color: #1d4ed8;
-            background: #eff6ff;
-            border-color: #bfdbfe;
-        }
-
-        .chat-status-active {
-            color: #166534;
-            background: #dcfce7;
-            border-color: #bbf7d0;
-        }
-
-        .chat-status-closed {
-            color: #475569;
-            background: #f1f5f9;
-            border-color: #e2e8f0;
-        }
-
-        .chat-reply-dot {
-            width: 9px;
-            height: 9px;
-            border-radius: 999px;
-            background: var(--chat-danger);
-            box-shadow: 0 0 0 4px rgba(220, 38, 38, .1);
+            overflow: hidden;
+            text-overflow: ellipsis
         }
 
         .chat-main {
-            min-width: 0;
-            background: #f6f7fb;
             display: flex;
             flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
+            background: #f5f7fb
         }
 
         .chat-main-head {
-            min-height: 76px;
-            padding: 14px 18px;
+            flex: 0 0 auto;
+            padding: 13px 17px;
             background: #fff;
-            border-bottom: 1px solid var(--chat-border);
+            border-bottom: 1px solid var(--line);
             display: flex;
-            align-items: center;
             justify-content: space-between;
-            gap: 14px;
-        }
-
-        .chat-main-user {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            min-width: 0;
-        }
-
-        .chat-avatar {
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            background: #e0ecff;
-            color: var(--chat-blue);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-            flex-shrink: 0;
-        }
-
-        .chat-main-name {
-            margin: 0;
-            color: var(--chat-ink);
-            font-size: 17px;
-            font-weight: 800;
-        }
-
-        .chat-main-contact {
-            margin-top: 2px;
-            color: var(--chat-muted);
-            font-size: 12px;
-        }
-
-        .chat-main-actions {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-            justify-content: flex-end;
-        }
-
-        .chat-main-actions .btn {
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 700;
+            align-items: center
         }
 
         .chat-body {
-            flex: 1;
+            flex: 1 1 auto;
+            min-height: 0;
             overflow-y: auto;
-            padding: 22px;
-            background:
-                linear-gradient(rgba(246, 247, 251, .94), rgba(246, 247, 251, .94)),
-                radial-gradient(circle at 15% 0%, rgba(37, 99, 235, .08), transparent 28%);
+            overflow-x: hidden;
+            padding: 20px;
+            overscroll-behavior: contain
         }
 
-        .chat-message-row {
+        .chat-row {
             display: flex;
-            margin-bottom: 16px;
+            margin-bottom: 14px
         }
 
-        .chat-message-row.is-staff {
-            justify-content: flex-end;
+        .chat-row.staff {
+            justify-content: flex-end
         }
 
-        .chat-message-wrap {
-            max-width: min(680px, 74%);
-        }
-
-        .chat-message-meta {
-            margin-bottom: 5px;
-            color: #94a3b8;
-            font-size: 11px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .chat-message-row.is-staff .chat-message-meta {
-            justify-content: flex-end;
-            text-align: right;
-        }
-
-        .chat-message-bubble {
-            padding: 11px 13px;
-            border-radius: 16px;
-            font-size: 13px;
-            line-height: 1.5;
-            word-break: break-word;
-            box-shadow: 0 8px 18px rgba(15, 23, 42, .045);
-        }
-
-        .chat-message-row.is-customer .chat-message-bubble {
+        .chat-bubble {
+            max-width: 74%;
+            padding: 10px 12px;
+            border-radius: 15px;
             background: #fff;
-            color: #111827;
-            border: 1px solid #e5e7eb;
-            border-top-left-radius: 5px;
+            border: 1px solid var(--line);
+            font-size: 13px
         }
 
-        .chat-message-row.is-staff .chat-message-bubble {
-            background: #2563eb;
+        .chat-row.staff .chat-bubble {
+            background: var(--blue);
             color: #fff;
-            border-top-right-radius: 5px;
+            border-color: var(--blue)
         }
 
-        .chat-message-row.is-system .chat-message-bubble {
-            background: #fffbeb;
-            color: #92400e;
-            border: 1px solid #fde68a;
+        .chat-meta {
+            font-size: 10px;
+            opacity: .7;
+            margin-top: 5px
+        }
+
+        .chat-attachment {
+            display: flex;
+            gap: 7px;
+            align-items: center;
+            margin-top: 7px;
+            padding: 7px;
+            border-radius: 9px;
+            background: rgba(255, 255, 255, .18);
+            color: inherit;
+            text-decoration: none
+        }
+
+        .chat-row:not(.staff) .chat-attachment {
+            background: #f1f5f9;
+            color: #334155
+        }
+
+        .chat-attachment img {
+            width: 84px;
+            height: 64px;
+            object-fit: cover;
+            border-radius: 8px
         }
 
         .chat-footer {
-            padding: 14px 18px;
+            flex: 0 0 auto;
+            padding: 12px;
             background: #fff;
-            border-top: 1px solid var(--chat-border);
+            border-top: 1px solid var(--line)
         }
 
-        .chat-reply-form {
+        .chat-form {
             display: flex;
             align-items: flex-end;
-            gap: 10px;
+            gap: 8px
         }
 
-        .chat-reply-form textarea {
-            border-radius: 999px;
-            border-color: #e5e7eb;
-            min-height: 44px;
+        .chat-form textarea {
+            flex: 1;
+            min-height: 43px;
             max-height: 110px;
-            resize: none;
-            padding: 11px 16px;
-            font-size: 13px;
+            border-radius: 16px;
+            resize: none
         }
 
-        .chat-reply-form textarea:focus {
-            border-color: #bfdbfe;
-            box-shadow: 0 0 0 .2rem rgba(37, 99, 235, .1);
-        }
-
-        .chat-send-btn {
-            width: 44px;
-            height: 44px;
+        .chat-icon-btn {
+            width: 42px;
+            height: 42px;
             border-radius: 50%;
-            padding: 0;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 21px;
-            flex-shrink: 0;
+            display: grid;
+            place-items: center
         }
 
-        .chat-info-panel {
-            border-left: 1px solid var(--chat-border);
-            background: #fff;
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .chat-info-head {
-            padding: 18px;
-            border-bottom: 1px solid var(--chat-border);
-            text-align: center;
-        }
-
-        .chat-info-avatar {
-            width: 66px;
-            height: 66px;
-            margin: 0 auto 10px;
-            border-radius: 50%;
-            background: #eff6ff;
-            color: var(--chat-blue);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 32px;
-        }
-
-        .chat-info-name {
-            font-size: 15px;
-            font-weight: 800;
-            color: var(--chat-ink);
-        }
-
-        .chat-info-contact {
-            margin-top: 3px;
-            color: var(--chat-muted);
-            font-size: 12px;
-            word-break: break-word;
-        }
-
-        .chat-info-body {
-            padding: 16px;
-            overflow-y: auto;
-        }
-
-        .chat-info-section {
-            margin-bottom: 18px;
+        .chat-info {
+            border-left: 1px solid var(--line);
+            padding: 17px;
+            overflow: auto
         }
 
         .chat-info-title {
-            margin-bottom: 9px;
-            color: #334155;
             font-size: 12px;
-            font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: .03em;
+            color: var(--muted);
+            font-weight: 800;
+            margin: 15px 0 8px
         }
 
-        .chat-info-line {
+        .file-preview {
             display: flex;
-            justify-content: space-between;
-            gap: 10px;
-            padding: 8px 0;
-            border-bottom: 1px solid #f1f5f9;
-            font-size: 13px;
+            gap: 6px;
+            overflow: auto;
+            margin-bottom: 8px
         }
 
-        .chat-info-label {
-            color: var(--chat-muted);
-        }
-
-        .chat-info-value {
-            color: var(--chat-ink);
-            font-weight: 700;
-            text-align: right;
-        }
-
-        .chat-action-stack {
-            display: grid;
-            gap: 8px;
-        }
-
-        .chat-action-stack .btn,
-        .chat-action-stack .form-select {
-            border-radius: 12px;
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .chat-empty-state {
-            height: 100%;
-            display: grid;
-            place-items: center;
-            text-align: center;
-            color: var(--chat-muted);
-            padding: 30px;
-        }
-
-        .chat-empty-icon {
-            width: 62px;
-            height: 62px;
-            margin: 0 auto 12px;
-            border-radius: 22px;
-            background: #fff;
-            color: var(--chat-blue);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 30px;
-            box-shadow: 0 12px 30px rgba(15, 23, 42, .06);
-        }
-
-        .chat-log-item {
-            padding: 9px 0;
-            border-bottom: 1px solid #f1f5f9;
-        }
-
-        .chat-log-reason {
-            color: var(--chat-ink);
-            font-size: 12px;
-            font-weight: 700;
-        }
-
-        .chat-log-meta {
-            margin-top: 3px;
-            color: var(--chat-muted);
+        .file-chip {
+            background: #f1f5f9;
+            padding: 5px 8px;
+            border-radius: 8px;
             font-size: 11px;
-            line-height: 1.4;
+            white-space: nowrap
         }
 
-        @media (max-width: 1199px) {
-            .chat-app-shell {
-                grid-template-columns: 320px minmax(0, 1fr);
+        .file-chip {
+            position: relative;
+            padding-right: 28px;
+        }
+
+        .file-chip-remove {
+            position: absolute;
+            top: 50%;
+            right: 5px;
+            transform: translateY(-50%);
+            width: 18px;
+            height: 18px;
+            padding: 0;
+            border: 0;
+            border-radius: 50%;
+            background: #dc2626;
+            color: #fff;
+            font-size: 13px;
+            line-height: 18px;
+            cursor: pointer;
+        }
+
+        @media(max-width:1199px) {
+            .chat-shell {
+                grid-template-columns: 310px minmax(0, 1fr)
             }
 
-            .chat-info-panel {
-                display: none;
+            .chat-info {
+                display: none
             }
         }
 
-        @media (max-width: 767px) {
-            .chat-app-shell {
-                height: auto;
-                min-height: 0;
-                grid-template-columns: 1fr;
+        @media(max-width:767px) {
+            .chat-shell {
+                height: calc(100vh - 130px);
+                min-height: 560px;
+                grid-template-columns: 1fr
             }
 
-            .chat-sidebar {
-                min-height: 420px;
-                border-right: 0;
-                border-bottom: 1px solid var(--chat-border);
+            .chat-list {
+                min-height: 380px
             }
 
             .chat-main {
-                min-height: 560px;
-            }
-
-            .chat-message-wrap {
-                max-width: 88%;
-            }
-
-            .chat-page-head {
-                flex-direction: column;
+                min-height: 560px
             }
         }
     </style>
 
-    <div class="admin-wrapper chat-page">
+    <div id="adminChatRoot" class="admin-wrapper chat-page"
+        data-conversation-id="{{ $selectedConversation?->id ?? 0 }}"
+        data-read-url="{{ $selectedConversation ? route('admin.chats.read', $selectedConversation) : '' }}"
+        data-current-filter="{{ $currentFilter }}">
         <main class="admin-content">
-            <p class="admin-breadcrumb mb-3">
-                <a href="{{ route('admin.dashboard') }}">Admin</a> / Tư vấn trực tuyến
-            </p>
-
-            <div class="chat-page-head">
-                <div>
-                    <h2>Tư vấn trực tuyến</h2>
-                    <p>Danh sách khách cần trả lời nằm bên trái, nội dung chat nằm bên phải.</p>
-                </div>
-
-                <a href="{{ route('admin.chats.index', ['filter' => $currentFilter, 'conversation' => $selectedConversation?->id]) }}"
-                    class="btn btn-outline-primary chat-refresh-btn">
-                    <i class="bx bx-refresh"></i>
-                    Làm mới
-                </a>
+            <div class="mb-3">
+                <h2 class="mb-1">Tin nhắn khách hàng</h2>
+                <p class="text-muted mb-0">Tin cần phản hồi được đánh dấu vàng; hội thoại đã xử lý giữ trạng thái bình thường.</p>
             </div>
 
-            @if(session('success'))
-                <div class="alert alert-success">
-                    {{ session('success') }}
-                </div>
-            @endif
-
             @if(session('error'))
-                <div class="alert alert-danger">
-                    {{ session('error') }}
-                </div>
-            @endif
-
+            <div class="alert alert-danger">{{ session('error') }}</div> @endif
             @if($errors->any())
-                <div class="alert alert-danger">
-                    <strong>Không thể xử lý:</strong>
-                    <ul class="mb-0 mt-2">
-                        @foreach($errors->all() as $error)
-                            <li>{{ $error }}</li>
-                        @endforeach
-                    </ul>
-                </div>
+                <div class="alert alert-danger">{{ $errors->first() }}</div>
             @endif
 
-            <div class="chat-app-shell">
-                <aside class="chat-sidebar">
-                    <div class="chat-sidebar-head">
-                        <h3 class="chat-sidebar-title">Danh sách hội thoại</h3>
-                        <div class="chat-sidebar-sub">
-                            Hội thoại có chấm đỏ là khách đang chờ phản hồi.
-                        </div>
+            <div class="chat-shell">
+                <aside class="chat-list">
+                    <div class="chat-list-head">
+                        <strong>Hội thoại</strong>
+                        <div class="small text-muted">Bố cục tương tự Messenger</div>
                     </div>
 
-                    <div class="chat-filter-tabs">
-                        <a href="{{ route('admin.chats.index', ['filter' => 'mine']) }}"
-                            class="chat-filter-tab {{ $activeFilterClass('mine') }}">
-                            Của tôi
-                            <span class="chat-filter-count">{{ $totalMine }}</span>
+                    <nav class="chat-tabs">
+                        <a class="chat-tab {{ $currentFilter === 'messages' ? 'active' : '' }}"
+                            href="{{ route('admin.chats.index', ['filter' => 'messages']) }}">
+                            Tin nhắn
+                            <span id="messagesUnreadBadge"
+                                class="chat-tab-count {{ $counts['messages_unread'] > 0 ? '' : 'is-empty' }}">
+                                {{ $counts['messages_unread'] }}
+                            </span>
                         </a>
-
-                        <a href="{{ route('admin.chats.index', ['filter' => 'waiting']) }}"
-                            class="chat-filter-tab {{ $activeFilterClass('waiting') }}">
-                            Chờ
-                            <span class="chat-filter-count">{{ $totalWaiting }}</span>
+                        <a class="chat-tab {{ $currentFilter === 'archived' ? 'active' : '' }}"
+                            href="{{ route('admin.chats.index', ['filter' => 'archived']) }}">
+                            Lưu trữ
+                            <span id="archivedUnreadBadge"
+                                class="chat-tab-count {{ $counts['archived_unread'] > 0 ? '' : 'is-empty' }}">
+                                {{ $counts['archived_unread'] }}
+                            </span>
                         </a>
+                    </nav>
 
-                        <a href="{{ route('admin.chats.index', ['filter' => 'other']) }}"
-                            class="chat-filter-tab {{ $activeFilterClass('other') }}">
-                            Khác
-                            <span class="chat-filter-count">{{ $totalOther }}</span>
-                        </a>
-
-                        <a href="{{ route('admin.chats.index', ['filter' => 'closed']) }}"
-                            class="chat-filter-tab {{ $activeFilterClass('closed') }}">
-                            Đóng
-                            <span class="chat-filter-count">{{ $totalClosed }}</span>
-                        </a>
-                    </div>
-
-                    <div class="chat-conversation-list">
+                    <div class="chat-scroll">
                         @forelse($conversationList as $conversation)
-                            @php
-                                $lastMessage = $getLastMessage($conversation);
-                                $itemNeedsReply = $needsReply($conversation);
-                                $isActiveConversation = $selectedConversation && $selectedConversation->id === $conversation->id;
-                                $status = $conversation->status ?? 'waiting';
-                                $statusLabel = $statusLabels[$status] ?? $status;
-                                $statusClass = $statusClasses[$status] ?? 'chat-status-assigned';
-                            @endphp
-
-                            <a href="{{ route('admin.chats.index', ['filter' => $currentFilter, 'conversation' => $conversation->id]) }}"
-                                class="chat-list-item {{ $isActiveConversation ? 'active' : '' }} {{ $itemNeedsReply ? 'need-reply' : '' }}">
-                                <div class="chat-list-top">
-                                    <div>
-                                        <div class="chat-customer-name">
-                                            {{ $conversation->customer_display_name }}
-                                        </div>
-                                        <div class="chat-customer-contact">
-                                            {{ $formatContact($conversation) }}
-                                        </div>
-                                    </div>
-
-                                    <div class="chat-list-time">
-                                        {{ $formatTime($conversation->last_message_at ?? $conversation->created_at) }}
-                                    </div>
+                            @php $preview = $lastMessage($conversation); @endphp
+                            <a class="chat-item {{ $selectedConversation?->id === $conversation->id ? 'active' : '' }} {{ $conversation->has_unread_customer ? 'pending' : '' }}"
+                                data-conversation-id="{{ $conversation->id }}"
+                                href="{{ route('admin.chats.index', ['filter' => $currentFilter, 'conversation' => $conversation->id]) }}">
+                                @if($conversation->has_unread_customer)
+                                    <span class="chat-item-pending-dot" aria-hidden="true"></span>
+                                @endif
+                                <div class="d-flex justify-content-between gap-2">
+                                    <div class="chat-name">{{ $conversation->customer_display_name }}</div>
+                                    <small
+                                        class="text-muted">{{ optional($conversation->last_message_at)->format('H:i') }}</small>
                                 </div>
-
-                                <div class="chat-last-message">
-                                    {{ $lastMessage?->message ?? 'Chưa có tin nhắn.' }}
-                                </div>
-
-                                <div class="chat-list-bottom">
-                                    <span class="chat-badge {{ $statusClass }}">
-                                        {{ $statusLabel }}
-                                    </span>
-
-                                    @if($itemNeedsReply)
-                                        <span class="chat-reply-dot" title="Khách đang chờ phản hồi"></span>
-                                    @endif
+                                <div class="chat-preview">
+                                    {{ $preview?->message ?: ($preview?->attachments?->count() ? 'Đã gửi tệp đính kèm' : 'Chưa có tin nhắn') }}
                                 </div>
                             </a>
                         @empty
-                            <div class="chat-empty-state">
-                                <div>
-                                    <div class="chat-empty-icon">
-                                        <i class="bx bx-message-square-x"></i>
-                                    </div>
-                                    <div>Không có hội thoại phù hợp.</div>
-                                </div>
-                            </div>
+                            <div class="text-center text-muted small py-5">Không có hội thoại.</div>
                         @endforelse
                     </div>
                 </aside>
 
                 <section class="chat-main">
                     @if($selectedConversation)
-                        @php
-                            $selectedContact = $formatContact($selectedConversation);
-                        @endphp
-
-                        <div class="chat-main-head">
-                            <div class="chat-main-user">
-                                <div class="chat-avatar">
-                                    <i class="bx bx-user"></i>
-                                </div>
-
-                                <div>
-                                    <h3 class="chat-main-name">
-                                        {{ $selectedConversation->customer_display_name }}
-                                    </h3>
-                                    <div class="chat-main-contact">
-                                        {{ $selectedContact }}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="chat-main-actions">
-                                @if($selectedStatus)
-                                    <span class="chat-badge {{ $selectedStatusClass }}">
-                                        {{ $selectedStatusLabel }}
-                                    </span>
-                                @endif
-
-                                @if($selectedConversation->assignedStaff)
-                                    <span class="chat-badge chat-status-assigned">
-                                        CSKH: {{ $selectedConversation->assignedStaff->name }}
-                                    </span>
-                                @endif
-
-                                @if($selectedConversation->status !== 'closed')
-                                    <form method="POST" action="{{ route('admin.chats.close', $selectedConversation) }}">
-                                        @csrf
-                                        <button class="btn btn-outline-danger"
-    onclick="return confirm('Đóng hội thoại này? Hội thoại vẫn có thể mở lại nếu khách hoặc nhân viên nhắn tiếp.')">
-    <i class="bx bx-check-circle"></i>
-    Kết thúc
-</button>
-                                    </form>
-                                @endif
-                            </div>
-                        </div>
-
-                        <div class="chat-body" id="adminChatRoomBody">
-                            @forelse($selectedConversation->messages as $chatMessage)
-                                @php
-                                    $isStaff = $chatMessage->sender_type === 'staff';
-                                    $isSystem = $chatMessage->sender_type === 'system';
-                                    $rowClass = $isSystem ? 'is-system' : ($isStaff ? 'is-staff' : 'is-customer');
-                                    $senderName = $isSystem
-                                        ? 'Hệ thống'
-                                        : ($isStaff ? ($chatMessage->sender?->name ?? 'Nhân viên') : $selectedConversation->customer_display_name);
-                                @endphp
-
-                                <div class="chat-message-row {{ $rowClass }}">
-                                    <div class="chat-message-wrap">
-                                        <div class="chat-message-meta">
-                                            <span>{{ $senderName }}</span>
-                                            <span>·</span>
-                                            <span>{{ $chatMessage->created_at->format('H:i d/m/Y') }}</span>
-                                        </div>
-
-                                        <div class="chat-message-bubble">
-                                            {{ $chatMessage->message }}
-                                        </div>
-                                    </div>
-                                </div>
-                            @empty
-                                <div class="chat-empty-state">
+                                <header class="chat-main-head">
                                     <div>
-                                        <div class="chat-empty-icon">
-                                            <i class="bx bx-message-rounded-dots"></i>
+                                        <strong>{{ $selectedConversation->customer_display_name }}</strong>
+                                        <div class="small text-muted">
+                                            {{ $selectedConversation->guest_phone
+                        ?? $selectedConversation->guest_email
+                        ?? $selectedConversation->customer?->email
+                        ?? 'Chưa có thông tin liên hệ' }}
                                         </div>
-                                        <div>Chưa có tin nhắn nào trong hội thoại này.</div>
                                     </div>
+
+                                    <div class="d-flex gap-2">
+                                        @if($selectedConversation->status === 'waiting' && !$selectedConversation->assigned_staff_id)
+                                            <form method="POST" action="{{ route('admin.chats.take', $selectedConversation) }}">
+                                                @csrf
+                                                <button class="btn btn-sm btn-success">Tiếp nhận</button>
+                                            </form>
+                                        @endif
+
+                                        @if($selectedConversation->status === 'closed')
+                                            <form method="POST" action="{{ route('admin.chats.reopen', $selectedConversation) }}">
+                                                @csrf
+                                                <button class="btn btn-sm btn-outline-primary">Khôi phục</button>
+                                            </form>
+                                        @else
+                                            <form method="POST" action="{{ route('admin.chats.close', $selectedConversation) }}">
+                                                @csrf
+                                                <button class="btn btn-sm btn-outline-secondary"
+                                                    onclick="return confirm('Chuyển cuộc trò chuyện vào lưu trữ?')">
+                                                    Lưu trữ
+                                                </button>
+                                            </form>
+                                        @endif
+                                    </div>
+                                </header>
+
+                                <div class="chat-body" id="adminChatBody">
+                                    @foreach($selectedConversation->messages as $message)
+                                        <div class="chat-row {{ $message->sender_type === 'staff' ? 'staff' : '' }}"
+                                            data-message-id="{{ $message->id }}">
+                                            <div class="chat-bubble">
+                                                @if($message->message)
+                                                    <div>{{ $message->message }}</div>
+                                                @endif
+
+                                                @foreach($message->attachments as $file)
+                                                    <a class="chat-attachment" href="{{ route('chat.attachments.download', $file) }}"
+                                                        target="{{ $file->type === 'image' ? '_blank' : '_self' }}">
+                                                        @if($file->type === 'image')
+                                                            <img src="{{ route('chat.attachments.download', $file) }}"
+                                                                alt="{{ $file->original_name }}">
+                                                        @else
+                                                            <i class="bx bx-file fs-4"></i>
+                                                        @endif
+                                                        <span>{{ $file->original_name }}<br>
+                                                            <small>{{ number_format($file->size / 1024, 1) }} KB</small>
+                                                        </span>
+                                                    </a>
+                                                @endforeach
+
+                                                <div class="chat-meta">
+                                                    {{ $message->sender?->name ?? ($message->sender_type === 'staff' ? 'Nhân viên' : 'Khách hàng') }}
+                                                    · {{ $message->created_at->format('H:i d/m/Y') }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    @endforeach
                                 </div>
-                            @endforelse
-                        </div>
-<div class="chat-footer">
-    @if($selectedConversation->status === 'closed')
-        <div class="alert alert-warning py-2 px-3 mb-2 small">
-            Hội thoại này đang được đánh dấu đã đóng. Nếu gửi tin nhắn mới, hệ thống sẽ tự mở lại hội thoại.
-        </div>
-    @endif
 
-    <form method="POST" action="{{ route('admin.chats.send', $selectedConversation) }}" class="chat-reply-form">
-        @csrf
-
-        <textarea name="message"
-            class="form-control"
-            rows="1"
-            placeholder="{{ $selectedConversation->status === 'closed' ? 'Nhập tin nhắn để mở lại hội thoại...' : 'Nhập câu trả lời tư vấn cho khách...' }}"></textarea>
-
-        <button class="btn btn-primary chat-send-btn" title="Gửi">
-            <i class="bx bx-send"></i>
-        </button>
-    </form>
-</div>
+                                <footer class="chat-footer">
+                                    <div id="adminChatFilePreview" class="file-preview"></div>
+                                    <form id="adminChatForm" method="POST"
+                                        action="{{ route('admin.chats.send', $selectedConversation) }}" class="chat-form"
+                                        enctype="multipart/form-data">
+                                        @csrf
+                                        <label for="adminChatFiles" class="btn btn-light chat-icon-btn" title="Gửi ảnh hoặc file">
+                                            <i class="bx bx-paperclip"></i>
+                                        </label>
+                                        <input id="adminChatFiles" name="files[]" type="file" class="d-none" multiple
+                                            accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip">
+                                        <textarea name="message" class="form-control" rows="1"
+                                            placeholder="Nhập tin nhắn..."></textarea>
+                                        <button type="submit" class="btn btn-primary chat-icon-btn" aria-label="Gửi tin nhắn"><i class="bx bx-send"></i></button>
+                                    </form>
+                                </footer>
                     @else
-                        <div class="chat-empty-state">
-                            <div>
-                                <div class="chat-empty-icon">
-                                    <i class="bx bx-conversation"></i>
-                                </div>
-                                <div>Chọn một hội thoại bên trái để bắt đầu phản hồi.</div>
-                            </div>
-                        </div>
+                        <div class="m-auto text-center text-muted">Chọn một hội thoại để xem nội dung.</div>
                     @endif
                 </section>
 
-                <aside class="chat-info-panel">
+                <aside class="chat-info">
                     @if($selectedConversation)
-                        <div class="chat-info-head">
-                            <div class="chat-info-avatar">
-                                <i class="bx bx-user"></i>
+                        <div class="text-center">
+                            <div
+                                class="rounded-circle bg-primary-subtle text-primary d-inline-grid place-items-center p-3 mb-2">
+                                <i class="bx bx-user fs-2"></i>
                             </div>
-                            <div class="chat-info-name">
-                                {{ $selectedConversation->customer_display_name }}
-                            </div>
-                            <div class="chat-info-contact">
-                                {{ $formatContact($selectedConversation) }}
-                            </div>
+                            <strong class="d-block">{{ $selectedConversation->customer_display_name }}</strong>
                         </div>
 
-                        <div class="chat-info-body">
-                            <div class="chat-info-section">
-                                <div class="chat-info-title">Thông tin</div>
+                        <div class="chat-info-title">Phụ trách</div>
+                        <div class="small mb-2">{{ $selectedConversation->assignedStaff?->name ?? 'Chưa phân công' }}</div>
 
-                                <div class="chat-info-line">
-                                    <span class="chat-info-label">Trạng thái</span>
-                                    <span class="chat-info-value">{{ $selectedStatusLabel }}</span>
-                                </div>
-
-                                <div class="chat-info-line">
-                                    <span class="chat-info-label">Nhân viên</span>
-                                    <span class="chat-info-value">
-                                        {{ $selectedConversation->assignedStaff?->name ?? 'Chưa có' }}
-                                    </span>
-                                </div>
-
-                                <div class="chat-info-line">
-                                    <span class="chat-info-label">Booking</span>
-                                    <span class="chat-info-value">
-                                        {{ $selectedConversation->booking_id ? '#' . $selectedConversation->booking_id : 'Không gắn' }}
-                                    </span>
-                                </div>
-
-                                <div class="chat-info-line">
-                                    <span class="chat-info-label">Ưu tiên</span>
-                                    <span class="chat-info-value">
-                                        {{ $selectedConversation->priority_score }}
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div class="chat-info-section">
-                                <div class="chat-info-title">Thao tác</div>
-
-                                <div class="chat-action-stack">
-                                    @if($selectedConversation->status === 'waiting')
-                                        <form method="POST" action="{{ route('admin.chats.take', $selectedConversation) }}">
-                                            @csrf
-                                            <button class="btn btn-success w-100">
-                                                <i class="bx bx-user-check"></i>
-                                                Tiếp nhận
-                                            </button>
-                                        </form>
-                                    @endif
-
-                                    @if($selectedConversation->status !== 'closed')
-                                        <form method="POST" action="{{ route('admin.chats.transfer', $selectedConversation) }}">
-                                            @csrf
-
-                                            <select name="staff_id" class="form-select mb-2">
-                                                @foreach($staffs as $staff)
-                                                    <option value="{{ $staff->id }}"
-                                                        {{ $selectedConversation->assigned_staff_id == $staff->id ? 'selected' : '' }}>
-                                                        {{ $staff->name }} - {{ $staff->role }}
-                                                    </option>
-                                                @endforeach
-                                            </select>
-
-                                            <button class="btn btn-outline-primary w-100">
-                                                <i class="bx bx-transfer"></i>
-                                                Chuyển nhân viên
-                                            </button>
-                                        </form>
-                                    @endif
-                                </div>
-                            </div>
-
-                            <div class="chat-info-section">
-                                <div class="chat-info-title">Lịch sử phân công</div>
-
-                                @forelse($selectedConversation->assignmentLogs as $log)
-                                    <div class="chat-log-item">
-                                        <div class="chat-log-reason">
-                                            {{ $log->reason }}
-                                        </div>
-                                        <div class="chat-log-meta">
-                                            {{ $log->fromStaff?->name ?? 'Hệ thống' }}
-                                            →
-                                            {{ $log->toStaff?->name ?? 'Không rõ' }}
-                                            · {{ $log->created_at->format('H:i d/m/Y') }}
-                                        </div>
-                                    </div>
-                                @empty
-                                    <div class="text-muted small">
-                                        Chưa có lịch sử phân công.
-                                    </div>
-                                @endforelse
-                            </div>
-                        </div>
+                        @if($selectedConversation->status !== 'closed')
+                            <form method="POST" action="{{ route('admin.chats.transfer', $selectedConversation) }}">
+                                @csrf
+                                <select name="staff_id" class="form-select form-select-sm mb-2">
+                                    @foreach($staffs as $staff)
+                                        <option value="{{ $staff->id }}"
+                                            @selected($selectedConversation->assigned_staff_id == $staff->id)>
+                                            {{ $staff->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <button class="btn btn-sm btn-outline-primary w-100">Chuyển nhân viên</button>
+                            </form>
+                        @endif
                     @endif
                 </aside>
             </div>
         </main>
-
-        <footer class="admin-footer">
-            <span>MCuong Hotel Admin</span>
-        </footer>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const chatBody = document.getElementById('adminChatRoomBody');
+        (function () {
+            const initAdminChat = function () {
+            const root = document.getElementById('adminChatRoot');
+            const body = document.getElementById('adminChatBody');
+            const form = document.getElementById('adminChatForm');
+            const filesInput = document.getElementById('adminChatFiles');
+            const filesPreview = document.getElementById('adminChatFilePreview');
+            const messageInput = form?.querySelector('textarea[name="message"]');
+            const messagesUnreadBadge = document.getElementById('messagesUnreadBadge');
+            const archivedUnreadBadge = document.getElementById('archivedUnreadBadge');
+            const currentFilter = root?.dataset.currentFilter || 'messages';
+            const readUrl = root?.dataset.readUrl || '';
+            let selectedFiles = [];
 
-            if (chatBody) {
-                chatBody.scrollTop = chatBody.scrollHeight;
-            }
+            const conversationId = Number(
+                root?.dataset.conversationId || 0
+            );
 
-            document.querySelectorAll('.chat-reply-form textarea').forEach(function (textarea) {
-                textarea.addEventListener('keydown', function (event) {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                        event.preventDefault();
+            const scrollToLatestMessage = function () {
+                if (!body) {
+                    return;
+                }
 
-                        if (textarea.value.trim()) {
-                            textarea.closest('form').submit();
-                        }
+                const applyScroll = function () {
+                    body.scrollTop = body.scrollHeight;
+                };
+
+                requestAnimationFrame(function () {
+                    applyScroll();
+
+                    requestAnimationFrame(applyScroll);
+                });
+
+                setTimeout(applyScroll, 80);
+                setTimeout(applyScroll, 250);
+
+                body.querySelectorAll('img').forEach(function (image) {
+                    if (!image.complete) {
+                        image.addEventListener('load', applyScroll, { once: true });
+                        image.addEventListener('error', applyScroll, { once: true });
                     }
                 });
+            };
+
+            scrollToLatestMessage();
+
+            const getUnreadBadge = function (filterName) {
+                return filterName === 'archived'
+                    ? archivedUnreadBadge
+                    : messagesUnreadBadge;
+            };
+
+            const getUnreadCount = function (filterName) {
+                return Number(getUnreadBadge(filterName)?.textContent || 0);
+            };
+
+            const setUnreadCount = function (filterName, count) {
+                const badge = getUnreadBadge(filterName);
+
+                if (!badge) {
+                    return;
+                }
+
+                const safeCount = Math.max(0, Number(count) || 0);
+                badge.textContent = String(safeCount);
+                badge.classList.toggle('is-empty', safeCount === 0);
+            };
+
+            const setConversationUnread = function (targetConversationId, isUnread, filterName = currentFilter) {
+                const item = document.querySelector(
+                    `.chat-item[data-conversation-id="${targetConversationId}"]`
+                );
+
+                if (!item) {
+                    return false;
+                }
+
+                const wasUnread = item.classList.contains('pending');
+                item.classList.toggle('pending', isUnread);
+
+                let dot = item.querySelector('.chat-item-pending-dot');
+
+                if (isUnread && !dot) {
+                    dot = document.createElement('span');
+                    dot.className = 'chat-item-pending-dot';
+                    dot.setAttribute('aria-hidden', 'true');
+                    item.prepend(dot);
+                }
+
+                if (!isUnread && dot) {
+                    dot.remove();
+                }
+
+                if (!wasUnread && isUnread) {
+                    setUnreadCount(filterName, getUnreadCount(filterName) + 1);
+                }
+
+                if (wasUnread && !isUnread) {
+                    setUnreadCount(filterName, getUnreadCount(filterName) - 1);
+                }
+
+                return true;
+            };
+
+            const markCurrentConversationRead = async function () {
+                if (!readUrl || !conversationId) {
+                    return;
+                }
+
+                setConversationUnread(conversationId, false, currentFilter);
+
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+                try {
+                    await fetch(readUrl, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-TOKEN': csrfToken,
+                        },
+                    });
+                } catch (error) {
+                    console.error('Không thể đánh dấu tin nhắn đã đọc.', error);
+                }
+            };
+
+            const escapeHtml = function (value = '') {
+                const element = document.createElement('div');
+                element.textContent = value;
+
+                return element.innerHTML;
+            };
+
+            const formatSize = function (bytes = 0) {
+                if (bytes < 1024) {
+                    return `${bytes} B`;
+                }
+
+                if (bytes < 1024 * 1024) {
+                    return `${(bytes / 1024).toFixed(1)} KB`;
+                }
+
+                return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+            };
+
+            const renderAttachment = function (file) {
+                if (file.type === 'image') {
+                    return `
+                    <a
+                        class="chat-attachment"
+                        href="${file.download_url}"
+                        target="_blank"
+                    >
+                        <img
+                            src="${file.download_url}"
+                            alt="${escapeHtml(file.name)}"
+                        >
+
+                        <span>
+                            ${escapeHtml(file.name)}
+                            <br>
+                            <small>${formatSize(file.size)}</small>
+                        </span>
+                    </a>
+                `;
+                }
+
+                return `
+                <a
+                    class="chat-attachment"
+                    href="${file.download_url}"
+                >
+                    <i class="bx bx-file fs-4"></i>
+
+                    <span>
+                        ${escapeHtml(file.name)}
+                        <br>
+                        <small>${formatSize(file.size)}</small>
+                    </span>
+                </a>
+            `;
+            };
+
+            const appendAdminMessage = function (message) {
+                if (!body || !message?.id) {
+                    return;
+                }
+
+                if (
+                    body.querySelector(
+                        `[data-message-id="${message.id}"]`
+                    )
+                ) {
+                    return;
+                }
+
+                const row = document.createElement('div');
+
+                row.className = `chat-row ${message.sender_type === 'staff'
+                        ? 'staff'
+                        : ''
+                    }`;
+
+                row.dataset.messageId = message.id;
+
+                const attachments = (
+                    message.attachments || []
+                )
+                    .map(renderAttachment)
+                    .join('');
+
+                row.innerHTML = `
+                <div class="chat-bubble">
+                    ${message.message
+                        ? `<div>${escapeHtml(message.message)}</div>`
+                        : ''
+                    }
+
+                    ${attachments}
+
+                    <div class="chat-meta">
+                        ${escapeHtml(
+                        message.sender_name || 'Người gửi'
+                    )}
+                        ·
+                        ${escapeHtml(message.created_at || '')}
+                    </div>
+                </div>
+            `;
+
+                body.appendChild(row);
+                scrollToLatestMessage();
+            };
+
+            const fileKey = function (file) {
+                return `${file.name}-${file.size}-${file.lastModified}`;
+            };
+
+            const renderSelectedFiles = function () {
+                if (!filesPreview) {
+                    return;
+                }
+
+                filesPreview.replaceChildren();
+
+                selectedFiles.forEach(function (file, index) {
+                    const chip = document.createElement('span');
+                    chip.className = 'file-chip';
+                    chip.textContent = file.name;
+
+                    const removeButton = document.createElement('button');
+                    removeButton.type = 'button';
+                    removeButton.className = 'file-chip-remove';
+                    removeButton.innerHTML = '&times;';
+                    removeButton.setAttribute('aria-label', `Bỏ ${file.name}`);
+                    removeButton.addEventListener('click', function () {
+                        selectedFiles.splice(index, 1);
+                        renderSelectedFiles();
+                    });
+
+                    chip.appendChild(removeButton);
+                    filesPreview.appendChild(chip);
+                });
+            };
+
+            filesInput?.addEventListener('change', function () {
+                const existing = new Set(selectedFiles.map(fileKey));
+
+                Array.from(filesInput.files || []).forEach(function (file) {
+                    if (selectedFiles.length >= 5) {
+                        return;
+                    }
+
+                    const key = fileKey(file);
+
+                    if (!existing.has(key)) {
+                        selectedFiles.push(file);
+                        existing.add(key);
+                    }
+                });
+
+                filesInput.value = '';
+                renderSelectedFiles();
             });
-        });
+
+            messageInput?.addEventListener(
+                'keydown',
+                function (event) {
+                    if (
+                        event.key === 'Enter'
+                        && !event.shiftKey
+                    ) {
+                        event.preventDefault();
+                        form?.requestSubmit();
+                    }
+                }
+            );
+
+            form?.addEventListener(
+                'submit',
+                async function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    if (form.dataset.submitting === '1') {
+                        return;
+                    }
+
+                    const hasMessage =
+                        messageInput?.value.trim().length > 0;
+
+                    const hasFiles = selectedFiles.length > 0;
+
+                    if (!hasMessage && !hasFiles) {
+                        return;
+                    }
+
+                    const submitButton = form.querySelector(
+                        'button[type="submit"], button:not([type])'
+                    );
+
+                    const formData = new FormData(form);
+                    formData.delete('files[]');
+
+                    selectedFiles.forEach(function (file) {
+                        formData.append('files[]', file, file.name);
+                    });
+
+                    try {
+                        form.dataset.submitting = '1';
+
+                        if (submitButton) {
+                            submitButton.disabled = true;
+                        }
+
+                        const csrfToken = form.querySelector('input[name="_token"]')?.value
+                            || document.querySelector('meta[name="csrf-token"]')?.content
+                            || '';
+
+                        const response = await fetch(form.action, {
+                            method: 'POST',
+                            body: formData,
+                            credentials: 'same-origin',
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRF-TOKEN': csrfToken,
+                            },
+                        });
+
+                        const payload = await response.json().catch(function () {
+                            return {};
+                        });
+
+                        if (!response.ok) {
+                            const validationMessage = payload.errors
+                                ? Object.values(payload.errors).flat()[0]
+                                : null;
+
+                            throw new Error(
+                                validationMessage
+                                || payload.message
+                                || 'Không thể gửi tin nhắn.'
+                            );
+                        }
+
+                        appendAdminMessage(payload.message);
+                        setConversationUnread(conversationId, false, currentFilter);
+
+                        const activeItem = document.querySelector(
+                            `.chat-item[data-conversation-id="${conversationId}"]`
+                        );
+
+                        if (activeItem) {
+                            const preview = activeItem.querySelector('.chat-preview');
+                            const time = activeItem.querySelector('small.text-muted');
+
+                            if (preview) {
+                                preview.textContent = payload.message?.message
+                                    || ((payload.message?.attachments || []).length
+                                        ? 'Đã gửi tệp đính kèm'
+                                        : 'Tin nhắn mới');
+                            }
+
+                            if (time) {
+                                const createdAt = String(payload.message?.created_at || '');
+                                time.textContent = createdAt.slice(0, 5);
+                            }
+                        }
+
+                        messageInput.value = '';
+                        filesInput.value = '';
+                        selectedFiles = [];
+                        renderSelectedFiles();
+                    } catch (error) {
+                        alert(
+                            error.message
+                            || 'Không thể gửi tin nhắn.'
+                        );
+                    } finally {
+                        delete form.dataset.submitting;
+
+                        if (submitButton) {
+                            submitButton.disabled = false;
+                        }
+
+                        messageInput?.focus();
+                    }
+                }
+            );
+
+            if (window.Echo) {
+                if (conversationId > 0) {
+                    window.Echo
+                        .private(`chat.conversation.${conversationId}`)
+                        .listen('.chat.message.sent', function (message) {
+                            appendAdminMessage(message);
+
+                            if (message?.sender_type === 'customer') {
+                                markCurrentConversationRead();
+                            }
+                        });
+                }
+
+                window.Echo
+                    .private('admin.realtime')
+                    .listen('.chat.message.sent', function (message) {
+                        const incomingConversationId = Number(
+                            message?.conversation_id || 0
+                        );
+
+                        if (!incomingConversationId) {
+                            return;
+                        }
+
+                        if (incomingConversationId === conversationId) {
+                            appendAdminMessage(message);
+
+                            if (message?.sender_type === 'customer') {
+                                markCurrentConversationRead();
+                            }
+
+                            return;
+                        }
+
+                        const found = message?.sender_type === 'customer'
+                            ? setConversationUnread(incomingConversationId, true, currentFilter)
+                            : true;
+
+                        // Hội thoại mới chưa có trong DOM thì tải lại danh sách một lần.
+                        if (!found && message?.sender_type === 'customer') {
+                            window.location.reload();
+                        }
+                    });
+            }
+            };
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initAdminChat, { once: true });
+            } else {
+                initAdminChat();
+            }
+        })();
     </script>
 @endsection

@@ -3,110 +3,75 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules;
-use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
-use App\Models\Customer;
 
 class RegisteredUserController extends Controller
 {
-    /**
-     * Display the registration view.
-     */
     public function create(): View
     {
         return view('auth.register');
     }
 
-    /**
-     * Handle an incoming registration request.
-     *
-     * @throws ValidationException
-     */
-
     public function store(Request $request): RedirectResponse
     {
-        $request->validate([
-
-            'first_name' => ['required', 'string', 'max:255'],
-
-            'last_name' => ['required', 'string', 'max:255'],
-
-            'email' => [
-                'required',
-                'string',
-                'email',
-                'max:255',
-                'unique:users'
-            ],
-
-            'phone' => [
-                'required',
-                'unique:customers'
-            ],
-
-            'cccd' => [
-                'required',
-                'unique:customers'
-            ],
-
-            'password' => [
-                'required',
-                'confirmed',
-                Rules\Password::defaults(),
-            ],
-
+        $validated = $request->validate([
+            'first_name' => ['required', 'string', 'max:100'],
+            'last_name' => ['required', 'string', 'max:100'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email', 'unique:customers,email'],
+            'phone' => ['required', 'regex:/^0[0-9]{9}$/', 'unique:customers,phone'],
+            'cccd' => ['required', 'regex:/^[0-9]{12}$/', 'unique:customers,cccd'],
+            'birthday' => ['nullable', 'date', 'before_or_equal:today'],
+            'gender' => ['required', Rule::in(['male', 'female', 'other'])],
+            'address' => ['nullable', 'string', 'max:500'],
+            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+        ], [
+            'phone.regex' => 'Số điện thoại phải gồm 10 chữ số và bắt đầu bằng số 0.',
+            'cccd.regex' => 'Số CCCD phải gồm đúng 12 chữ số.',
         ]);
 
-        // TẠO USER
-        $user = User::create([
+        $user = DB::transaction(function () use ($validated): User {
+            $email = mb_strtolower(trim($validated['email']));
 
-            'name' =>
-                $request->first_name . ' ' .
-                $request->last_name,
+            $user = User::create([
+                'name' => trim($validated['first_name'].' '.$validated['last_name']),
+                'email' => $email,
+                'password' => Hash::make($validated['password']),
+                'role' => 'customer',
+                'status' => 'active',
+            ]);
 
-            'email' => $request->email,
+            Customer::create([
+                'user_id' => $user->id,
+                'first_name' => trim($validated['first_name']),
+                'last_name' => trim($validated['last_name']),
+                'phone' => $validated['phone'],
+                'cccd' => $validated['cccd'],
+                'email' => $email,
+                'birthday' => $validated['birthday'] ?? null,
+                'gender' => $validated['gender'],
+                'address' => $validated['address'] ?? null,
+                'status' => 'active',
+            ]);
 
-            'password' => Hash::make($request->password),
+            return $user;
+        });
 
-            'role' => 'customer',
+        event(new Registered($user));
 
-            'status' => 'active',
-        ]);
-
-        // TẠO CUSTOMER
-        Customer::create([
-
-            'user_id' => $user->id,
-
-            'first_name' => $request->first_name,
-
-            'last_name' => $request->last_name,
-
-            'phone' => $request->phone,
-
-            'cccd' => $request->cccd,
-
-            'email' => $request->email,
-
-            'birthday' => $request->birthday,
-
-            'gender' => $request->gender,
-
-            'address' => $request->address,
-        ]);
-
-        // LOGIN NGAY SAU REGISTER
         Auth::login($user);
+        $request->session()->regenerate();
 
-        // CHUYỂN TRANG
-        return redirect('/');
+        return redirect()->route('home')
+            ->with('success', 'Đăng ký tài khoản thành công.');
     }
-
 }

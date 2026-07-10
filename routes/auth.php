@@ -35,13 +35,14 @@ Route::middleware('guest')->group(function () {
     Route::post('reset-password', [NewPasswordController::class, 'store'])
         ->name('password.store');
 
-    // Google OAuth
     Route::get('auth/google', [GoogleAuthController::class, 'redirect'])
+        ->middleware('throttle:20,1')
         ->name('auth.google');
 
-    Route::get('auth/google/callback', [GoogleAuthController::class, 'callback']);
+    Route::get('auth/google/callback', [GoogleAuthController::class, 'callback'])
+        ->middleware('throttle:20,1')
+        ->name('auth.google.callback');
 });
-
 
 Route::middleware('auth')->group(function () {
     Route::get('verify-email', EmailVerificationPromptController::class)
@@ -60,7 +61,8 @@ Route::middleware('auth')->group(function () {
 
     Route::post('confirm-password', [ConfirmablePasswordController::class, 'store']);
 
-    Route::put('password', [PasswordController::class, 'update'])->name('password.update');
+    Route::put('password', [PasswordController::class, 'update'])
+        ->name('password.update');
 
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])
         ->name('logout');

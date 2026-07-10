@@ -18,14 +18,27 @@
                 <div class="col-lg-3">
                     <div class="settings-section text-center">
                         <!-- Avatar upload -->
-                        <div class="avatar-upload-wrap mb-3 mx-auto" style="width:fit-content">
-                            <img id="avatarPreview" src="{{ Auth::user()->avatar
-        ? asset('storage/' . Auth::user()->avatar)
-        : 'https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg'
-                                                                    }}" alt="avatar" class="avatar-lg" />
+                        @php
+                            $avatar = Auth::user()->avatar;
+
+                            if ($avatar) {
+                                $avatarUrl = \Illuminate\Support\Str::startsWith($avatar, ['http://', 'https://'])
+                                    ? $avatar
+                                    : asset('storage/' . $avatar);
+                            } else {
+                                $avatarUrl = 'https://ui-avatars.com/api/?name='
+                                    . urlencode(Auth::user()->name)
+                                    . '&size=200&background=e9ecef&color=495057';
+                            }
+                        @endphp
+
+                        <div class="avatar-upload-wrap mb-3 mx-auto" style="width: fit-content">
+                            <img id="avatarPreview" src="{{ $avatarUrl }}" alt="Ảnh đại diện" class="avatar-lg" />
+
                             <label for="avatarInput" class="avatar-upload-overlay" title="Đổi ảnh đại diện">
                                 <i class="bx bx-camera"></i>
                             </label>
+
                             <input type="file" id="avatarInput" form="userSettingsForm" name="avatar" accept="image/*"
                                 class="d-none" />
                         </div>

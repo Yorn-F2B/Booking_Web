@@ -18,13 +18,18 @@
     <main>
         @yield('content')
     </main>
-
+    
     {{-- Footer --}}
     @include('user.partials.footer')
 
-    @include('components.chat-box')
-
+    {{-- JS giao diện chung --}}
     @include('user.partials.scripts')
+
+    {{-- Giao diện chat --}}
+    @include('user.partials.chat-box')
+
+    {{-- Axios, Echo, Reverb và logic chat --}}
+    @vite('resources/js/app.js')
 
 </body>
 

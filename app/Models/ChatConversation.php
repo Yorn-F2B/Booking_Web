@@ -42,13 +42,13 @@ class ChatConversation extends Model
     public function messages()
     {
         return $this->hasMany(ChatMessage::class, 'conversation_id')
-            ->orderBy('created_at');
+            ->orderBy('id');
     }
 
     public function assignmentLogs()
     {
         return $this->hasMany(ChatAssignmentLog::class, 'conversation_id')
-            ->orderByDesc('created_at');
+            ->latest('id');
     }
 
     public function getCustomerDisplayNameAttribute(): string
