@@ -29,6 +29,7 @@ Route::middleware('role:super_admin,manager')->group(function () {
 
 Route::middleware('role:super_admin,manager,receptionist_lead,receptionist')->group(function () {
     require __DIR__ . '/admin/bookings.php';
+    require __DIR__ . '/admin/staying-guests.php';
     require __DIR__ . '/admin/chats.php';
 
     Route::get('bookings/{booking}/invoice', [\App\Http\Controllers\Admin\InvoiceController::class, 'generate'])

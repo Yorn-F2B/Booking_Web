@@ -66,17 +66,17 @@ class BookingController extends Controller
             // Support both old single-date filter and new date-range filter
             if ($request->filled('date_from')) {
                 $dateFrom = $request->date_from;
-                $dateTo   = $request->filled('date_to') ? $request->date_to : $dateFrom;
+                $dateTo = $request->filled('date_to') ? $request->date_to : $dateFrom;
             } else {
                 $dateFrom = $request->filter_date;
-                $dateTo   = $dateFrom;
+                $dateTo = $dateFrom;
             }
 
             $timeFrom = $request->input('time_from', $request->input('filter_time_from', '00:00')) ?: '00:00';
-            $timeTo   = $request->input('time_to',   $request->input('filter_time_to',   '23:59')) ?: '23:59';
+            $timeTo = $request->input('time_to', $request->input('filter_time_to', '23:59')) ?: '23:59';
 
             $filterStart = Carbon::parse($dateFrom . ' ' . $timeFrom . ':00', $tz);
-            $filterEnd   = Carbon::parse($dateTo   . ' ' . $timeTo   . ':59', $tz);
+            $filterEnd = Carbon::parse($dateTo . ' ' . $timeTo . ':59', $tz);
 
             // If same day and end <= start, treat as overnight wrap
             if ($filterEnd->lessThanOrEqualTo($filterStart)) {
@@ -224,13 +224,13 @@ class BookingController extends Controller
 
             $selectedCodes = collect($data['promotion_codes'])
                 ->filter()
-                ->map(fn ($code) => strtoupper(trim((string) $code)))
+                ->map(fn($code) => strtoupper(trim((string) $code)))
                 ->unique()
                 ->values();
 
             $existingCodes = $booking->bookingPromotions
                 ->pluck('code_snapshot')
-                ->map(fn ($code) => strtoupper(trim((string) $code)))
+                ->map(fn($code) => strtoupper(trim((string) $code)))
                 ->values();
 
             $duplicatedCodes = $selectedCodes->intersect($existingCodes);
@@ -955,6 +955,70 @@ class BookingController extends Controller
                 ->exists();
 
         abort_unless($canAccess, 403, 'Bạn không được phân công xử lý booking này.');
+    }
+
+    public function addGuest(Request $request, Booking $booking)
+    {
+        $data = $request->validate([
+            'full_name' => ['required', 'string', 'max:255'],
+            'cccd' => ['nullable', 'string', 'max:50'],
+            'birthday' => ['nullable', 'date'],
+            'gender' => ['nullable', 'in:male,female,other'],
+            'nationality' => ['nullable', 'string', 'max:100'],
+            'note' => ['nullable', 'string', 'max:500'],
+            'booking_room_id' => ['nullable', 'exists:booking_rooms,id'],
+        ], [
+            'full_name.required' => 'Vui lòng nhập họ và tên khách lưu trú.',
+            'birthday.date' => 'Ngày sinh không hợp lệ.',
+            'gender.in' => 'Giới tính không hợp lệ.',
+            'booking_room_id.exists' => 'Phòng được chọn không hợp lệ.',
+        ]);
+
+        if (!empty($data['booking_room_id'])) {
+            $belongsToBooking = $booking->bookingRooms()
+                ->whereKey($data['booking_room_id'])
+                ->exists();
+
+            if (!$belongsToBooking) {
+                return back()
+                    ->withInput()
+                    ->with('error', 'Phòng được chọn không thuộc booking này.');
+            }
+        }
+
+        $booking->guests()->create($data);
+
+        $message = 'Thêm khách lưu trú: ' . $data['full_name'];
+
+        if (!empty($data['cccd'])) {
+            $message .= ' (CCCD/Hộ chiếu: ' . $data['cccd'] . ')';
+        }
+
+        $this->addBookingLog(
+            $booking,
+            'guest_added',
+            $message
+        );
+
+        return back()->with('success', 'Đã thêm khách lưu trú.');
+    }
+
+    public function removeGuest(Booking $booking, \App\Models\BookingGuest $guest)
+    {
+        if ((int) $guest->booking_id !== (int) $booking->id) {
+            abort(404);
+        }
+
+        $guestName = $guest->full_name;
+        $guest->delete();
+
+        $this->addBookingLog(
+            $booking,
+            'guest_removed',
+            'Xóa khách lưu trú: ' . $guestName
+        );
+
+        return back()->with('success', 'Đã xóa khách lưu trú.');
     }
 
     private function addBookingLog(Booking $booking, string $action, string $description): void

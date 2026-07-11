@@ -75,6 +75,11 @@ class Booking extends Model
         return $this->hasMany(BookingRoom::class);
     }
 
+    public function guests()
+    {
+        return $this->hasMany(BookingGuest::class);
+    }
+
     public function roomInspections()
     {
         return $this->hasMany(RoomInspection::class);

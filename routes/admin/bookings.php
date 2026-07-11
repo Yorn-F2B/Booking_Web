@@ -119,6 +119,11 @@ Route::patch('bookings/{booking}/payment-status', [BookingController::class, 'up
 Route::patch('bookings/{booking}/note', [BookingController::class, 'updateNote'])
     ->name('admin.bookings.update-note');
 
+Route::post('bookings/{booking}/guests', [BookingController::class, 'addGuest'])
+    ->name('admin.bookings.guests.store');
+
+Route::delete('bookings/{booking}/guests/{guest}', [BookingController::class, 'removeGuest'])
+    ->name('admin.bookings.guests.destroy');
 
 Route::resource('bookings', BookingController::class)
     ->except(['create', 'store', 'destroy'])

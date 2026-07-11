@@ -2116,6 +2116,225 @@
                         </div>
                     </details>
 
+                    <details class="compact-panel mb-3">
+    <summary>
+        <span>Khai báo khách lưu trú</span>
+
+        <span class="badge-clean status-muted">
+            {{ $booking->guests->count() }} khách · mở để khai báo
+        </span>
+    </summary>
+
+    <div class="compact-panel-body">
+        <p class="text-muted small mb-3">
+            Khai báo những người thực tế đang lưu trú trong booking này.
+        </p>
+
+        @if ($booking->guests->isNotEmpty())
+            <div class="table-responsive mb-3">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Họ và tên</th>
+                            <th>CCCD/Hộ chiếu</th>
+                            <th>Ngày sinh</th>
+                            <th>Giới tính</th>
+                            <th>Quốc tịch</th>
+                            <th>Phòng</th>
+                            <th class="text-end">Thao tác</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        @foreach ($booking->guests as $guest)
+                            <tr>
+                                <td class="fw-semibold">
+                                    {{ $guest->full_name }}
+                                </td>
+
+                                <td>
+                                    {{ $guest->cccd ?: '---' }}
+                                </td>
+
+                                <td>
+                                    {{ $guest->birthday?->format('d/m/Y') ?? '---' }}
+                                </td>
+
+                                <td>
+                                    @switch($guest->gender)
+                                        @case('male')
+                                            Nam
+                                            @break
+
+                                        @case('female')
+                                            Nữ
+                                            @break
+
+                                        @case('other')
+                                            Khác
+                                            @break
+
+                                        @default
+                                            ---
+                                    @endswitch
+                                </td>
+
+                                <td>
+                                    {{ $guest->nationality ?: '---' }}
+                                </td>
+
+                                <td>
+                                    {{ $guest->bookingRoom?->room?->room_number ?? 'Chưa chọn' }}
+                                </td>
+
+                                <td class="text-end">
+                                    <form
+                                        action="{{ route('admin.bookings.guests.destroy', [$booking, $guest]) }}"
+                                        method="POST"
+                                        class="d-inline"
+                                        onsubmit="return confirm('Bạn có chắc muốn xóa khách này khỏi danh sách lưu trú?')"
+                                    >
+                                        @csrf
+                                        @method('DELETE')
+
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                                            Xóa
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @else
+            <div class="alert alert-light border small">
+                Chưa có khách lưu trú nào được khai báo.
+            </div>
+        @endif
+
+        <form
+            action="{{ route('admin.bookings.guests.store', $booking) }}"
+            method="POST"
+        >
+            @csrf
+
+            <div class="row g-2">
+                <div class="col-md-3">
+                    <label class="form-label small">
+                        Họ và tên <span class="text-danger">*</span>
+                    </label>
+
+                    <input
+                        type="text"
+                        name="full_name"
+                        class="form-control form-control-sm"
+                        value="{{ old('full_name') }}"
+                        required
+                    >
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label small">
+                        CCCD/Hộ chiếu
+                    </label>
+
+                    <input
+                        type="text"
+                        name="cccd"
+                        class="form-control form-control-sm"
+                        value="{{ old('cccd') }}"
+                    >
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label small">
+                        Ngày sinh
+                    </label>
+
+                    <input
+                        type="date"
+                        name="birthday"
+                        class="form-control form-control-sm"
+                        value="{{ old('birthday') }}"
+                    >
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label small">
+                        Giới tính
+                    </label>
+
+                    <select name="gender" class="form-select form-select-sm">
+                        <option value="">-- Chọn --</option>
+                        <option value="male" @selected(old('gender') === 'male')>
+                            Nam
+                        </option>
+                        <option value="female" @selected(old('gender') === 'female')>
+                            Nữ
+                        </option>
+                        <option value="other" @selected(old('gender') === 'other')>
+                            Khác
+                        </option>
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label small">
+                        Quốc tịch
+                    </label>
+
+                    <input
+                        type="text"
+                        name="nationality"
+                        class="form-control form-control-sm"
+                        value="{{ old('nationality', 'Việt Nam') }}"
+                    >
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label small">
+                        Phòng lưu trú
+                    </label>
+
+                    <select name="booking_room_id" class="form-select form-select-sm">
+                        <option value="">-- Chưa xác định --</option>
+
+                        @foreach ($booking->bookingRooms as $bookingRoom)
+                            <option
+                                value="{{ $bookingRoom->id }}"
+                                @selected((string) old('booking_room_id') === (string) $bookingRoom->id)
+                            >
+                                Phòng {{ $bookingRoom->room?->room_number ?? 'chưa xác định' }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="col-md-7">
+                    <label class="form-label small">
+                        Ghi chú
+                    </label>
+
+                    <input
+                        type="text"
+                        name="note"
+                        class="form-control form-control-sm"
+                        value="{{ old('note') }}"
+                        placeholder="Thông tin bổ sung nếu có"
+                    >
+                </div>
+
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        Thêm khách
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</details>
+
                     @if ($canManageBookingRooms)
                         <details class="compact-panel">
                             <summary>
