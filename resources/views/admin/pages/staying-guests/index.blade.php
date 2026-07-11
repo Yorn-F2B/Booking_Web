@@ -21,7 +21,7 @@
             <div class="settings-section mb-4">
                 <form action="{{ route('admin.staying-guests.index') }}" method="GET" class="row g-3 align-items-center">
                     <div class="col-md-6">
-                        <input type="text" name="search" class="form-control" placeholder="Tìm tên, SĐT khách, số phòng, mã booking..." value="{{ request('search') }}">
+                        <input type="text" name="search" class="form-control" placeholder="Tìm khách đại diện, khách lưu trú, CCCD, SĐT, phòng, mã booking..." value="{{ request('search') }}">
                     </div>
                     <div class="col-md-2">
                         <button type="submit" class="btn btn-primary w-100">Tìm kiếm</button>
@@ -64,9 +64,13 @@
                                     </td>
                                     <td>
                                         @if($booking->customer)
-                                            <a href="{{ route('admin.customers.show', $booking->customer->id) }}" class="fw-bold">
-                                                {{ $booking->customer->last_name }} {{ $booking->customer->first_name }}
-                                            </a>
+                                            @if(in_array(auth()->user()->role ?? null, ['super_admin', 'manager'], true))
+                                                <a href="{{ route('admin.customers.show', $booking->customer->id) }}" class="fw-bold">
+                                                    {{ $booking->customer->full_name }}
+                                                </a>
+                                            @else
+                                                <span class="fw-bold">{{ $booking->customer->full_name }}</span>
+                                            @endif
                                             @if($booking->guests && $booking->guests->count() > 0)
                                                 <div class="mt-2 small text-muted">
                                                     <div class="fw-bold mb-1">Khai báo lưu trú:</div>

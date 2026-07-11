@@ -959,6 +959,12 @@ class BookingController extends Controller
 
     public function addGuest(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
+        if ($booking->status !== 'checked_in') {
+            return back()->with('error', 'Chỉ có thể khai báo khách khi booking đang lưu trú.');
+        }
+
         $data = $request->validate([
             'full_name' => ['required', 'string', 'max:255'],
             'cccd' => ['nullable', 'string', 'max:50'],
@@ -1005,6 +1011,12 @@ class BookingController extends Controller
 
     public function removeGuest(Booking $booking, \App\Models\BookingGuest $guest)
     {
+        $this->guardCanAccessBooking($booking);
+
+        if ($booking->status !== 'checked_in') {
+            return back()->with('error', 'Không thể xóa khai báo khách sau khi booking đã kết thúc lưu trú.');
+        }
+
         if ((int) $guest->booking_id !== (int) $booking->id) {
             abort(404);
         }

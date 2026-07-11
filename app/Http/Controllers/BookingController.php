@@ -62,14 +62,15 @@ class BookingController extends Controller
             'check_out_date' => 'required|date|after:check_in_date',
             'adult_count' => 'required|integer|min:1',
             'child_count' => 'nullable|integer|min:0',
-            'room_quantity' => 'required|integer|min:1|max:10',
             'note' => 'nullable|string|max:1000',
         ], [
             'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . self::ONLINE_CHECK_IN_LABEL . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
             'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
-            'room_quantity.min' => 'Số phòng phải ít nhất là 1.',
-            'room_quantity.max' => 'Số phòng tối đa là 10.',
         ]);
+
+        // Khách đặt phòng online chỉ được đặt đúng 1 phòng.
+        // Không nhận room_quantity từ request để tránh can thiệp phía client.
+        $data['room_quantity'] = 1;
 
         $checkInAt = $data['check_in_date'] . ' ' . self::ONLINE_CHECK_IN_TIME;
         $checkOutAt = $data['check_out_date'] . ' ' . self::ONLINE_CHECK_OUT_TIME;
@@ -105,7 +106,7 @@ class BookingController extends Controller
             }
         }
 
-        $requestedRoomQuantity = (int) $data['room_quantity'];
+        $requestedRoomQuantity = 1;
 
         $availableRooms = $this->findAvailableRooms(
             $roomCategory->id,
@@ -183,8 +184,6 @@ class BookingController extends Controller
             'check_out_date' => ['required', 'date', 'after:check_in_date'],
             'adult_count' => ['required', 'integer', 'min:1'],
             'child_count' => ['nullable', 'integer', 'min:0'],
-            'room_quantity' => ['required', 'integer', 'min:1', 'max:10'],
-
             'last_name' => ['required', 'string', 'max:100'],
             'first_name' => ['required', 'string', 'max:100'],
             'phone' => [
@@ -233,9 +232,11 @@ class BookingController extends Controller
             'address.required' => 'Vui lòng nhập địa chỉ liên hệ.',
             'payment_type.required' => 'Vui lòng chọn hình thức thanh toán.',
             'payment_type.in' => 'Hình thức thanh toán không hợp lệ.',
-            'room_quantity.min' => 'Số phòng phải ít nhất là 1.',
-            'room_quantity.max' => 'Số phòng tối đa là 10.',
         ]);
+
+        // Khách đặt phòng online chỉ được đặt đúng 1 phòng.
+        // Giá trị này do backend quyết định, không phụ thuộc dữ liệu gửi từ form.
+        $data['room_quantity'] = 1;
 
         $checkInAt = $data['check_in_date'] . ' ' . self::ONLINE_CHECK_IN_TIME;
         $checkOutAt = $data['check_out_date'] . ' ' . self::ONLINE_CHECK_OUT_TIME;
@@ -255,7 +256,7 @@ class BookingController extends Controller
                 ->with('error', 'Số trẻ em vượt quá sức chứa của hạng phòng.');
         }
 
-        $requestedRoomQuantity = (int) $data['room_quantity'];
+        $requestedRoomQuantity = 1;
 
         $booking = DB::transaction(function () use ($data, $roomCategory, $checkInAt, $checkOutAt, $requestedRoomQuantity) {
             $customer = Customer::updateOrCreate(

@@ -2188,6 +2188,7 @@
                                 </td>
 
                                 <td class="text-end">
+                                    @if ($booking->status === 'checked_in')
                                     <form
                                         action="{{ route('admin.bookings.guests.destroy', [$booking, $guest]) }}"
                                         method="POST"
@@ -2201,6 +2202,9 @@
                                             Xóa
                                         </button>
                                     </form>
+                                    @else
+                                        <span class="text-muted small">Đã khóa</span>
+                                    @endif
                                 </td>
                             </tr>
                         @endforeach
@@ -2213,6 +2217,7 @@
             </div>
         @endif
 
+        @if ($booking->status === 'checked_in')
         <form
             action="{{ route('admin.bookings.guests.store', $booking) }}"
             method="POST"
@@ -2332,6 +2337,11 @@
                 </div>
             </div>
         </form>
+        @else
+            <div class="alert alert-secondary mb-0 small">
+                Booking không ở trạng thái đang lưu trú nên danh sách đã được khóa chỉnh sửa.
+            </div>
+        @endif
     </div>
 </details>
 

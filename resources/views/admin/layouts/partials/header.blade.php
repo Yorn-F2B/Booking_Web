@@ -21,6 +21,7 @@
         'admin.rooms.*',
         'admin.room-availability.*',
         'admin.bookings.*',
+        'admin.staying-guests.*',
         'admin.chats.*',
     ]);
 
@@ -135,6 +136,12 @@
                     class="admin-nav-link {{ request()->routeIs('admin.bookings.*') ? 'active' : '' }}">
                     <i class="bx bx-calendar-check"></i>
                     Đặt phòng
+                </a>
+
+                <a href="{{ route('admin.staying-guests.index') }}"
+                    class="admin-nav-link {{ request()->routeIs('admin.staying-guests.*') ? 'active' : '' }}">
+                    <i class="bx bx-id-card"></i>
+                    Khách đang lưu trú
                 </a>
 
                 <a href="{{ route('admin.chats.index') }}"
