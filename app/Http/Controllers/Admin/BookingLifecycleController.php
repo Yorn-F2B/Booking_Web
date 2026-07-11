@@ -36,6 +36,8 @@ class BookingLifecycleController extends Controller
         $data = $request->validate([
             'actual_adult_count' => 'required|integer|min:1',
             'actual_child_count' => 'nullable|integer|min:0',
+            'check_in_cccd' => ['required', 'regex:/^[0-9]{12}$/'],
+            'cccd_image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
 
             'over_capacity_action' => 'nullable|in:extra_fee',
             'actual_baby_count' => 'nullable|integer|min:0',
@@ -58,10 +60,22 @@ class BookingLifecycleController extends Controller
         $booking->load([
             'bookingRooms.room.category',
             'roomCategory',
+            'customer',
         ]);
 
         if ($booking->bookingRooms->count() == 0) {
             return back()->with('error', 'Booking này chưa được gán phòng nên không thể check-in.');
+        }
+
+        $storedCccd = preg_replace('/\D+/', '', (string) ($booking->customer->cccd ?? ''));
+        $scannedCccd = preg_replace('/\D+/', '', (string) $data['check_in_cccd']);
+
+        if ($storedCccd === '' || strlen($storedCccd) !== 12) {
+            return back()->withInput()->with('error', 'Booking chưa có CCCD hợp lệ của khách đứng tên. Vui lòng cập nhật thông tin khách trước khi check-in.');
+        }
+
+        if (!hash_equals($storedCccd, $scannedCccd)) {
+            return back()->withInput()->with('error', 'CCCD vừa quét không trùng với CCCD đã dùng để đặt phòng. Không thể check-in booking này.');
         }
 
         try {

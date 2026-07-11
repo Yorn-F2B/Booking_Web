@@ -1,281 +1,279 @@
 <?php
 
-namespace App\Http\Controllers\Admin;
+namespace App\Http\Controllers\User;
 
 use App\Http\Controllers\Controller;
-use App\Models\Booking;
-use App\Models\Room;
-use App\Models\RoomActionLog;
 use App\Models\RoomCategory;
-use Carbon\Carbon;
-use Carbon\CarbonPeriod;
+use App\Models\HotelReview;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class RoomController extends Controller
 {
-    private const TIMEZONE = 'Asia/Ho_Chi_Minh';
-    private const MAX_RANGE_DAYS = 31;
+    private const ONLINE_CHECK_IN_TIME = '14:00:00';
+    private const ONLINE_CHECK_OUT_TIME = '12:00:00';
+    private const ONLINE_CHECK_IN_LABEL = '14:00';
+    private const EARLY_CHECK_IN_LABEL = '13:00';
+    private const ONLINE_CHECK_OUT_LABEL = '12:00';
 
     public function index(Request $request)
     {
-        $today = now(self::TIMEZONE)->startOfDay();
-        $startDate = $this->safeDate($request->input('start_date'), $today);
-        $range = max(1, min((int) $request->input('range', 7), self::MAX_RANGE_DAYS));
-        $endDate = $request->filled('end_date')
-            ? $this->safeDate($request->input('end_date'), $startDate->copy()->addDays($range - 1))
-            : $startDate->copy()->addDays($range - 1);
+        $minOnlineCheckInDate = $this->getOnlineMinCheckInDate();
+        $minOnlineCheckOutDate = $this->getOnlineMinCheckOutDate($request->input('check_in_date'));
+        $onlineBookingClosedToday = $this->isOnlineBookingClosedToday();
 
-        if ($endDate->lt($startDate)) {
-            [$startDate, $endDate] = [$endDate, $startDate];
-        }
-        if ($startDate->diffInDays($endDate) + 1 > self::MAX_RANGE_DAYS) {
-            $endDate = $startDate->copy()->addDays(self::MAX_RANGE_DAYS - 1);
-        }
+        $maxAdultCapacity = max(
+            1,
+            (int) RoomCategory::where('status', 'active')->max('adult_capacity')
+        );
 
-        $roomQuery = Room::with('category');
-        if ($request->filled('room_number')) {
-            $roomQuery->where('room_number', 'like', '%' . trim($request->room_number) . '%');
-        }
-        if ($request->filled('floor_number')) {
-            $roomQuery->where('floor_number', $request->floor_number);
-        }
+        $maxChildCapacity = max(
+            0,
+            (int) RoomCategory::where('status', 'active')->max('child_capacity')
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Nếu user chọn hạng phòng cụ thể:
+        | - Tự lấy sức chứa hạng đó làm số người lớn/trẻ em để lọc
+        | - Không bắt khách tự chọn số lượng nữa
+        |--------------------------------------------------------------------------
+        */
         if ($request->filled('room_category_id')) {
-            $roomQuery->where('room_category_id', $request->room_category_id);
+            $selectedCategory = RoomCategory::where('status', 'active')
+                ->find($request->input('room_category_id'));
+
+            if ($selectedCategory) {
+                $request->merge([
+                    'adult_count' => (int) $selectedCategory->adult_capacity,
+                    'child_count' => (int) $selectedCategory->child_capacity,
+                ]);
+            }
         }
 
-        $rooms = $roomQuery
-            ->orderByDesc('floor_number')
-            ->orderByRaw('CAST(room_number AS UNSIGNED) ASC')
-            ->orderBy('room_number')
-            ->get();
+        $hasSearchAttempt = $request->filled('check_in_date')
+            || $request->filled('check_out_date')
+            || $request->filled('adult_count')
+            || $request->filled('child_count')
+            || $request->filled('room_category_id');
 
-        $dates = collect(CarbonPeriod::create($startDate, $endDate))
-            ->map(fn (Carbon $date) => $date->copy());
+        $guestCountRule = $hasSearchAttempt ? 'required' : 'nullable';
 
-        $bookings = Booking::with(['customer', 'bookingRooms'])
-            ->whereIn('status', [
-                'pending', 'confirmed', 'checked_in', 'inspection_requested',
-                'checked_out', 'completed',
+        $validator = Validator::make($request->all(), [
+            'check_in_date' => 'nullable|required_with:check_out_date|date|after_or_equal:' . $minOnlineCheckInDate,
+            'check_out_date' => 'nullable|required_with:check_in_date|date|after:check_in_date',
+            'adult_count' => $guestCountRule . '|integer|min:1|max:' . $maxAdultCapacity,
+            'child_count' => $guestCountRule . '|integer|min:0|max:' . $maxChildCapacity,
+            'room_category_id' => 'nullable|exists:room_categories,id',
+        ], [
+            'check_in_date.required_with' => 'Vui lòng chọn ngày nhận phòng.',
+            'check_in_date.date' => 'Ngày nhận phòng không hợp lệ.',
+            'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . self::ONLINE_CHECK_IN_LABEL . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
+            'check_out_date.required_with' => 'Vui lòng chọn ngày trả phòng.',
+            'check_out_date.date' => 'Ngày trả phòng không hợp lệ.',
+            'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
+            'adult_count.required' => 'Vui lòng chọn số người lớn để lọc phòng.',
+            'adult_count.integer' => 'Số người lớn không hợp lệ.',
+            'adult_count.min' => 'Phải có ít nhất 1 người lớn.',
+            'adult_count.max' => 'Số người lớn vượt quá sức chứa tối đa hiện có trong hệ thống là ' . $maxAdultCapacity . ' người.',
+
+            'child_count.required' => 'Vui lòng chọn số trẻ em để lọc phòng. Nếu không có trẻ em, hãy chọn 0.',
+            'child_count.integer' => 'Số trẻ em không hợp lệ.',
+            'child_count.min' => 'Số trẻ em không được âm.',
+            'child_count.max' => 'Số trẻ em vượt quá sức chứa tối đa hiện có trong hệ thống là ' . $maxChildCapacity . ' trẻ em.',
+            'room_category_id.exists' => 'Hạng phòng không tồn tại.',
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()
+                ->route('rooms')
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        $data = $validator->validated();
+
+        $checkInDate = $data['check_in_date'] ?? null;
+        $checkOutDate = $data['check_out_date'] ?? null;
+
+        $checkInAt = $checkInDate
+            ? $checkInDate . ' ' . self::ONLINE_CHECK_IN_TIME
+            : null;
+
+        $checkOutAt = $checkOutDate
+            ? $checkOutDate . ' ' . self::ONLINE_CHECK_OUT_TIME
+            : null;
+
+        $hasFilter = $request->filled('check_in_date')
+            || $request->filled('check_out_date')
+            || $request->filled('adult_count')
+            || $request->filled('child_count')
+            || $request->filled('room_category_id');
+
+        $hasDateFilter = $checkInDate && $checkOutDate;
+
+        $hasCompleteBookingSearch = $hasDateFilter
+            && !empty($data['adult_count'])
+            && array_key_exists('child_count', $data)
+            && $data['child_count'] !== null;
+
+        $availableRoomCondition = function ($query) use ($checkInAt, $checkOutAt) {
+            if ($checkInAt && $checkOutAt) {
+                $query->availableForPeriod($checkInAt, $checkOutAt);
+                return;
+            }
+
+            $query->whereNotIn('status', ['maintenance']);
+        };
+
+
+        $roomCategories = RoomCategory::with(['images', 'amenities'])
+            ->withCount([
+                'rooms as available_rooms_count' => $availableRoomCondition,
             ])
-            ->whereDate('check_in_date', '<=', $endDate->toDateString())
-            ->whereDate('check_out_date', '>=', $startDate->toDateString())
+            ->where('status', 'active');
+
+        if (!empty($data['room_category_id'])) {
+            $roomCategories->where('id', $data['room_category_id']);
+        }
+
+        if (!empty($data['adult_count'])) {
+            $roomCategories->where('adult_capacity', '>=', $data['adult_count']);
+        }
+
+        if (array_key_exists('child_count', $data) && $data['child_count'] !== null) {
+            $roomCategories->where('child_capacity', '>=', $data['child_count']);
+        }
+
+        if ($hasDateFilter) {
+            $roomCategories->whereHas('rooms', $availableRoomCondition);
+        }
+
+        $roomCategories = $roomCategories
+            ->get()
+            ->sortBy(function ($category) use ($data) {
+                $score = 0;
+
+                // Ưu tiên hạng phòng được chọn
+                if (!empty($data['room_category_id']) && $category->id == $data['room_category_id']) {
+                    $score += 1000;
+                }
+
+                // Ưu tiên phòng có sức chứa gần với số người được chọn
+                if (!empty($data['adult_count'])) {
+                    $adultDiff = abs($category->adult_capacity - $data['adult_count']);
+                    $score -= $adultDiff * 10;
+                }
+
+                if (array_key_exists('child_count', $data) && $data['child_count'] !== null) {
+                    $childDiff = abs($category->child_capacity - $data['child_count']);
+                    $score -= $childDiff * 5;
+                }
+
+                // Ưu tiên hạng còn nhiều phòng trống hơn.
+                $score += min((int) ($category->available_rooms_count ?? 0), 10) * 2;
+
+                return -$score;
+            })
+            ->values();
+
+        $filterRoomCategories = RoomCategory::where('status', 'active')
+            ->orderBy('name')
             ->get();
 
-        $bookingMap = [];
-        foreach ($bookings as $booking) {
-            foreach ($booking->bookingRooms as $bookingRoom) {
-                $bookingMap[$bookingRoom->room_id][] = $booking;
-            }
-        }
+        $roomCategoryReviewStats = HotelReview::approved()
+            ->select(
+                'room_category_id',
+                DB::raw('COUNT(*) as review_count'),
+                DB::raw('AVG(rating) as average_rating')
+            )
+            ->whereIn('room_category_id', $roomCategories->pluck('id'))
+            ->groupBy('room_category_id')
+            ->get()
+            ->keyBy('room_category_id');
 
-        $timeline = [];
-        foreach ($rooms as $room) {
-            foreach ($dates as $date) {
-                $timeline[$room->id][$date->toDateString()] = $this->buildCell(
-                    $room,
-                    $date,
-                    $bookingMap[$room->id] ?? [],
-                    $today
-                );
-            }
-        }
+        return view('user.pages.rooms', [
+            'roomCategories' => $roomCategories,
+            'filterRoomCategories' => $filterRoomCategories,
+            'searchData' => [
+                'check_in_date' => $checkInDate,
+                'check_out_date' => $checkOutDate,
+                'early_check_in_time' => self::EARLY_CHECK_IN_LABEL,
+                'check_in_time' => self::ONLINE_CHECK_IN_LABEL,
+                'check_out_time' => self::ONLINE_CHECK_OUT_LABEL,
+                'adult_count' => $data['adult_count'] ?? null,
+                'child_count' => $data['child_count'] ?? null,
+                'room_category_id' => $data['room_category_id'] ?? null,
+            ],
+            'hasFilter' => $hasFilter,
+            'hasCompleteBookingSearch' => $hasCompleteBookingSearch,
+            'maxAdultCapacity' => $maxAdultCapacity,
+            'maxChildCapacity' => $maxChildCapacity,
+            'minOnlineCheckInDate' => $minOnlineCheckInDate,
+            'minOnlineCheckOutDate' => $minOnlineCheckOutDate,
+            'onlineBookingClosedToday' => $onlineBookingClosedToday,
+            'roomCategoryReviewStats' => $roomCategoryReviewStats,
+        ]);
+    }
 
-        if ($request->filled('timeline_status')) {
-            $wantedStatus = $request->timeline_status;
-            $rooms = $rooms->filter(function (Room $room) use ($timeline, $wantedStatus) {
-                return collect($timeline[$room->id] ?? [])->contains(
-                    fn (array $cell) => $cell['status'] === $wantedStatus
-                );
-            })->values();
-        }
+    public function show(RoomCategory $roomCategory)
+    {
+        $roomCategory->load(['images', 'amenities', 'rooms']);
 
-        $roomCategories = RoomCategory::orderBy('name')->get();
-        $activeCategories = $roomCategories->where('status', 'active')->values();
-        $floors = Room::query()->whereNotNull('floor_number')->distinct()->orderByDesc('floor_number')->pluck('floor_number');
+        $minOnlineCheckInDate = $this->getOnlineMinCheckInDate();
+        $minOnlineCheckOutDate = $this->getOnlineMinCheckOutDate($minOnlineCheckInDate);
+        $onlineBookingClosedToday = $this->isOnlineBookingClosedToday();
 
-        $summary = [
-            'total' => $rooms->count(),
-            'available' => 0,
-            'reserved' => 0,
-            'occupied' => 0,
-            'inspection' => 0,
-            'cleaning' => 0,
-            'maintenance' => 0,
-        ];
-        $summaryDate = $today->betweenIncluded($startDate, $endDate)
-            ? $today->toDateString()
-            : $startDate->toDateString();
-        foreach ($rooms as $room) {
-            $status = $timeline[$room->id][$summaryDate]['status'] ?? 'available';
-            if (isset($summary[$status])) {
-                $summary[$status]++;
-            }
-        }
+        $approvedReviews = HotelReview::approved()
+            ->with(['customer', 'booking.roomCategory', 'replier'])
+            ->where('room_category_id', $roomCategory->id)
+            ->latest('approved_at')
+            ->paginate(6, ['*'], 'reviews_page');
 
-        return view('admin.pages.rooms.index', compact(
-            'rooms', 'dates', 'timeline', 'summary', 'summaryDate',
-            'startDate', 'endDate', 'today', 'roomCategories', 'activeCategories', 'floors'
+        $reviewStats = HotelReview::approved()
+            ->where('room_category_id', $roomCategory->id)
+            ->selectRaw('COUNT(*) as review_count, AVG(rating) as average_rating, AVG(cleanliness_rating) as cleanliness_average, AVG(service_rating) as service_average, AVG(location_rating) as location_average, AVG(value_rating) as value_average')
+            ->first();
+
+        return view('user.pages.room-detail', compact(
+            'roomCategory',
+            'minOnlineCheckInDate',
+            'minOnlineCheckOutDate',
+            'onlineBookingClosedToday',
+            'approvedReviews',
+            'reviewStats'
         ));
     }
 
-    public function store(Request $request)
+    private function getOnlineMinCheckInDate(): string
     {
-        $data = $request->validate([
-            'room_number' => 'required|max:20|unique:rooms,room_number',
-            'room_category_id' => 'required|exists:room_categories,id',
-            'floor_number' => 'nullable|integer|min:0',
-            'status' => 'required|in:available,cleaning,inspection,maintenance',
-            'note' => 'nullable|string|max:1000',
-        ]);
+        $now = Carbon::now('Asia/Ho_Chi_Minh');
+        $todayCheckInDeadline = $now->copy()->setTimeFromTimeString(self::ONLINE_CHECK_IN_TIME);
 
-        Room::create($data);
+        if ($now->greaterThanOrEqualTo($todayCheckInDeadline)) {
+            return $now->copy()->addDay()->toDateString();
+        }
 
-        return redirect()->route('admin.rooms.index', ['tab' => 'catalog'])
-            ->with('success', 'Thêm phòng thành công.');
+        return $now->toDateString();
     }
 
-    public function show(Room $room)
+    private function getOnlineMinCheckOutDate(?string $checkInDate = null): string
     {
-        $room->load(['category', 'bookingRooms.booking.customer']);
-        return view('admin.pages.rooms.show', compact('room'));
+        $baseCheckInDate = $checkInDate ?: $this->getOnlineMinCheckInDate();
+
+        return Carbon::parse($baseCheckInDate, 'Asia/Ho_Chi_Minh')
+            ->addDay()
+            ->toDateString();
     }
 
-    public function update(Request $request, Room $room)
+    private function isOnlineBookingClosedToday(): bool
     {
-        $data = $request->validate([
-            'room_number' => 'required|max:20|unique:rooms,room_number,' . $room->id,
-            'room_category_id' => 'required|exists:room_categories,id',
-            'floor_number' => 'nullable|integer|min:0',
-            'status' => 'required|in:available,cleaning,inspection,maintenance',
-            'note' => 'nullable|string|max:1000',
-        ]);
+        $now = Carbon::now('Asia/Ho_Chi_Minh');
 
-        $room->update($data);
-
-        return redirect()->route('admin.rooms.index', ['tab' => 'catalog'])
-            ->with('success', 'Cập nhật phòng thành công.');
-    }
-
-    public function updateStatus(Request $request, Room $room)
-    {
-        $data = $request->validate([
-            'status' => 'required|in:available,cleaning,inspection,maintenance',
-            'status_from' => 'nullable|string',
-            'status_until' => 'nullable|string',
-            'note' => 'nullable|string|max:500',
-        ]);
-
-        $statusFrom = $this->parseVietnameseDateTime($data['status_from'] ?? null);
-        $statusUntil = $this->parseVietnameseDateTime($data['status_until'] ?? null);
-        if ($data['status'] === 'available') {
-            $statusFrom = $statusUntil = null;
-        }
-
-        $oldStatus = $room->status;
-        $room->update([
-            'status' => $data['status'],
-            'status_from' => $statusFrom,
-            'status_until' => $statusUntil,
-            'note' => $data['note'] ?? $room->note,
-        ]);
-
-        if ($oldStatus !== $data['status']) {
-            RoomActionLog::create([
-                'room_id' => $room->id,
-                'user_id' => Auth::id(),
-                'action_type' => 'status_change',
-                'action_time' => now(),
-                'note' => "Chuyển trạng thái từ {$oldStatus} sang {$data['status']}" .
-                    (!empty($data['note']) ? '. Lý do: ' . $data['note'] : ''),
-            ]);
-        }
-
-        return back()->with('success', 'Cập nhật trạng thái phòng thành công.');
-    }
-
-    public function destroy(Room $room)
-    {
-        $hasActiveBooking = $room->bookingRooms()
-            ->whereHas('booking', fn ($query) => $query->whereIn('status', [
-                'pending', 'confirmed', 'checked_in', 'inspection_requested',
-            ]))
-            ->exists();
-
-        if ($hasActiveBooking) {
-            return back()->with('error', 'Không thể xóa phòng đang có booking hoạt động.');
-        }
-
-        $room->delete();
-        return redirect()->route('admin.rooms.index', ['tab' => 'catalog'])
-            ->with('success', 'Xóa phòng thành công.');
-    }
-
-    private function buildCell(Room $room, Carbon $date, array $bookings, Carbon $today): array
-    {
-        $dateStart = $date->copy()->startOfDay();
-        $dateEnd = $date->copy()->endOfDay();
-
-        $matched = collect($bookings)->filter(function (Booking $booking) use ($dateStart, $dateEnd) {
-            $checkIn = $booking->check_in_at
-                ? Carbon::parse($booking->check_in_at, self::TIMEZONE)
-                : Carbon::parse($booking->check_in_date . ' 14:00:00', self::TIMEZONE);
-            $checkOut = $booking->check_out_at
-                ? Carbon::parse($booking->check_out_at, self::TIMEZONE)
-                : Carbon::parse($booking->check_out_date . ' 12:00:00', self::TIMEZONE);
-
-            return $checkIn->lte($dateEnd) && $checkOut->gt($dateStart);
-        })->sortBy(fn (Booking $booking) => $booking->check_in_at ?? $booking->check_in_date);
-
-        $status = 'available';
-        $mainBooking = null;
-
-        foreach (['checked_in', 'inspection_requested', 'confirmed', 'pending', 'completed', 'checked_out'] as $priority) {
-            $candidate = $matched->firstWhere('status', $priority);
-            if ($candidate) {
-                $mainBooking = $candidate;
-                $status = match ($priority) {
-                    'checked_in' => 'occupied',
-                    'inspection_requested' => 'inspection',
-                    'confirmed', 'pending' => 'reserved',
-                    default => 'available',
-                };
-                break;
-            }
-        }
-
-        if ($date->isSameDay($today) && in_array($room->status, ['maintenance', 'cleaning', 'inspection'], true)) {
-            $status = $room->status;
-        }
-
-        return [
-            'status' => $status,
-            'booking' => $mainBooking,
-            'bookings' => $matched->values(),
-        ];
-    }
-
-    private function safeDate(?string $value, Carbon $fallback): Carbon
-    {
-        if (!$value) {
-            return $fallback->copy();
-        }
-        try {
-            return Carbon::createFromFormat('Y-m-d', $value, self::TIMEZONE)->startOfDay();
-        } catch (\Throwable) {
-            return $fallback->copy();
-        }
-    }
-
-    private function parseVietnameseDateTime(?string $value): ?string
-    {
-        if (!$value) {
-            return null;
-        }
-        try {
-            return Carbon::createFromFormat('d/m/Y H:i', $value, self::TIMEZONE)->toDateTimeString();
-        } catch (\Throwable) {
-            return null;
-        }
+        return $now->greaterThanOrEqualTo(
+            $now->copy()->setTimeFromTimeString(self::ONLINE_CHECK_IN_TIME)
+        );
     }
 }

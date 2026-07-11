@@ -24,15 +24,13 @@ class GoogleAuthController extends Controller
 
             $googleId = (string) $googleUser->getId();
             $email = mb_strtolower(trim((string) $googleUser->getEmail()));
-            $name = trim((string) $googleUser->getName());
-            $avatar = $googleUser->getAvatar();
 
             if ($googleId === '' || $email === '') {
                 return redirect()->route('login')
                     ->with('error', 'Google không cung cấp đủ thông tin tài khoản. Vui lòng dùng tài khoản Google có email.');
             }
 
-            $user = DB::transaction(function () use ($googleId, $email, $name, $avatar): User {
+            $user = DB::transaction(function () use ($googleId, $email): User {
                 $userByGoogleId = User::where('google_id', $googleId)->lockForUpdate()->first();
                 $userByEmail = User::where('email', $email)->lockForUpdate()->first();
 
@@ -51,15 +49,6 @@ class GoogleAuthController extends Controller
                         'google_id' => $googleId,
                     ];
 
-                    if (empty($user->name) && $name !== '') {
-                        $updates['name'] = $name;
-                    }
-
-                    // Không ghi đè ảnh người dùng tự tải lên.
-                    if (empty($user->avatar) && !empty($avatar)) {
-                        $updates['avatar'] = $avatar;
-                    }
-
                     if (empty($user->email_verified_at)) {
                         $updates['email_verified_at'] = now();
                     }
@@ -70,11 +59,12 @@ class GoogleAuthController extends Controller
                 }
 
                 return User::create([
-                    'name' => $name !== '' ? $name : $email,
+                    // Google chỉ cung cấp email để tạo tài khoản.
+                    // Họ tên/CCCD/ngày sinh/giới tính/địa chỉ phải được khách quét CCCD và lưu trong hồ sơ.
+                    'name' => $email,
                     'email' => $email,
                     'email_verified_at' => now(),
                     'google_id' => $googleId,
-                    'avatar' => $avatar,
                     'role' => 'customer',
                     'status' => 'active',
                     'password' => null,

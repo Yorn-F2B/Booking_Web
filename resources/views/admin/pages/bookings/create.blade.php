@@ -243,6 +243,19 @@
                                     @enderror
                                 </div>
 
+                                <div class="col-12">
+                                    <div class="border rounded p-3 bg-light">
+                                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                                            <button type="button" id="adminCreateCccdButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('adminCreateCccdImage').click()">Quét CCCD khách hàng</button>
+                                            <input type="file" id="adminCreateCccdImage" class="d-none js-cccd-image" accept="image/*" capture="environment"
+                                                data-button="#adminCreateCccdButton" data-status="#adminCreateCccdStatus"
+                                                data-target-cccd="input[name='customer_cccd']" data-target-full-name="input[name='customer_name']"
+                                                data-target-address="input[name='customer_address']">
+                                            <small id="adminCreateCccdStatus" class="text-muted">Quét mặt trước CCCD để điền nhanh thông tin khách.</small>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="col-md-6">
                                     <label class="form-label">CCCD</label>
                                     <input type="text" name="customer_cccd"
@@ -2112,4 +2125,5 @@
         });
     </script>
 
+@include('partials.cccd-scanner-script')
 @endsection

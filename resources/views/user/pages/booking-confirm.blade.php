@@ -160,6 +160,19 @@
                                         @enderror
                                     </div>
 
+                                    <div class="col-12">
+                                        <div class="border rounded p-3 bg-light">
+                                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                                <button type="button" id="bookingCccdButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('bookingCccdImage').click()">Quét CCCD và cập nhật hồ sơ</button>
+                                                <input type="file" id="bookingCccdImage" class="d-none js-cccd-image" accept="image/*" capture="environment"
+                                                    data-button="#bookingCccdButton" data-status="#bookingCccdStatus"
+                                                    data-target-cccd="input[name='cccd']" data-target-first-name="input[name='first_name']"
+                                                    data-target-last-name="input[name='last_name']" data-target-birthday="input[name='birthday']" data-target-gender="input[name='gender']" data-target-address="textarea[name='address']" data-confirm-apply="1">
+                                                <small id="bookingCccdStatus" class="text-muted">Quét và kiểm tra đúng CCCD của người đứng tên booking.</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div class="col-md-6">
                                         <label class="form-label">
                                             CCCD <span class="text-danger">*</span>
@@ -170,6 +183,9 @@
                                             <div class="text-danger small mt-1">{{ $message }}</div>
                                         @enderror
                                     </div>
+
+                                    <input type="hidden" name="birthday" value="{{ old('birthday', $customer->birthday ?? '') }}">
+                                    <input type="hidden" name="gender" value="{{ old('gender', $customer->gender ?? '') }}">
 
                                     <div class="col-md-12">
                                         <label class="form-label">
@@ -967,4 +983,5 @@
         });
     </script>
 
+@include('partials.cccd-scanner-script')
 @endsection

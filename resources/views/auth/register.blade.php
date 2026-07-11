@@ -70,6 +70,20 @@
 
                                     </div>
 
+                                    <div class="col-12">
+                                        <div class="border rounded p-3 bg-light">
+                                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                                <button type="button" id="registerCccdButton" class="btn btn-outline-primary" onclick="document.getElementById('registerCccdImage').click()">Quét ảnh CCCD</button>
+                                                <input type="file" id="registerCccdImage" class="d-none js-cccd-image" accept="image/*" capture="environment"
+                                                    data-button="#registerCccdButton" data-status="#registerCccdStatus"
+                                                    data-target-cccd="input[name='cccd']" data-target-first-name="input[name='first_name']"
+                                                    data-target-last-name="input[name='last_name']" data-target-birthday="#reg_birthday_hidden"
+                                                    data-target-gender="select[name='gender']" data-target-address="textarea[name='address']">
+                                                <small id="registerCccdStatus" class="text-muted">Chụp hoặc chọn ảnh mặt trước CCCD để tự động điền.</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     {{-- CCCD --}}
                                     <div class="col-md-6">
 
@@ -293,4 +307,5 @@
             syncBirthday('reg_bd_day','reg_bd_month','reg_bd_year','reg_birthday_hidden');
         });
     </script>
+@include('partials.cccd-scanner-script')
 @endsection

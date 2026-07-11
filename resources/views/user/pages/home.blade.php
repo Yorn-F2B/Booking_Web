@@ -101,7 +101,7 @@
 
                                 <div class="row g-2 mb-3">
 
-                                    <div class="col-4">
+                                    <div class="col-6">
                                         <label class="form-label">
                                             Người lớn
                                         </label>
@@ -119,7 +119,7 @@
                                         </select>
                                     </div>
 
-                                    <div class="col-4">
+                                    <div class="col-6">
                                         <label class="form-label">
                                             Trẻ em
                                         </label>
@@ -137,23 +137,6 @@
                                         </select>
                                     </div>
 
-                                    <div class="col-4">
-                                        <label class="form-label">
-                                            Số phòng
-                                        </label>
-
-                                        <select name="room_quantity" id="home_room_quantity" class="form-select" required>
-                                            <option value="" disabled>
-                                                Số phòng
-                                            </option>
-
-                                            @for ($i = 1; $i <= 10; $i++)
-                                                <option value="{{ $i }}" {{ (string) (request('room_quantity', 1)) === (string) $i ? 'selected' : '' }}>
-                                                    {{ $i }} phòng
-                                                </option>
-                                            @endfor
-                                        </select>
-                                    </div>
 
                                 </div>
 

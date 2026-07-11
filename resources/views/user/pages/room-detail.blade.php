@@ -427,20 +427,6 @@
                                             </select>
                                         </div>
 
-                                        <div class="col-4">
-                                            <label class="form-label small">
-                                                Số phòng
-                                            </label>
-
-                                            <select name="room_quantity" class="form-select" required>
-                                                @for ($i = 1; $i <= 10; $i++)
-                                                    <option value="{{ $i }}" {{ $i === 1 ? 'selected' : '' }}>
-                                                        {{ $i }} phòng
-                                                    </option>
-                                                @endfor
-                                            </select>
-                                        </div>
-
                                     </div>
 
                                     <div class="mb-3">

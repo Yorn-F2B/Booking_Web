@@ -1,4 +1,4 @@
-﻿@extends('layouts.user')
+@extends('layouts.user')
 
 @section('title', 'User Settings')
 
@@ -142,6 +142,20 @@
                                                 class="form-control @error('first_name') is-invalid @enderror"
                                                 value="{{ old('first_name', $customer->first_name ?? '') }}" required>
                                             @error('first_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                        </div>
+
+                                        <div class="col-12">
+                                            <div class="border rounded p-3 bg-light">
+                                                <div class="d-flex flex-wrap gap-2 align-items-center">
+                                                    <button type="button" id="settingsCccdButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('settingsCccdImage').click()">Quét lại ảnh CCCD</button>
+                                                    <input type="file" id="settingsCccdImage" class="d-none js-cccd-image" accept="image/*" capture="environment"
+                                                        data-button="#settingsCccdButton" data-status="#settingsCccdStatus"
+                                                        data-target-cccd="input[name='cccd']" data-target-first-name="input[name='first_name']"
+                                                        data-target-last-name="input[name='last_name']" data-target-birthday="#us_birthday_hidden"
+                                                        data-target-gender="select[name='gender']" data-target-address="textarea[name='address']">
+                                                    <small id="settingsCccdStatus" class="text-muted">Ảnh dùng để nhận diện; họ tên, CCCD, ngày sinh, giới tính và địa chỉ sẽ cập nhật vào DB khi bấm Lưu thay đổi.</small>
+                                                </div>
+                                            </div>
                                         </div>
 
                                         {{-- CCCD --}}
@@ -548,4 +562,5 @@
             syncBirthday('us_bd_day','us_bd_month','us_bd_year','us_birthday_hidden');
         });
     </script>
+@include('partials.cccd-scanner-script')
 @endsection

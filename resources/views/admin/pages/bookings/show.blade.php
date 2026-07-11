@@ -1222,7 +1222,7 @@
                                         </details>
                                     @endif
 
-                                    <form action="{{ route('admin.bookings.check-in', $booking->id) }}" method="POST"
+                                    <form action="{{ route('admin.bookings.check-in', $booking->id) }}" method="POST" enctype="multipart/form-data"
                                         id="checkInForm">
                                         @csrf
                                         @method('PATCH')
@@ -1242,6 +1242,25 @@
                                             value="{{ $standardCheckInAt?->format('d/m/Y H:i') }}">
                                         <input type="hidden" id="earlyCheckInDurationText" value="{{ $earlyCheckInDurationText }}">
                                         <input type="hidden" id="earlyCheckInFinalTotalPreview" value="{{ $earlyCheckInFinalTotalPreview }}">
+
+                                        <div class="border rounded p-3 mb-3 bg-light">
+                                            <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                                                <button type="button" id="checkInCccdButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('checkInCccdImage').click()">Quét CCCD để đối chiếu</button>
+                                                <input type="file" name="cccd_image" id="checkInCccdImage" class="d-none js-cccd-image" accept="image/jpeg,image/png,image/webp" capture="environment" required
+                                                    data-button="#checkInCccdButton" data-status="#checkInCccdStatus" data-target-cccd="#checkInCccd"
+                                                    data-expected-cccd="{{ preg_replace('/\D+/', '', (string) ($booking->customer?->cccd ?? '')) }}" data-submit-button="#checkInSubmitButton">
+                                                <span id="checkInCccdStatus" class="small text-muted">Bắt buộc quét CCCD của khách đứng tên booking trước khi nhận phòng.</span>
+                                            </div>
+                                            <div class="row g-2 align-items-end">
+                                                <div class="col-md-6">
+                                                    <label class="form-label small">CCCD đọc từ ảnh</label>
+                                                    <input type="text" name="check_in_cccd" id="checkInCccd" class="form-control" inputmode="numeric" maxlength="12" required>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <div class="small text-muted">CCCD booking: <strong>{{ $booking->customer?->cccd ? '••••••••' . substr($booking->customer->cccd, -4) : 'Chưa có CCCD' }}</strong></div>
+                                                </div>
+                                            </div>
+                                        </div>
 
                                         <div class="row g-2 mb-3">
                                             <div class="col-md-4">
@@ -1399,9 +1418,9 @@
                                             </div>
                                         @endif
 
-                                        <button type="submit" class="btn btn-success w-100" @disabled($disableCheckInSubmitNow)>
+                                        <button type="submit" id="checkInSubmitButton" class="btn btn-success w-100" disabled data-policy-disabled="{{ $disableCheckInSubmitNow ? 1 : 0 }}">
                                             <i class="bx bx-log-in-circle me-1"></i>
-                                            {{ $disableCheckInSubmitNow ? 'Không thể check-in trực tiếp' : 'Xác nhận check-in' }}
+                                            {{ $disableCheckInSubmitNow ? 'Không thể check-in trực tiếp' : 'Quét đúng CCCD để mở khóa check-in' }}
                                         </button>
                                     </form>
 
@@ -3864,4 +3883,5 @@
             }
         });
     </script>
+@include('partials.cccd-scanner-script')
 @endsection

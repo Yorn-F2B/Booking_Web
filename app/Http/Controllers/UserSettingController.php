@@ -226,8 +226,6 @@ class UserSettingController extends Controller
         $user->password = Hash::make($request->pass_new);
         $user->save();
 
-        return back()->with('success', $hasPassword
-            ? 'Đổi mật khẩu thành công.'
-            : 'Tạo mật khẩu cho tài khoản Google thành công.');
+        return back()->with('success', 'Đổi mật khẩu thành công.');
     }
 }

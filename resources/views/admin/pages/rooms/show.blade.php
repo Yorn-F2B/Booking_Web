@@ -23,7 +23,7 @@
                     <p>Thông tin chi tiết phòng khách sạn</p>
                 </div>
 
-                <a href="{{ route('admin.rooms.edit', $room->id) }}" class="btn btn-gold">
+                <a href="{{ route('admin.rooms.index', ['edit_room' => $room->id]) }}" class="btn btn-gold">
                     <i class="bx bx-edit me-1"></i>
                     Chỉnh sửa
                 </a>
@@ -166,7 +166,7 @@
 
                 <div class="mt-4 d-flex gap-2">
 
-                    <a href="{{ route('admin.rooms.edit', $room->id) }}"
+                    <a href="{{ route('admin.rooms.index', ['edit_room' => $room->id]) }}"
                         class="btn btn-primary">
                         Chỉnh sửa
                     </a>

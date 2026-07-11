@@ -867,6 +867,22 @@
                 document.getElementById('edit_note').value = room.note ?? '';
                 openModal('roomEditModal');
             }));
+
+            const requestedEditRoomId = new URL(window.location.href).searchParams.get('edit_room');
+            if (requestedEditRoomId) {
+                const editButton = Array.from(document.querySelectorAll('.edit-room-btn')).find(btn => {
+                    try {
+                        return String(JSON.parse(btn.dataset.room).id) === String(requestedEditRoomId);
+                    } catch (error) {
+                        return false;
+                    }
+                });
+                if (editButton) {
+                    const catalogTab = document.querySelector('.rm-tab[data-tab="catalog"]');
+                    catalogTab?.click();
+                    editButton.click();
+                }
+            }
         });
     </script>
 @endsection
