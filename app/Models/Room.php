@@ -34,6 +34,12 @@ class Room extends Model
         return $this->hasMany(RoomInspection::class);
     }
 
+
+    public function roomAssignments()
+    {
+        return $this->hasMany(StaffRoomAssignment::class);
+    }
+
     public function scopeAvailableForPeriod(
         Builder $query,
         $checkInAt,

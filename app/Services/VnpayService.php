@@ -8,7 +8,43 @@ use Illuminate\Http\Request;
 
 class VnpayService
 {
-    public function createPaymentUrl(Booking $booking, BookingPayment $payment, Request $request): string
+    public function expireMinutes(): int
+    {
+        $minutes = (int) config('vnpay.expire_minutes', 30);
+
+        return max(5, min(1440, $minutes));
+    }
+
+    public function adminRequestExpireMinutes(): int
+    {
+        $minutes = (int) config('vnpay.admin_request_expire_minutes', 1440);
+
+        return max(10, min(10080, $minutes));
+    }
+
+    public function paymentRequestToken(BookingPayment $payment): string
+    {
+        $payload = implode('|', [
+            $payment->id,
+            $payment->booking_id,
+            $payment->txn_ref,
+            number_format((float) $payment->amount, 2, '.', ''),
+            $payment->payment_type,
+        ]);
+
+        return hash_hmac('sha256', $payload, (string) config('app.key'));
+    }
+
+    public function verifyPaymentRequestToken(BookingPayment $payment, ?string $token): bool
+    {
+        if (!$token) {
+            return false;
+        }
+
+        return hash_equals($this->paymentRequestToken($payment), $token);
+    }
+
+    public function createPaymentUrl(Booking $booking, BookingPayment $payment, Request $request, ?int $expireMinutes = null): string
     {
         $paymentUrl = trim((string) config('vnpay.payment_url'));
         $tmnCode = trim((string) config('vnpay.tmn_code'));
@@ -29,11 +65,11 @@ class VnpayService
             'vnp_CurrCode' => config('vnpay.curr_code', 'VND'),
             'vnp_IpAddr' => $request->ip() ?: '127.0.0.1',
             'vnp_Locale' => config('vnpay.locale', 'vn'),
-            'vnp_OrderInfo' => 'Thanh toan booking ' . $booking->booking_code,
+            'vnp_OrderInfo' => $this->makeOrderInfo($booking, $payment),
             'vnp_OrderType' => config('vnpay.order_type', 'other'),
             'vnp_ReturnUrl' => $returnUrl,
             'vnp_TxnRef' => $payment->txn_ref,
-            'vnp_ExpireDate' => now('Asia/Ho_Chi_Minh')->addMinutes(15)->format('YmdHis'),
+            'vnp_ExpireDate' => now('Asia/Ho_Chi_Minh')->addMinutes($expireMinutes ?: $this->expireMinutes())->format('YmdHis'),
         ];
 
         ksort($inputData);
@@ -60,6 +96,24 @@ class VnpayService
         $secureHash = hash_hmac('sha512', $hashData, $hashSecret);
 
         return $paymentUrl . '?' . $query . 'vnp_SecureHash=' . $secureHash;
+    }
+
+
+    private function makeOrderInfo(Booking $booking, BookingPayment $payment): string
+    {
+        $paymentTypeLabel = $payment->payment_type === 'deposit_30'
+            ? 'Coc 30 phan tram'
+            : 'Thanh toan con lai';
+
+        $orderInfo = $paymentTypeLabel
+            . ' booking '
+            . $booking->booking_code
+            . ' - GD '
+            . $payment->txn_ref;
+
+        $orderInfo = preg_replace('/[^A-Za-z0-9\s\-_.]/', '', $orderInfo);
+
+        return mb_substr(trim($orderInfo), 0, 240);
     }
 
     public function verifySignature(array $params): bool

@@ -9,8 +9,12 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::table('bookings', function (Blueprint $table) {
-            $table->dateTime('check_in_at')->nullable()->after('check_out_date');
-            $table->dateTime('check_out_at')->nullable()->after('check_in_at');
+            if (!Schema::hasColumn('bookings', 'check_in_at')) {
+                $table->dateTime('check_in_at')->nullable()->after('check_out_date');
+            }
+            if (!Schema::hasColumn('bookings', 'check_out_at')) {
+                $table->dateTime('check_out_at')->nullable()->after('check_in_at');
+            }
         });
 
         DB::table('bookings')->update([

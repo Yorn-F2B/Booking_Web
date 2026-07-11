@@ -7,6 +7,7 @@ use App\Models\ChatMessage;
 use App\Services\ChatAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Support\Realtime;
 
 class ChatController extends Controller
 {

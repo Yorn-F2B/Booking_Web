@@ -15,6 +15,7 @@ class BookingPromotion extends Model
         'discount_value_snapshot',
         'money_discount_amount',
         'service_discount_amount',
+        'room_upgrade_discount_amount',
         'discount_amount',
         'applied_by',
         'applied_channel',
@@ -25,6 +26,7 @@ class BookingPromotion extends Model
         'discount_value_snapshot' => 'decimal:2',
         'money_discount_amount' => 'decimal:2',
         'service_discount_amount' => 'decimal:2',
+        'room_upgrade_discount_amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
     ];
 
@@ -46,6 +48,11 @@ class BookingPromotion extends Model
     public function serviceOffers()
     {
         return $this->hasMany(BookingPromotionServiceOffer::class);
+    }
+
+    public function roomUpgradeOffers()
+    {
+        return $this->hasMany(BookingPromotionRoomUpgrade::class);
     }
 
     public function getTypeLabelAttribute(): string

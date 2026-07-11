@@ -1,8 +1,9 @@
-@extends('layouts.admin')
+﻿@extends('layouts.admin')
 
 @section('title', 'Danh sách đặt phòng')
 
 @section('content')
+<div data-bookings-index-fragment>
     @php
         $bookingStatusLabels = [
             'pending' => 'Chờ xác nhận',
@@ -856,5 +857,6 @@
             });
         });
     </script>
-    @vite('resources/js/admin/bookings-realtime.js')
+    </div>
+@vite('resources/js/admin/bookings-realtime.js')
 @endsection

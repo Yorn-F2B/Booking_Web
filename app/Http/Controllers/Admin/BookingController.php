@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
+use App\Models\BookingPayment;
 use App\Models\Room;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,8 @@ use App\Models\BookingServiceItem;
 use App\Models\Promotion;
 use App\Services\PromotionService;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
+use App\Support\Realtime;
 
 class BookingController extends Controller
 {
@@ -23,7 +26,17 @@ class BookingController extends Controller
             'customer',
             'roomCategory',
             'bookingRooms.room',
+            'activeStaffAssignments.staff.staff',
         ]);
+
+        if ($this->currentUserIsReceptionist()) {
+            $bookings->where(function ($query) {
+                $query->where('created_by', Auth::id())
+                    ->orWhereHas('activeStaffAssignments', function ($assignmentQuery) {
+                        $assignmentQuery->where('staff_id', Auth::id());
+                    });
+            });
+        }
 
         if ($request->filled('keyword')) {
             $keyword = $request->keyword;
@@ -77,6 +90,8 @@ class BookingController extends Controller
 
     public function show(Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         $booking->load([
             'customer',
             'roomCategory',
@@ -85,9 +100,11 @@ class BookingController extends Controller
             'serviceItems.service',
             'bookingPromotions.user',
             'bookingPromotions.serviceOffers',
+            'bookingPromotions.roomUpgradeOffers',
             'promotionServiceOffers',
+            'promotionRoomUpgrades',
             'logs.user',
-            'guests',
+            'payments',
         ]);
 
         $assignedRoomIds = $booking->bookingRooms
@@ -128,7 +145,8 @@ class BookingController extends Controller
         $availableServices = Service::where('status', 'active')
             ->where('price', '>', 0)
             ->whereIn('type', ['service', 'minibar'])
-            ->orderBy('type')
+            ->orderByRaw("FIELD(service_group, 'vehicle', 'food_drink', 'transport', 'laundry', 'wellness', 'room_support', 'general', 'other')")
+            ->orderByRaw("FIELD(type, 'service', 'minibar')")
             ->orderBy('name')
             ->get();
 
@@ -174,6 +192,8 @@ class BookingController extends Controller
 
     public function applyPromotions(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if (!in_array($booking->status, ['pending', 'confirmed', 'checked_in'])) {
             return back()->with('error', 'Chỉ có thể thêm mã cho booking đang chờ, đã xác nhận hoặc đang ở.');
         }
@@ -362,11 +382,15 @@ class BookingController extends Controller
 
     public function edit(Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         return view('admin.pages.bookings.edit', compact('booking'));
     }
 
     public function update(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         $data = $request->validate([
             'status' => 'required|in:pending,confirmed,checked_in,inspection_requested,checked_out,completed',
             'payment_status' => 'required|in:unpaid,partial,paid',
@@ -429,6 +453,8 @@ class BookingController extends Controller
 
     public function destroy(Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         return back()->with(
             'error',
             'Admin không được hủy booking thường. Chỉ được xử lý hủy no-show từ trang chi tiết khi khách quá giờ check-in theo chính sách.'
@@ -437,6 +463,8 @@ class BookingController extends Controller
 
     public function storeServiceItem(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if (!in_array($booking->status, ['pending', 'confirmed', 'checked_in'])) {
             return back()->with('error', 'Booking đã kết thúc hoặc đã hủy nên không thể thêm dịch vụ.');
         }
@@ -549,6 +577,8 @@ class BookingController extends Controller
 
     public function updateServiceItem(Request $request, Booking $booking, BookingServiceItem $bookingServiceItem)
     {
+        $this->guardCanAccessBooking($booking);
+
         if ($bookingServiceItem->booking_id != $booking->id) {
             abort(404);
         }
@@ -618,6 +648,8 @@ class BookingController extends Controller
 
     public function destroyServiceItem(Booking $booking, BookingServiceItem $bookingServiceItem)
     {
+        $this->guardCanAccessBooking($booking);
+
         if ($bookingServiceItem->booking_id != $booking->id) {
             abort(404);
         }
@@ -662,6 +694,8 @@ class BookingController extends Controller
 
     public function updatePaymentStatus(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         if ($booking->payment_status === 'paid') {
             return back()->with('error', 'Booking đã thanh toán nên không thể đổi trạng thái thanh toán.');
         }
@@ -691,8 +725,191 @@ class BookingController extends Controller
         return back()->with('success', 'Cập nhật trạng thái thanh toán thành công.');
     }
 
+    public function recordPayment(Request $request, Booking $booking)
+    {
+        $this->guardCanAccessBooking($booking);
+
+        if ($booking->payment_status === 'paid') {
+            return back()->with('error', 'Booking đã thanh toán đủ nên không thể thu thêm.');
+        }
+
+        if (in_array($booking->status, ['canceled', 'cancelled', 'no_show'], true)) {
+            return back()->with('error', 'Booking đã hủy/no-show nên không thể ghi nhận thanh toán.');
+        }
+
+        $data = $request->validate([
+            'payment_method' => 'required|in:cash,bank_transfer',
+            'payment_type' => 'required|in:deposit_30,full_100,custom',
+            'amount' => 'nullable|numeric|min:1000',
+            'payment_note' => 'nullable|string|max:1000',
+        ], [
+            'payment_method.required' => 'Vui lòng chọn phương thức thu tiền.',
+            'payment_method.in' => 'Phương thức thu tiền không hợp lệ.',
+            'payment_type.required' => 'Vui lòng chọn kiểu thu tiền.',
+            'payment_type.in' => 'Kiểu thu tiền không hợp lệ.',
+            'amount.min' => 'Số tiền thu tối thiểu là 1.000đ.',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            $booking = Booking::where('id', $booking->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $payableTotal = $this->calculateAdminPayableTotal($booking);
+            $currentPaid = (float) $booking->deposit_amount;
+            $remaining = max(0, $payableTotal - $currentPaid);
+
+            if ($remaining <= 0) {
+                $booking->update([
+                    'payment_status' => 'paid',
+                ]);
+
+                DB::commit();
+
+                return back()->with('success', 'Booking đã đủ số tiền cần thu.');
+            }
+
+            $amount = $this->resolveAdminPaymentAmount(
+                $data['payment_type'],
+                (float) ($data['amount'] ?? 0),
+                $payableTotal,
+                $currentPaid
+            );
+
+            if ($amount <= 0) {
+                throw new \Exception('Số tiền thu không hợp lệ.');
+            }
+
+            if ($amount > $remaining) {
+                throw new \Exception('Số tiền thu không được lớn hơn số còn lại: ' . number_format($remaining, 0, ',', '.') . 'đ.');
+            }
+
+            $newPaidAmount = $currentPaid + $amount;
+            $newPaymentStatus = $newPaidAmount >= $payableTotal ? 'paid' : 'partial';
+            $storedPaymentType = $amount >= $remaining ? 'full_100' : 'deposit_30';
+
+            $payment = BookingPayment::create([
+                'booking_id' => $booking->id,
+                'provider' => $data['payment_method'],
+                'txn_ref' => $this->generateAdminPaymentTxnRef($booking, $data['payment_method']),
+                'amount' => $amount,
+                'status' => 'success',
+                'payment_type' => $storedPaymentType,
+                'paid_at' => now('Asia/Ho_Chi_Minh'),
+                'raw_response' => [
+                    'source' => 'admin',
+                    'method' => $data['payment_method'],
+                    'type' => $data['payment_type'],
+                    'note' => $data['payment_note'] ?? null,
+                    'staff_id' => Auth::id(),
+                ],
+            ]);
+
+            $oldPaymentStatus = $booking->payment_status;
+
+            $booking->update([
+                'deposit_amount' => $newPaidAmount,
+                'payment_status' => $newPaymentStatus,
+            ]);
+
+            $methodLabel = $data['payment_method'] === 'cash'
+                ? 'tiền mặt tại quầy'
+                : 'chuyển khoản tại quầy';
+
+            $this->addBookingLog(
+                $booking,
+                'admin_payment_received',
+                'Ghi nhận thanh toán ' . $methodLabel . ': '
+                . number_format($amount, 0, ',', '.')
+                . 'đ. Đã thu: '
+                . number_format($newPaidAmount, 0, ',', '.')
+                . 'đ / '
+                . number_format($payableTotal, 0, ',', '.')
+                . 'đ. Trạng thái thanh toán: '
+                . $oldPaymentStatus
+                . ' → '
+                . $newPaymentStatus
+                . '. Mã giao dịch: '
+                . $payment->txn_ref
+                . (!empty($data['payment_note']) ? '. Ghi chú: ' . $data['payment_note'] : '')
+            );
+
+            DB::commit();
+
+            Realtime::booking($booking->id, 'payment_updated');
+
+            return back()->with('success', 'Đã ghi nhận thanh toán ' . number_format($amount, 0, ',', '.') . 'đ.');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return back()->with('error', 'Không thể ghi nhận thanh toán: ' . $e->getMessage());
+        }
+    }
+
+    private function calculateAdminPayableTotal(Booking $booking): float
+    {
+        $booking->loadMissing([
+            'serviceItems',
+            'roomInspections.items',
+        ]);
+
+        $estimatedTotal = (float) $booking->estimated_total;
+        $subtotalTotal = max(
+            0,
+            (float) ($booking->subtotal_amount ?? 0) - (float) ($booking->discount_amount ?? 0)
+        );
+
+        $approvedInspectionTotal = $booking->roomInspections
+            ->flatMap->items
+            ->where('status', 'approved')
+            ->sum('total');
+
+        return max(0, max($estimatedTotal, $subtotalTotal) + (float) $approvedInspectionTotal);
+    }
+
+    private function resolveAdminPaymentAmount(
+        string $paymentType,
+        float $customAmount,
+        float $payableTotal,
+        float $currentPaid
+    ): float {
+        $remaining = max(0, $payableTotal - $currentPaid);
+
+        if ($paymentType === 'deposit_30') {
+            $depositTarget = round($payableTotal * 0.3, 0);
+
+            return max(0, min($depositTarget - $currentPaid, $remaining));
+        }
+
+        if ($paymentType === 'full_100') {
+            return $remaining;
+        }
+
+        return min($customAmount, $remaining);
+    }
+
+    private function generateAdminPaymentTxnRef(Booking $booking, string $method): string
+    {
+        $prefix = $method === 'cash' ? 'CASH' : 'BANK';
+
+        do {
+            $txnRef = $prefix
+                . $booking->booking_code
+                . now('Asia/Ho_Chi_Minh')->format('YmdHis')
+                . strtoupper(Str::random(5));
+
+            $txnRef = preg_replace('/[^A-Za-z0-9]/', '', $txnRef);
+        } while (BookingPayment::where('txn_ref', $txnRef)->exists());
+
+        return $txnRef;
+    }
+
     public function updateNote(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
+
         $data = $request->validate([
             'note' => 'nullable|string|max:1000',
         ]);
@@ -710,45 +927,26 @@ class BookingController extends Controller
         return back()->with('success', 'Cập nhật ghi chú nội bộ thành công.');
     }
 
-    public function addGuest(Request $request, Booking $booking)
+    private function currentUserIsReceptionist(): bool
     {
-        $data = $request->validate([
-            'full_name' => 'required|string|max:255',
-            'cccd' => 'nullable|string|max:50',
-            'birthday' => 'nullable|date',
-            'gender' => 'nullable|in:male,female,other',
-            'nationality' => 'nullable|string|max:100',
-            'note' => 'nullable|string|max:500',
-            'booking_room_id' => 'nullable|exists:booking_rooms,id',
-        ]);
-
-        $booking->guests()->create($data);
-
-        $this->addBookingLog(
-            $booking,
-            'guest_added',
-            'Thêm khách lưu trú: ' . $data['full_name'] . ($data['cccd'] ? ' (CCCD: ' . $data['cccd'] . ')' : '')
-        );
-
-        return back()->with('success', 'Đã thêm khách lưu trú.');
+        return Auth::check() && Auth::user()->role === 'receptionist';
     }
 
-    public function removeGuest(Booking $booking, \App\Models\BookingGuest $guest)
+    private function guardCanAccessBooking(Booking $booking): void
     {
-        if ($guest->booking_id !== $booking->id) {
-            abort(404);
+        $user = Auth::user();
+
+        if (!$user || $user->role !== 'receptionist') {
+            return;
         }
 
-        $name = $guest->full_name;
-        $guest->delete();
+        $canAccess = (int) $booking->created_by === (int) $user->id
+            || $booking->staffAssignments()
+                ->where('staff_id', $user->id)
+                ->where('status', 'active')
+                ->exists();
 
-        $this->addBookingLog(
-            $booking,
-            'guest_removed',
-            'Xóa khách lưu trú: ' . $name
-        );
-
-        return back()->with('success', 'Đã xóa khách lưu trú.');
+        abort_unless($canAccess, 403, 'Bạn không được phân công xử lý booking này.');
     }
 
     private function addBookingLog(Booking $booking, string $action, string $description): void

@@ -7,6 +7,7 @@ use App\Models\BookingPromotion;
 use App\Models\BookingPromotionServiceOffer;
 use App\Models\Customer;
 use App\Models\Promotion;
+use App\Models\PromotionRoomUpgradeOffer;
 use App\Models\PromotionServiceOffer;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -16,7 +17,7 @@ class PromotionService
     public function availablePromotions(array $context, string $channel = 'user'): Collection
     {
         $query = Promotion::query()
-            ->with(['serviceOffers.service'])
+            ->with(['serviceOffers.service', 'roomUpgradeOffers.fromCategory', 'roomUpgradeOffers.toCategory'])
             ->where('status', 'active')
             ->orderByRaw("FIELD(promotion_type, 'normal_discount', 'event_discount', 'conditional_discount', 'support_discount')")
             ->orderBy('code');
@@ -49,7 +50,7 @@ class PromotionService
             return $this->emptyResult((float) ($context['subtotal_amount'] ?? 0));
         }
 
-        $promotions = Promotion::with(['serviceOffers.service'])
+        $promotions = Promotion::with(['serviceOffers.service', 'roomUpgradeOffers.fromCategory', 'roomUpgradeOffers.toCategory'])
             ->whereIn('code', $codes)
             ->where('status', 'active')
             ->get()
@@ -83,6 +84,7 @@ class PromotionService
                 'discount_total' => 0,
                 'money_discount_total' => 0,
                 'service_discount_total' => 0,
+                'room_upgrade_discount_total' => 0,
                 'subtotal_amount' => (float) ($context['subtotal_amount'] ?? 0),
                 'auto_service_items' => [],
                 'messages' => $messages,
@@ -98,6 +100,7 @@ class PromotionService
                 'discount_total' => 0,
                 'money_discount_total' => 0,
                 'service_discount_total' => 0,
+                'room_upgrade_discount_total' => 0,
                 'subtotal_amount' => (float) ($context['subtotal_amount'] ?? 0),
                 'auto_service_items' => [],
                 'messages' => ['Có mã không cho dùng chung với mã khác. Vui lòng chỉ chọn mã đó hoặc bỏ mã đó ra.'],
@@ -190,6 +193,155 @@ class PromotionService
         ];
     }
 
+
+
+    public function findRoomUpgradeOffer(
+        string $code,
+        int $fromCategoryId,
+        int $toCategoryId,
+        string $upgradeKind,
+        array $context = [],
+        string $channel = 'admin',
+        ?string $note = null
+    ): array {
+        $code = strtoupper(trim($code));
+
+        if ($code === '') {
+            return $this->fail('Vui lòng nhập mã nâng hạng phòng.');
+        }
+
+        if (!in_array($upgradeKind, [
+            PromotionRoomUpgradeOffer::KIND_INCIDENT_SUPPORT,
+            PromotionRoomUpgradeOffer::KIND_PAID_UPSELL,
+        ], true)) {
+            return $this->fail('Loại nâng hạng phòng không hợp lệ.');
+        }
+
+        $promotion = Promotion::with([
+            'roomUpgradeOffers.fromCategory',
+            'roomUpgradeOffers.toCategory',
+            'serviceOffers.service',
+        ])
+            ->where('code', $code)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$promotion) {
+            return $this->fail('Mã ' . $code . ' không tồn tại hoặc đã bị tắt.');
+        }
+
+        if (
+            $upgradeKind === PromotionRoomUpgradeOffer::KIND_INCIDENT_SUPPORT
+            && $promotion->promotion_type !== Promotion::TYPE_SUPPORT
+        ) {
+            return $this->fail('Mã ' . $code . ' không phải mã hỗ trợ sự cố.');
+        }
+
+        if (
+            $upgradeKind === PromotionRoomUpgradeOffer::KIND_PAID_UPSELL
+            && $promotion->promotion_type !== Promotion::TYPE_CONDITIONAL
+        ) {
+            return $this->fail('Mã ' . $code . ' không phải mã điều kiện nâng hạng.');
+        }
+
+        $check = $this->checkPromotion($promotion, $context, $channel, true, $note);
+
+        if (!$check['ok']) {
+            return $check;
+        }
+
+        $offer = $promotion->roomUpgradeOffers
+            ->where('upgrade_kind', $upgradeKind)
+            ->first(function (PromotionRoomUpgradeOffer $offer) use ($fromCategoryId, $toCategoryId) {
+                $fromOk = empty($offer->from_room_category_id)
+                    || (int) $offer->from_room_category_id === (int) $fromCategoryId;
+                $toOk = empty($offer->to_room_category_id)
+                    || (int) $offer->to_room_category_id === (int) $toCategoryId;
+
+                return $fromOk && $toOk;
+            });
+
+        if (!$offer) {
+            return $this->fail('Mã ' . $code . ' không áp dụng cho cặp hạng phòng đang đổi.');
+        }
+
+        if ($offer->requires_hotel_fault_reason && trim((string) $note) === '') {
+            return $this->fail('Mã ' . $code . ' cần nhập lý do sự cố khi nâng hạng.');
+        }
+
+        return [
+            'ok' => true,
+            'message' => null,
+            'promotion' => $promotion,
+            'offer' => $offer,
+        ];
+    }
+
+    public function calculateRoomUpgradeCoverAmount(PromotionRoomUpgradeOffer $offer, float $differenceAmount): float
+    {
+        $differenceAmount = max(0, $differenceAmount);
+
+        if ($differenceAmount <= 0) {
+            return 0;
+        }
+
+        $coveredAmount = match ($offer->cover_type) {
+            PromotionRoomUpgradeOffer::COVER_FULL_DIFFERENCE => $differenceAmount,
+            PromotionRoomUpgradeOffer::COVER_PERCENT_DIFFERENCE => $differenceAmount * ((float) $offer->cover_value / 100),
+            PromotionRoomUpgradeOffer::COVER_FIXED_AMOUNT => (float) $offer->cover_value,
+            default => 0,
+        };
+
+        if ((float) $offer->max_cover_amount > 0) {
+            $coveredAmount = min($coveredAmount, (float) $offer->max_cover_amount);
+        }
+
+        return round(min(max(0, $coveredAmount), $differenceAmount), 0);
+    }
+
+    public function storeRoomUpgradeUsage(
+        Booking $booking,
+        Promotion $promotion,
+        PromotionRoomUpgradeOffer $offer,
+        array $snapshot,
+        string $channel = 'admin',
+        ?string $note = null,
+        ?int $appliedBy = null
+    ): BookingPromotion {
+        $coveredAmount = round((float) ($snapshot['covered_amount'] ?? 0), 0);
+
+        $bookingPromotion = BookingPromotion::create([
+            'booking_id' => $booking->id,
+            'promotion_id' => $promotion->id,
+            'code_snapshot' => $promotion->code,
+            'promotion_type_snapshot' => $promotion->promotion_type,
+            'discount_type_snapshot' => $promotion->discount_type,
+            'discount_value_snapshot' => $promotion->discount_value,
+            'money_discount_amount' => 0,
+            'service_discount_amount' => 0,
+            'room_upgrade_discount_amount' => $coveredAmount,
+            'discount_amount' => $coveredAmount,
+            'applied_by' => $appliedBy,
+            'applied_channel' => $channel,
+            'note' => $note,
+        ]);
+
+        $bookingPromotion->roomUpgradeOffers()->create(array_merge($snapshot, [
+            'booking_id' => $booking->id,
+            'booking_promotion_id' => $bookingPromotion->id,
+            'promotion_id' => $promotion->id,
+            'promotion_room_upgrade_offer_id' => $offer->id,
+            'upgrade_kind_snapshot' => $offer->upgrade_kind,
+            'cover_type_snapshot' => $offer->cover_type,
+            'cover_value_snapshot' => $offer->cover_value,
+            'reason' => $note,
+        ]));
+
+        $promotion->increment('used_count');
+
+        return $bookingPromotion;
+    }
+
     public function mergeServiceItems(array $serviceItems, array $extraItems): array
     {
         foreach ($extraItems as $extraItem) {
@@ -240,7 +392,8 @@ class PromotionService
         foreach ($promotions as $promotion) {
             $moneyDiscountAmount = round((float) ($promotion->calculated_money_discount_amount ?? 0), 0);
             $serviceDiscountAmount = round((float) ($promotion->calculated_service_discount_amount ?? 0), 0);
-            $discountAmount = round($moneyDiscountAmount + $serviceDiscountAmount, 0);
+            $roomUpgradeDiscountAmount = round((float) ($promotion->calculated_room_upgrade_discount_amount ?? 0), 0);
+            $discountAmount = round($moneyDiscountAmount + $serviceDiscountAmount + $roomUpgradeDiscountAmount, 0);
 
             if ($discountAmount <= 0) {
                 continue;
@@ -255,6 +408,7 @@ class PromotionService
                 'discount_value_snapshot' => $promotion->discount_value,
                 'money_discount_amount' => $moneyDiscountAmount,
                 'service_discount_amount' => $serviceDiscountAmount,
+                'room_upgrade_discount_amount' => $roomUpgradeDiscountAmount,
                 'discount_amount' => $discountAmount,
                 'applied_by' => $appliedBy,
                 'applied_channel' => $channel,
@@ -297,6 +451,7 @@ class PromotionService
             'discount_total' => 0,
             'money_discount_total' => 0,
             'service_discount_total' => 0,
+            'room_upgrade_discount_total' => 0,
             'subtotal_amount' => round(max(0, $subtotal), 0),
             'auto_service_items' => [],
             'messages' => [],

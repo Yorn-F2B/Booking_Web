@@ -199,7 +199,8 @@
 
         $hourlyCleaningUntil = null;
         if ($booking->booking_type == 'hourly' && $booking->check_out_at) {
-            $hourlyCleaningUntil = $booking->check_out_at->copy()->addMinutes($booking->cleaning_buffer_minutes ?? 60);
+            $hourlyCleaningUntil = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')
+                ->addMinutes($booking->cleaning_buffer_minutes ?? 60);
         }
 
         $existingCheckoutLateFeeTotal = $booking->serviceItems
@@ -300,8 +301,18 @@
             ? (float) $booking->bookingPromotions->sum('service_discount_amount')
             : 0;
 
+        $promotionRoomUpgradeDiscountTotal = isset($booking->bookingPromotions)
+            ? (float) $booking->bookingPromotions->sum('room_upgrade_discount_amount')
+            : 0;
+
         $finalTotal = max(0, $roomTotal + $serviceItemTotal + $approvedInspectionTotal + $checkoutLateFeePreview - $promotionDiscountTotal);
         $remainingTotal = max(0, $finalTotal - (float) $booking->deposit_amount);
+
+        $adminPaymentPaidAmount = (float) $booking->deposit_amount;
+        $adminPaymentDepositTarget = round($finalTotal * 0.3, 0);
+        $adminPaymentDepositAmount = max(0, min($adminPaymentDepositTarget - $adminPaymentPaidAmount, $remainingTotal));
+        $adminPaymentFullAmount = $remainingTotal;
+        $adminPaymentDefaultEmail = old('customer_email', $booking->customer->email ?? '');
 
         $currentAdultCapacity = $booking->bookingRooms->sum(function ($bookingRoom) {
             return $bookingRoom->room->category->adult_capacity ?? 0;
@@ -330,7 +341,16 @@
             ->orderBy('name')
             ->get();
 
-        $approvedInspectionItems = $booking->roomInspections
+        $inspectionCollection = $booking->roomInspections ?? collect();
+        $hasInspection = $hasInspection ?? $inspectionCollection->count() > 0;
+        $allInspectionsConfirmed = $allInspectionsConfirmed ?? (
+            $hasInspection
+            && $inspectionCollection->every(function ($inspection) {
+                return in_array($inspection->status ?? null, ['confirmed', 'completed', 'approved']);
+            })
+        );
+
+        $approvedInspectionItems = $inspectionCollection
             ->flatMap->items
             ->where('status', 'approved');
 
@@ -1066,9 +1086,9 @@
                     <div class="metric-card">
                         <span>Thời gian</span>
                         <strong>
-                            {{ $booking->check_in_at?->format('d/m/Y H:i') ?? '---' }}
+                            {{ $lateShowCheckInAt?->format('d/m/Y H:i') ?? '---' }}
                             <br>
-                            → {{ $booking->check_out_at?->format('d/m/Y H:i') ?? '---' }}
+                            → {{ $lateShowCheckOutAt?->format('d/m/Y H:i') ?? '---' }}
                         </strong>
                     </div>
 
@@ -1477,11 +1497,11 @@
                                         $extendPreview = session('extend_stay_preview');
                                         $previewDateValue = old(
                                             'new_check_out_date',
-                                            $extendPreview['new_check_out_date'] ?? ($booking->check_out_at ? $booking->check_out_at->format('Y-m-d') : $booking->check_out_date)
+                                            $extendPreview['new_check_out_date'] ?? ($lateShowCheckOutAt ? $lateShowCheckOutAt->format('Y-m-d') : $booking->check_out_date)
                                         );
                                         $previewTimeValue = old(
                                             'new_check_out_time',
-                                            $extendPreview['new_check_out_time'] ?? ($booking->check_out_at ? $booking->check_out_at->format('H:i') : '12:00')
+                                            $extendPreview['new_check_out_time'] ?? ($lateShowCheckOutAt ? $lateShowCheckOutAt->format('H:i') : '12:00')
                                         );
                                     @endphp
 
@@ -1489,7 +1509,7 @@
                                         <strong>{{ $extendTypeLabel }}</strong> · Phòng
                                         {{ $currentRoomNumbersForExtend ?: '---' }} ·
                                         Check-out hiện tại:
-                                        {{ $booking->check_out_at ? $booking->check_out_at->format('d/m/Y H:i') : '---' }}
+                                        {{ $lateShowCheckOutAt ? $lateShowCheckOutAt->format('d/m/Y H:i') : '---' }}
                                     </div>
 
                                     <form action="{{ route('admin.bookings.extend-stay.preview', $booking->id) }}"
@@ -1500,7 +1520,7 @@
                                             <div class="col-md-6">
                                                 <label class="form-label">Ngày trả phòng mới</label>
                                                 <input type="date" name="new_check_out_date" class="form-control"
-                                                    min="{{ $booking->check_out_at ? $booking->check_out_at->format('Y-m-d') : date('Y-m-d') }}"
+                                                    min="{{ $lateShowCheckOutAt ? $lateShowCheckOutAt->format('Y-m-d') : date('Y-m-d') }}"
                                                     value="{{ $previewDateValue }}" required>
                                             </div>
 
@@ -1684,7 +1704,7 @@
                                                             <td>
                                                                 Mã ưu đãi đã áp dụng
                                                                 <div class="small text-muted">
-                                                                    Giảm tiền: {{ number_format($promotionMoneyDiscountTotal, 0, ',', '.') }}đ · Dịch vụ: {{ number_format($promotionServiceDiscountTotal, 0, ',', '.') }}đ
+                                                                    Giảm tiền: {{ number_format($promotionMoneyDiscountTotal, 0, ',', '.') }}đ · Dịch vụ: {{ number_format($promotionServiceDiscountTotal, 0, ',', '.') }}đ · Nâng hạng: {{ number_format($promotionRoomUpgradeDiscountTotal, 0, ',', '.') }}đ
                                                                 </div>
                                                             </td>
                                                             <td class="text-end fw-bold text-success">
@@ -1706,6 +1726,74 @@
                                                     </tr>
                                                 </tbody>
                                             </table>
+                                        </div>
+
+                                        <div class="checkout-payment-confirm-box mb-3" id="checkoutPaymentConfirmBox"
+                                            data-base-remaining="{{ (float) $remainingTotal }}">
+                                            @if ($remainingTotal > 0)
+                                                <div class="alert alert-warning small mb-3" id="checkoutPaymentNotice">
+                                                    <div class="fw-bold mb-1">Booking còn khoản chưa thanh toán</div>
+                                                    Còn phải thu
+                                                    <strong>{{ number_format($remainingTotal, 0, ',', '.') }}đ</strong>.
+                                                    Lễ tân cần kiểm tra khách đã thanh toán ngoài thực tế, chọn phương thức
+                                                    thanh toán và tick xác nhận thì mới được check-out.
+                                                </div>
+                                            @else
+                                                <div class="alert alert-success small mb-3" id="checkoutPaymentNotice">
+                                                    <div class="fw-bold mb-1">Booking đã thanh toán đủ theo hệ thống</div>
+                                                    Nếu không nhập thêm phí phát sinh bên dưới, có thể check-out bình thường.
+                                                    Nếu có thêm phí phát sinh, hệ thống sẽ yêu cầu chọn phương thức thanh toán
+                                                    cho khoản phát sinh đó.
+                                                </div>
+                                            @endif
+
+                                            <div class="row g-2">
+                                                <div class="col-md-6">
+                                                    <label class="form-label small fw-bold">
+                                                        Phương thức thanh toán khi check-out
+                                                        <span class="text-danger checkout-payment-required-mark {{ $remainingTotal > 0 ? '' : 'd-none' }}">*</span>
+                                                    </label>
+
+                                                    <div class="payment-method-options">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input checkout-payment-method" type="radio"
+                                                                name="checkout_payment_method" id="checkoutPaymentCash"
+                                                                value="cash"
+                                                                {{ old('checkout_payment_method') == 'cash' ? 'checked' : '' }}
+                                                                {{ $remainingTotal > 0 ? 'required' : '' }}>
+                                                            <label class="form-check-label" for="checkoutPaymentCash">
+                                                                Tiền mặt tại quầy
+                                                            </label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input checkout-payment-method" type="radio"
+                                                                name="checkout_payment_method" id="checkoutPaymentBank"
+                                                                value="bank_transfer"
+                                                                {{ old('checkout_payment_method') == 'bank_transfer' ? 'checked' : '' }}
+                                                                {{ $remainingTotal > 0 ? 'required' : '' }}>
+                                                            <label class="form-check-label" for="checkoutPaymentBank">
+                                                                Chuyển khoản tại quầy
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-md-6">
+                                                    <label class="form-label small fw-bold">Xác nhận thu tiền</label>
+                                                    <div class="form-check border rounded-3 p-3 h-100 bg-light">
+                                                        <input class="form-check-input" type="checkbox" value="1"
+                                                            name="checkout_payment_confirm" id="checkoutPaymentConfirm"
+                                                            {{ old('checkout_payment_confirm') == '1' ? 'checked' : '' }}
+                                                            {{ $remainingTotal > 0 ? 'required' : '' }}>
+                                                        <label class="form-check-label fw-bold" for="checkoutPaymentConfirm">
+                                                            Đã kiểm tra và đã thu đủ khoản còn lại ngoài thực tế
+                                                        </label>
+                                                        <div class="text-muted small mt-1" id="checkoutPaymentConfirmHint">
+                                                            {{ $remainingTotal > 0 ? 'Bắt buộc vì booking còn tiền phải thu.' : 'Không bắt buộc nếu booking không phát sinh thêm tiền.' }}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
 
                                         <details class="compact-panel mb-3">
@@ -1754,93 +1842,6 @@
                         </div>
                     </section>
 
-                    <!-- Guest Registration Section -->
-                    <details class="compact-panel mb-3">
-                        <summary>
-                            <span>Khai báo khách lưu trú</span>
-                            <span class="badge-clean status-muted">
-                                {{ $booking->guests->count() }} khách · mở để khai báo
-                            </span>
-                        </summary>
-
-                        <div class="compact-panel-body">
-                            <p class="text-muted small mb-3">Khai báo danh sách người đi cùng trong booking này.</p>
-                            @if ($booking->guests->count() > 0)
-                                <div class="table-responsive mb-3">
-                                    <table class="table table-sm table-clean align-middle mb-0">
-                                        <thead>
-                                            <tr>
-                                                <th>Họ và tên</th>
-                                                <th>CCCD/Passport</th>
-                                                <th>Ngày sinh</th>
-                                                <th>Giới tính</th>
-                                                <th>Quốc tịch</th>
-                                                <th class="text-end">Hành động</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach ($booking->guests as $guest)
-                                                <tr>
-                                                    <td class="fw-bold">{{ $guest->full_name }}</td>
-                                                    <td>{{ $guest->cccd ?: '---' }}</td>
-                                                    <td>{{ $guest->birthday ? $guest->birthday->format('d/m/Y') : '---' }}</td>
-                                                    <td>
-                                                        @if ($guest->gender == 'male') Nam
-                                                        @elseif ($guest->gender == 'female') Nữ
-                                                        @elseif ($guest->gender == 'other') Khác
-                                                        @else --- @endif
-                                                    </td>
-                                                    <td>{{ $guest->nationality ?: '---' }}</td>
-                                                    <td class="text-end">
-                                                        <form action="{{ route('admin.bookings.guests.destroy', [$booking->id, $guest->id]) }}" method="POST" class="d-inline-block" onsubmit="return confirm('Bạn có chắc chắn muốn xóa khách này khỏi danh sách?')">
-                                                            @csrf
-                                                            @method('DELETE')
-                                                            <button type="submit" class="btn btn-sm btn-outline-danger">Xóa</button>
-                                                        </form>
-                                                    </td>
-                                                </tr>
-                                            @endforeach
-                                        </tbody>
-                                    </table>
-                                </div>
-                            @endif
-
-                            <form action="{{ route('admin.bookings.guests.store', $booking->id) }}" method="POST">
-                                @csrf
-                                <div class="row g-2 mb-3">
-                                    <div class="col-md-3">
-                                        <label class="form-label small">Họ và tên <span class="text-danger">*</span></label>
-                                        <input type="text" name="full_name" class="form-control form-control-sm" required>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label small">CCCD/Passport</label>
-                                        <input type="text" name="cccd" class="form-control form-control-sm">
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label small">Ngày sinh</label>
-                                        <input type="date" name="birthday" class="form-control form-control-sm">
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label small">Giới tính</label>
-                                        <select name="gender" class="form-select form-select-sm">
-                                            <option value="">-- Chọn --</option>
-                                            <option value="male">Nam</option>
-                                            <option value="female">Nữ</option>
-                                            <option value="other">Khác</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label small">Quốc tịch</label>
-                                        <input type="text" name="nationality" class="form-control form-control-sm">
-                                    </div>
-                                    <div class="col-md-1 d-flex align-items-end">
-                                        <button type="submit" class="btn btn-sm btn-primary w-100">+</button>
-                                    </div>
-                                </div>
-                            </form>
-                        </div>
-                    </details>
-                    
                     <details class="compact-panel mb-3">
                         <summary>
                             <span>Mã ưu đãi / hỗ trợ khách</span>
@@ -1888,6 +1889,7 @@
                                                 <th>Người áp dụng</th>
                                                 <th class="text-end">Giảm tiền</th>
                                                 <th class="text-end">Ưu đãi DV</th>
+                                                <th class="text-end">Nâng hạng</th>
                                                 <th class="text-end">Tổng</th>
                                                 <th>Ghi chú</th>
                                             </tr>
@@ -1916,6 +1918,9 @@
                                                         -{{ number_format((float) ($bookingPromotion->service_discount_amount ?? 0), 0, ',', '.') }}đ
                                                     </td>
                                                     <td class="text-end text-success fw-bold">
+                                                        -{{ number_format((float) ($bookingPromotion->room_upgrade_discount_amount ?? 0), 0, ',', '.') }}đ
+                                                    </td>
+                                                    <td class="text-end text-success fw-bold">
                                                         -{{ number_format((float) $bookingPromotion->discount_amount, 0, ',', '.') }}đ
                                                     </td>
                                                     <td class="small text-muted">
@@ -1925,6 +1930,16 @@
                                                                 @foreach ($bookingPromotion->serviceOffers as $offerSnapshot)
                                                                     <span class="badge bg-success-subtle text-success border me-1">
                                                                         {{ $offerSnapshot->service_name_snapshot }} x{{ $offerSnapshot->quantity }}: -{{ number_format((float) $offerSnapshot->discount_amount, 0, ',', '.') }}đ
+                                                                    </span>
+                                                                @endforeach
+                                                            </div>
+                                                        @endif
+
+                                                        @if ($bookingPromotion->roomUpgradeOffers->count() > 0)
+                                                            <div class="mt-1">
+                                                                @foreach ($bookingPromotion->roomUpgradeOffers as $upgradeSnapshot)
+                                                                    <span class="badge bg-primary-subtle text-primary border me-1">
+                                                                        {{ $upgradeSnapshot->old_room_category_name_snapshot }} → {{ $upgradeSnapshot->new_room_category_name_snapshot }}: hỗ trợ {{ number_format((float) $upgradeSnapshot->covered_amount, 0, ',', '.') }}đ
                                                                     </span>
                                                                 @endforeach
                                                             </div>
@@ -2111,8 +2126,8 @@
                             <div class="compact-panel-body">
                                 <div class="soft-note mb-3">
                                     <strong>Khung kiểm tra:</strong>
-                                    {{ $booking->check_in_at?->format('d/m/Y H:i') ?? '---' }}
-                                    → {{ $booking->check_out_at?->format('d/m/Y H:i') ?? '---' }}.
+                                    {{ $lateShowCheckInAt?->format('d/m/Y H:i') ?? '---' }}
+                                    → {{ $lateShowCheckOutAt?->format('d/m/Y H:i') ?? '---' }}.
                                     Phòng hiện tại:
                                     {{ $booking->bookingRooms->pluck('room.room_number')->filter()->implode(', ') ?: 'Chưa gán phòng' }}.
                                 </div>
@@ -2153,6 +2168,19 @@
                                         </div>
                                     </div>
                                 </details>
+
+
+                                @php
+                                    $roomUpgradePromotionOptions = collect($availablePromotions ?? collect())
+                                        ->filter(fn ($promotion) => $promotion->roomUpgradeOffers->count() > 0)
+                                        ->values();
+                                @endphp
+
+                                <datalist id="roomUpgradePromotionCodes">
+                                    @foreach ($roomUpgradePromotionOptions as $promotion)
+                                        <option value="{{ $promotion->code }}">{{ $promotion->name }}</option>
+                                    @endforeach
+                                </datalist>
 
                                 <div class="form-mini-grid">
                                     <form action="{{ route('admin.bookings.add-room-to-booking', $booking->id) }}" method="POST"
@@ -2240,6 +2268,26 @@
                                                 placeholder="Ví dụ: Khách muốn nâng hạng 1 phòng">
                                         </div>
 
+
+
+                                        <div class="mb-3">
+                                            <label class="form-label small">Xử lý tiền chênh</label>
+                                            <select name="upgrade_payment_action" class="form-select">
+                                                <option value="guest_pay">Khách trả toàn bộ tiền chênh</option>
+                                                <option value="incident_support">Mã hỗ trợ sự cố - khách không trả thêm</option>
+                                                <option value="paid_upsell">Mã điều kiện upsell - khách trả phần còn lại</option>
+                                            </select>
+                                            <div class="small text-muted mt-1">
+                                                Chỉ nhập mã khi chọn hỗ trợ sự cố hoặc upsell nâng hạng.
+                                            </div>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label small">Mã nâng hạng</label>
+                                            <input type="text" name="room_upgrade_promotion_code" class="form-control text-uppercase"
+                                                list="roomUpgradePromotionCodes" placeholder="VD: INCIDENT_UPGRADE_FULL hoặc UPGRADE20">
+                                        </div>
+
                                         <button type="submit" class="btn btn-outline-warning w-100">Đổi 1 phòng</button>
                                     </form>
 
@@ -2268,6 +2316,26 @@
                                             <label class="form-label small">Lý do</label>
                                             <input type="text" name="change_category_reason" class="form-control"
                                                 placeholder="Ví dụ: Khách muốn đổi toàn bộ hạng phòng">
+                                        </div>
+
+
+
+                                        <div class="mb-3">
+                                            <label class="form-label small">Xử lý tiền chênh</label>
+                                            <select name="upgrade_payment_action" class="form-select">
+                                                <option value="guest_pay">Khách trả toàn bộ tiền chênh</option>
+                                                <option value="incident_support">Mã hỗ trợ sự cố - khách không trả thêm</option>
+                                                <option value="paid_upsell">Mã điều kiện upsell - khách trả phần còn lại</option>
+                                            </select>
+                                            <div class="small text-muted mt-1">
+                                                Chỉ nhập mã khi chọn hỗ trợ sự cố hoặc upsell nâng hạng.
+                                            </div>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label small">Mã nâng hạng</label>
+                                            <input type="text" name="room_upgrade_promotion_code" class="form-control text-uppercase"
+                                                list="roomUpgradePromotionCodes" placeholder="VD: INCIDENT_UPGRADE_FULL hoặc UPGRADE20">
                                         </div>
 
                                         <button type="submit" class="btn btn-outline-danger w-100">Đổi toàn bộ</button>
@@ -2484,7 +2552,7 @@
 
                         @if ($canEditServiceItems)
                             <details class="compact-panel">
-                                <summary>Thêm dịch vụ / minibar</summary>
+                                <summary>Thêm dịch vụ / minibar / xe cộ</summary>
                                 <div class="compact-panel-body">
                                     <form action="{{ route('admin.bookings.service-items.store', $booking->id) }}" method="POST"
                                         id="multiServiceForm">
@@ -2501,9 +2569,10 @@
                                                             @foreach ($availableServices as $service)
                                                                 <option value="{{ $service->id }}"
                                                                     data-price="{{ $service->price }}"
-                                                                    data-unit="{{ $service->unit }}">
+                                                                    data-unit="{{ $service->unit }}"
+                                                                    data-group="{{ $service->service_group ?? 'general' }}">
                                                                     {{ $service->name }} -
-                                                                    {{ $service->type == 'minibar' ? 'Khách gọi thêm' : 'Dịch vụ' }} -
+                                                                    {{ $service->group_label ?? ($service->type == 'minibar' ? 'Khách gọi thêm' : 'Dịch vụ') }} -
                                                                     {{ number_format($service->price, 0, ',', '.') }}đ /
                                                                     {{ $service->unit }}
                                                                 </option>
@@ -2639,6 +2708,208 @@
                                 </span>
                             </div>
                         </div>
+
+                        @if (!in_array($booking->status, ['canceled', 'cancelled', 'no_show']) && $booking->payment_status != 'paid')
+                            <hr class="my-3">
+
+                            @if (session('admin_vnpay_payment_url'))
+                                <div class="alert alert-info small mb-3">
+                                    <div class="fw-bold mb-1">Đã tạo link yêu cầu thanh toán VNPay</div>
+                                    Link này là link của website mình. Khi khách bấm vào, hệ thống mới tạo phiên VNPay mới, nên không bị kẹt link cổng VNPay cũ đã hết hạn. Nếu email chưa tới khách, có thể copy link này gửi thủ công:
+                                    <a href="{{ session('admin_vnpay_payment_url') }}" target="_blank" class="fw-bold">
+                                        Mở link yêu cầu thanh toán
+                                    </a>
+                                </div>
+                            @endif
+
+                            <div class="fw-bold mb-2">Thanh toán</div>
+
+                            <div class="soft-note mb-2">
+                                <div class="d-flex justify-content-between gap-2">
+                                    <span>Tổng cần thanh toán</span>
+                                    <strong>{{ number_format($finalTotal, 0, ',', '.') }}đ</strong>
+                                </div>
+                                <div class="d-flex justify-content-between gap-2 mt-1">
+                                    <span>Đã thu</span>
+                                    <strong>{{ number_format($adminPaymentPaidAmount, 0, ',', '.') }}đ</strong>
+                                </div>
+                                <div class="d-flex justify-content-between gap-2 mt-1">
+                                    <span>Còn lại cần thu</span>
+                                    <strong class="text-danger">{{ number_format($remainingTotal, 0, ',', '.') }}đ</strong>
+                                </div>
+                            </div>
+
+                            <select id="adminPaymentMode" class="form-select form-select-sm mb-2">
+                                <option value="">-- Chọn cách thanh toán --</option>
+                                <option value="cash">Tiền mặt tại quầy</option>
+                                <option value="bank_transfer">Chuyển khoản tại quầy</option>
+                                <option value="vnpay">Gửi thanh toán online VNPay qua email</option>
+                            </select>
+
+                            <div id="adminDirectPaymentBox" class="d-none">
+                                <form action="{{ route('admin.bookings.payments.store', $booking) }}" method="POST">
+                                    @csrf
+
+                                    <input type="hidden" name="payment_method" id="adminDirectPaymentMethod" value="">
+
+                                    <div class="row g-2">
+                                        <div class="col-12">
+                                            <select name="payment_type" id="adminDirectPaymentType"
+                                                class="form-select form-select-sm" required>
+                                                <option value="deposit_30" data-amount="{{ $adminPaymentDepositAmount }}"
+                                                    @disabled($adminPaymentDepositAmount <= 0)>
+                                                    Thu cọc 30% - {{ number_format($adminPaymentDepositAmount, 0, ',', '.') }}đ
+                                                </option>
+                                                <option value="full_100" data-amount="{{ $adminPaymentFullAmount }}">
+                                                    Thu đủ còn lại - {{ number_format($adminPaymentFullAmount, 0, ',', '.') }}đ
+                                                </option>
+                                                <option value="custom" data-amount="0">
+                                                    Thu số tiền khác
+                                                </option>
+                                            </select>
+                                        </div>
+
+                                        <div class="col-12">
+                                            <div class="soft-note" id="adminDirectPaymentSpeakText">
+                                                Chọn kiểu thu tiền để hệ thống hiện câu nói cho lễ tân.
+                                            </div>
+                                        </div>
+
+                                        <div class="col-12 d-none" id="adminDirectCustomAmountBox">
+                                            <input type="number" name="amount" id="adminDirectCustomAmount"
+                                                class="form-control form-control-sm" min="1000" step="1000"
+                                                max="{{ $remainingTotal }}"
+                                                placeholder="Nhập số tiền khách trả, ví dụ 500000">
+                                            <div class="text-muted small mt-1">
+                                                Số tiền nhập không được lớn hơn số còn lại:
+                                                {{ number_format($remainingTotal, 0, ',', '.') }}đ.
+                                            </div>
+                                        </div>
+
+                                        <div class="col-12">
+                                            <textarea name="payment_note" rows="2" class="form-control form-control-sm"
+                                                placeholder="Ghi chú thanh toán nếu có"></textarea>
+                                        </div>
+
+                                        <div class="col-12">
+                                            <button type="submit" id="adminDirectPaymentSubmit"
+                                                class="btn btn-sm btn-dark w-100"
+                                                onclick="return confirm('Xác nhận ghi nhận khoản thanh toán này?')">
+                                                <i class="bx bx-money-withdraw me-1"></i>
+                                                Ghi nhận đã thu
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <div id="adminVnpayPaymentBox" class="d-none">
+                                <form action="{{ route('admin.bookings.vnpay.create', $booking) }}" method="POST">
+                                    @csrf
+
+                                    <div class="row g-2">
+                                        <div class="col-12">
+                                            <select name="payment_type" id="adminVnpayPaymentType"
+                                                class="form-select form-select-sm" required>
+                                                <option value="deposit_30" data-amount="{{ $adminPaymentDepositAmount }}"
+                                                    @disabled($adminPaymentDepositAmount <= 0)>
+                                                    Gửi yêu cầu cọc 30% - {{ number_format($adminPaymentDepositAmount, 0, ',', '.') }}đ
+                                                </option>
+                                                <option value="full_100" data-amount="{{ $adminPaymentFullAmount }}">
+                                                    Gửi yêu cầu thanh toán đủ còn lại - {{ number_format($adminPaymentFullAmount, 0, ',', '.') }}đ
+                                                </option>
+                                            </select>
+                                        </div>
+
+                                        <div class="col-12">
+                                            <input type="email" name="customer_email" id="adminVnpayCustomerEmail"
+                                                class="form-control form-control-sm"
+                                                value="{{ $adminPaymentDefaultEmail }}"
+                                                placeholder="Email khách nhận link thanh toán VNPay" required>
+                                        </div>
+
+                                        <div class="col-12">
+                                            <div class="soft-note" id="adminVnpayPaymentSpeakText">
+                                                Email sẽ có mã booking, mã giao dịch, số tiền và nút mở thanh toán. Khách bấm lại link email sẽ tạo phiên VNPay mới nếu yêu cầu còn hạn.
+                                            </div>
+                                        </div>
+
+                                        <div class="col-12">
+                                            <button type="submit" id="adminVnpayPaymentSubmit"
+                                                class="btn btn-sm btn-outline-primary w-100"
+                                                onclick="return confirm('Gửi email yêu cầu thanh toán VNPay cho khách?')">
+                                                <i class="bx bx-envelope me-1"></i>
+                                                Gửi email thanh toán VNPay
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        @endif
+
+                        @if ($booking->payments->count() > 0)
+                            <hr class="my-3">
+                            <div class="fw-bold mb-2">Lịch sử thanh toán</div>
+
+                            <div class="d-grid gap-2">
+                                @foreach ($booking->payments->sortByDesc('created_at')->take(5) as $payment)
+                                    @php
+                                        $paymentProviderLabels = [
+                                            'vnpay' => 'VNPay',
+                                            'admin_vnpay' => 'VNPay admin',
+                                            'cash' => 'Tiền mặt',
+                                            'bank_transfer' => 'Chuyển khoản',
+                                        ];
+
+                                        $paymentRawResponse = is_array($payment->raw_response ?? null)
+                                            ? $payment->raw_response
+                                            : [];
+
+                                        $paymentExpireText = null;
+                                        $paymentIsExpiredPending = false;
+
+                                        if ($payment->status === 'pending') {
+                                            $paymentExpiresAt = null;
+
+                                            if (!empty($paymentRawResponse['request_expires_at'] ?? null)) {
+                                                $paymentExpiresAt = \Carbon\Carbon::parse($paymentRawResponse['request_expires_at'], 'Asia/Ho_Chi_Minh');
+                                            } elseif (!empty($paymentRawResponse['expires_at'] ?? null)) {
+                                                $paymentExpiresAt = \Carbon\Carbon::parse($paymentRawResponse['expires_at'], 'Asia/Ho_Chi_Minh');
+                                            } elseif ($payment->created_at) {
+                                                $paymentExpiresAt = $payment->created_at->copy()->timezone('Asia/Ho_Chi_Minh')->addMinutes(
+                                                    $payment->provider === 'admin_vnpay'
+                                                        ? (int) config('vnpay.admin_request_expire_minutes', 1440)
+                                                        : (int) config('vnpay.expire_minutes', 30)
+                                                );
+                                            }
+
+                                            if ($paymentExpiresAt) {
+                                                $paymentExpireText = 'Hạn: ' . $paymentExpiresAt->format('d/m/Y H:i');
+                                                $paymentIsExpiredPending = now('Asia/Ho_Chi_Minh')->greaterThan($paymentExpiresAt);
+                                            }
+                                        }
+
+                                        $paymentStatusText = $payment->status === 'success'
+                                            ? 'Thành công'
+                                            : ($payment->status === 'failed' ? 'Đã đóng/thất bại' : ($paymentIsExpiredPending ? 'Hết hạn' : 'Đang chờ'));
+                                    @endphp
+
+                                    <div class="border rounded-3 p-2">
+                                        <div class="d-flex justify-content-between gap-2">
+                                            <strong>{{ $paymentProviderLabels[$payment->provider] ?? $payment->provider }}</strong>
+                                            <span>{{ number_format((float) $payment->amount, 0, ',', '.') }}đ</span>
+                                        </div>
+                                        <div class="small text-muted">
+                                            {{ $paymentStatusText }} ·
+                                            {{ $payment->paid_at ? \Carbon\Carbon::parse($payment->paid_at)->format('d/m/Y H:i') : ($payment->created_at ? $payment->created_at->format('d/m/Y H:i') : '---') }}
+                                            @if ($paymentExpireText && $payment->status === 'pending')
+                                                · {{ $paymentExpireText }}
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
                     </section>
 
                     <section class="card-clean">
@@ -2688,12 +2959,12 @@
                             <div class="info-line">
                                 <span class="info-label">Nhận phòng</span>
                                 <span
-                                    class="info-value">{{ $booking->check_in_at ? $booking->check_in_at->format('d/m/Y H:i') : '---' }}</span>
+                                    class="info-value">{{ $lateShowCheckInAt ? $lateShowCheckInAt->format('d/m/Y H:i') : '---' }}</span>
                             </div>
                             <div class="info-line">
                                 <span class="info-label">Trả phòng</span>
                                 <span
-                                    class="info-value">{{ $booking->check_out_at ? $booking->check_out_at->format('d/m/Y H:i') : '---' }}</span>
+                                    class="info-value">{{ $lateShowCheckOutAt ? $lateShowCheckOutAt->format('d/m/Y H:i') : '---' }}</span>
                             </div>
                             @if ($booking->booking_type == 'hourly')
                                 <div class="info-line">
@@ -3160,6 +3431,197 @@
 
             updateServiceRowNames();
             updateMultiServiceTotals();
+
+            const adminPaymentMode = document.getElementById('adminPaymentMode');
+            const adminDirectPaymentBox = document.getElementById('adminDirectPaymentBox');
+            const adminVnpayPaymentBox = document.getElementById('adminVnpayPaymentBox');
+            const adminDirectPaymentMethod = document.getElementById('adminDirectPaymentMethod');
+            const adminDirectPaymentType = document.getElementById('adminDirectPaymentType');
+            const adminDirectCustomAmountBox = document.getElementById('adminDirectCustomAmountBox');
+            const adminDirectCustomAmount = document.getElementById('adminDirectCustomAmount');
+            const adminDirectPaymentSubmit = document.getElementById('adminDirectPaymentSubmit');
+            const adminDirectPaymentSpeakText = document.getElementById('adminDirectPaymentSpeakText');
+            const adminVnpayPaymentType = document.getElementById('adminVnpayPaymentType');
+            const adminVnpayPaymentSubmit = document.getElementById('adminVnpayPaymentSubmit');
+            const adminVnpayPaymentSpeakText = document.getElementById('adminVnpayPaymentSpeakText');
+
+            function formatMoneyVn(amount) {
+                const number = Number(amount || 0);
+                return new Intl.NumberFormat('vi-VN').format(Math.max(0, number)) + 'đ';
+            }
+
+            function getSelectedOptionAmount(select) {
+                if (!select || !select.selectedOptions || !select.selectedOptions.length) {
+                    return 0;
+                }
+
+                return Number(select.selectedOptions[0].dataset.amount || 0);
+            }
+
+            function getAdminPaymentMethodLabel() {
+                if (!adminPaymentMode) {
+                    return 'thanh toán';
+                }
+
+                if (adminPaymentMode.value === 'bank_transfer') {
+                    return 'chuyển khoản tại quầy';
+                }
+
+                return 'tiền mặt tại quầy';
+            }
+
+            function updateAdminDirectPaymentText() {
+                if (!adminDirectPaymentType || !adminDirectPaymentSubmit) {
+                    return;
+                }
+
+                const type = adminDirectPaymentType.value;
+                const methodLabel = getAdminPaymentMethodLabel();
+                let amount = getSelectedOptionAmount(adminDirectPaymentType);
+                let message = '';
+
+                if (type === 'custom') {
+                    amount = Number(adminDirectCustomAmount?.value || 0);
+                    const amountText = amount > 0 ? formatMoneyVn(amount) : 'số tiền khách trả';
+                    adminDirectPaymentSubmit.innerHTML = '<i class="bx bx-money-withdraw me-1"></i> Ghi nhận đã thu ' + amountText;
+                    message = 'Lễ tân nói với khách: Anh/chị thanh toán ' + amountText + ' bằng ' + methodLabel + ' ạ.';
+                } else if (type === 'deposit_30') {
+                    adminDirectPaymentSubmit.innerHTML = '<i class="bx bx-money-withdraw me-1"></i> Ghi nhận đã thu ' + formatMoneyVn(amount);
+                    message = 'Lễ tân nói với khách: Anh/chị cần cọc 30% là ' + formatMoneyVn(amount) + ' để giữ phòng ạ.';
+                } else {
+                    adminDirectPaymentSubmit.innerHTML = '<i class="bx bx-money-withdraw me-1"></i> Ghi nhận đã thu ' + formatMoneyVn(amount);
+                    message = 'Lễ tân nói với khách: Số tiền còn lại cần thanh toán là ' + formatMoneyVn(amount) + ' ạ.';
+                }
+
+                if (adminDirectPaymentSpeakText) {
+                    adminDirectPaymentSpeakText.textContent = message;
+                }
+            }
+
+            function updateAdminVnpayPaymentText() {
+                if (!adminVnpayPaymentType || !adminVnpayPaymentSubmit) {
+                    return;
+                }
+
+                const amount = getSelectedOptionAmount(adminVnpayPaymentType);
+                const type = adminVnpayPaymentType.value;
+                const purpose = type === 'deposit_30' ? 'cọc 30%' : 'thanh toán số tiền còn lại';
+                const amountText = formatMoneyVn(amount);
+
+                adminVnpayPaymentSubmit.innerHTML = '<i class="bx bx-envelope me-1"></i> Gửi email VNPay ' + amountText;
+
+                if (adminVnpayPaymentSpeakText) {
+                    adminVnpayPaymentSpeakText.textContent = 'Email gửi cho khách sẽ có mã booking, mã giao dịch, nội dung "' + purpose + '", số tiền ' + amountText + ' và nút thanh toán qua VNPay.';
+                }
+            }
+
+            function toggleAdminPaymentBoxes() {
+                if (!adminPaymentMode) {
+                    return;
+                }
+
+                const mode = adminPaymentMode.value;
+                const isDirectPayment = mode === 'cash' || mode === 'bank_transfer';
+                const isVnpayPayment = mode === 'vnpay';
+
+                if (adminDirectPaymentBox) {
+                    adminDirectPaymentBox.classList.toggle('d-none', !isDirectPayment);
+                }
+
+                if (adminVnpayPaymentBox) {
+                    adminVnpayPaymentBox.classList.toggle('d-none', !isVnpayPayment);
+                }
+
+                if (adminDirectPaymentMethod) {
+                    adminDirectPaymentMethod.value = isDirectPayment ? mode : '';
+                }
+
+                toggleAdminDirectCustomAmount();
+                updateAdminDirectPaymentText();
+                updateAdminVnpayPaymentText();
+            }
+
+            function toggleAdminDirectCustomAmount() {
+                if (!adminDirectPaymentType || !adminDirectCustomAmountBox || !adminDirectCustomAmount) {
+                    return;
+                }
+
+                const isCustom = adminDirectPaymentType.value === 'custom';
+                adminDirectCustomAmountBox.classList.toggle('d-none', !isCustom);
+                adminDirectCustomAmount.required = isCustom;
+                adminDirectCustomAmount.disabled = !isCustom;
+
+                if (!isCustom) {
+                    adminDirectCustomAmount.value = '';
+                }
+
+                updateAdminDirectPaymentText();
+            }
+
+            if (adminPaymentMode) {
+                adminPaymentMode.addEventListener('change', toggleAdminPaymentBoxes);
+                toggleAdminPaymentBoxes();
+            }
+
+            if (adminDirectPaymentType) {
+                adminDirectPaymentType.addEventListener('change', toggleAdminDirectCustomAmount);
+                toggleAdminDirectCustomAmount();
+            }
+
+            if (adminDirectCustomAmount) {
+                adminDirectCustomAmount.addEventListener('input', updateAdminDirectPaymentText);
+            }
+
+            if (adminVnpayPaymentType) {
+                adminVnpayPaymentType.addEventListener('change', updateAdminVnpayPaymentText);
+                updateAdminVnpayPaymentText();
+            }
+
+            const checkoutPaymentBox = document.getElementById('checkoutPaymentConfirmBox');
+            const checkoutExtraAmountInput = document.querySelector('input[name="checkout_extra_amount"]');
+            const checkoutPaymentMethods = document.querySelectorAll('.checkout-payment-method');
+            const checkoutPaymentConfirm = document.getElementById('checkoutPaymentConfirm');
+            const checkoutPaymentConfirmHint = document.getElementById('checkoutPaymentConfirmHint');
+            const checkoutPaymentRequiredMarks = document.querySelectorAll('.checkout-payment-required-mark');
+            const checkoutPaymentNotice = document.getElementById('checkoutPaymentNotice');
+
+            function updateCheckoutPaymentRequirement() {
+                if (!checkoutPaymentBox) {
+                    return;
+                }
+
+                const baseRemaining = Number(checkoutPaymentBox.dataset.baseRemaining || 0);
+                const manualExtraAmount = Number(checkoutExtraAmountInput?.value || 0);
+                const needPayment = baseRemaining > 0 || manualExtraAmount > 0;
+
+                checkoutPaymentMethods.forEach(function (input) {
+                    input.required = needPayment;
+                });
+
+                if (checkoutPaymentConfirm) {
+                    checkoutPaymentConfirm.required = needPayment;
+                }
+
+                checkoutPaymentRequiredMarks.forEach(function (mark) {
+                    mark.classList.toggle('d-none', !needPayment);
+                });
+
+                if (checkoutPaymentConfirmHint) {
+                    checkoutPaymentConfirmHint.textContent = needPayment
+                        ? 'Bắt buộc vì booking còn tiền phải thu hoặc có phí phát sinh khi check-out.'
+                        : 'Không bắt buộc nếu booking không phát sinh thêm tiền.';
+                }
+
+                if (checkoutPaymentNotice && baseRemaining <= 0) {
+                    checkoutPaymentNotice.classList.toggle('alert-success', !needPayment);
+                    checkoutPaymentNotice.classList.toggle('alert-warning', needPayment);
+                }
+            }
+
+            if (checkoutExtraAmountInput) {
+                checkoutExtraAmountInput.addEventListener('input', updateCheckoutPaymentRequirement);
+                updateCheckoutPaymentRequirement();
+            }
 
             if (document.getElementById('extendCheckOutTime') && typeof flatpickr !== 'undefined') {
                 flatpickr('#extendCheckOutTime', {

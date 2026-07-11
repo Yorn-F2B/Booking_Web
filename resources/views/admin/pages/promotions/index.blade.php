@@ -217,6 +217,12 @@
                                                 {{ $promotion->serviceOffers->map(fn ($offer) => $offer->offer_label)->implode(' · ') }}
                                             </div>
                                         @endif
+                                        @if ($promotion->roomUpgradeOffers->count() > 0)
+                                            <div class="promotion-muted mt-1 text-success">
+                                                Nâng hạng:
+                                                {{ $promotion->roomUpgradeOffers->map(fn ($offer) => $offer->kind_label . ' - ' . $offer->cover_label)->implode(' · ') }}
+                                            </div>
+                                        @endif
                                     </td>
 
                                     <td style="min-width: 240px;">
@@ -249,6 +255,11 @@
                                             Tổng ưu đãi:
                                             {{ number_format((float) ($promotion->total_discount_used ?? 0), 0, ',', '.') }}đ
                                         </div>
+                                        @if ((float) ($promotion->total_room_upgrade_discount_used ?? 0) > 0)
+                                            <div class="promotion-muted">
+                                                Nâng hạng: {{ number_format((float) $promotion->total_room_upgrade_discount_used, 0, ',', '.') }}đ
+                                            </div>
+                                        @endif
                                     </td>
 
                                     <td>

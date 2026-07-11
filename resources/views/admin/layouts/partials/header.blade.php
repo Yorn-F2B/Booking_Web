@@ -4,7 +4,7 @@
 
 <aside class="admin-sidebar" id="adminSidebar">
     <div class="admin-sidebar-brand">
-        <a href="index.html">
+        <a href="{{ route('admin.dashboard') }}">
             <span class="logo-mark">MC</span>
             <span>MCuong Hotel<small>Bảng quản trị</small></span>
         </a>
@@ -15,13 +15,16 @@
             $userRole = auth()->user()->role ?? null;
             $isSuperAdmin = $userRole === 'super_admin';
             $isManager = $userRole === 'manager';
+            $isReceptionistLead = $userRole === 'receptionist_lead';
             $isReceptionist = $userRole === 'receptionist';
+            $isHousekeepingSupervisor = $userRole === 'housekeeping_supervisor';
             $isHousekeeping = $userRole === 'housekeeping';
         @endphp
 
         <div class="admin-nav-label">Tổng quan</div>
 
-        <a href="#" class="admin-nav-link disabled">
+        <a href="{{ route('admin.dashboard') }}"
+            class="admin-nav-link {{ request()->routeIs('admin.dashboard') ? 'active' : '' }}">
             <i class="bx bx-grid-alt"></i>
             Dashboard
         </a>
@@ -33,6 +36,14 @@
                 class="admin-nav-link {{ request()->routeIs('staffs.*') ? 'active' : '' }}">
                 <i class="bx bx-group"></i>
                 Nhân viên
+            </a>
+        @endif
+
+        @if ($isSuperAdmin || $isManager || $isReceptionistLead || $isHousekeepingSupervisor)
+            <a href="{{ route('admin.staff-assignments.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.staff-assignments.*') ? 'active' : '' }}">
+                <i class="bx bx-task"></i>
+                Phân công nhân sự
             </a>
         @endif
 
@@ -66,15 +77,21 @@
                 <i class="bx bx-star"></i>
                 Tiện ích
             </a>
+
+            <a href="{{ route('admin.reviews.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.reviews.*') ? 'active' : '' }}">
+                <i class="bx bx-message-square-check"></i>
+                Đánh giá khách sạn
+            </a>
         @endif
 
-        <a href="{{ route('admin.room-availability.index') }}"
-            class="admin-nav-link {{ request()->routeIs('admin.room-availability.*') ? 'active' : '' }}">
-            <i class="bx bx-search"></i>
-            Tra cứu phòng trống
-        </a>
+        @if ($isSuperAdmin || $isManager || $isReceptionistLead || $isReceptionist)
+            <a href="{{ route('admin.room-availability.index') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.room-availability.*') ? 'active' : '' }}">
+                <i class="bx bx-search"></i>
+                Tra cứu phòng trống
+            </a>
 
-        @if ($isSuperAdmin || $isReceptionist)
             <a href="{{ route('admin.bookings.index') }}"
                 class="admin-nav-link {{ request()->routeIs('admin.bookings.*') ? 'active' : '' }}">
                 <i class="bx bx-calendar-check"></i>
@@ -82,7 +99,7 @@
             </a>
         @endif
 
-        @if ($isSuperAdmin || $isManager || $isReceptionist)
+        @if ($isSuperAdmin || $isManager || $isReceptionistLead || $isReceptionist)
             <a href="{{ route('admin.chats.index') }}"
                 class="admin-nav-link {{ request()->routeIs('admin.chats.*') ? 'active' : '' }}">
                 <i class="bx bx-message-rounded-dots"></i>
@@ -90,7 +107,7 @@
             </a>
         @endif
 
-        @if ($isSuperAdmin || $isHousekeeping)
+        @if ($isSuperAdmin || $isManager || $isHousekeepingSupervisor || $isHousekeeping)
             <a href="{{ route('admin.housekeeping.index') }}"
                 class="admin-nav-link {{ request()->routeIs('admin.housekeeping.*') ? 'active' : '' }}">
                 <i class="bx bx-brush"></i>
@@ -112,16 +129,9 @@
             </a>
         @endif
 
-        <a href="{{ route('admin.customers.index') }}" 
-            class="admin-nav-link {{ request()->routeIs('admin.customers.*') ? 'active' : '' }}">
+        <a href="#" class="admin-nav-link disabled">
             <i class="bx bx-user"></i>
             Khách hàng
-        </a>
-
-        <a href="{{ route('admin.staying-guests.index') }}" 
-            class="admin-nav-link {{ request()->routeIs('admin.staying-guests.*') ? 'active' : '' }}">
-            <i class="bx bx-user-pin"></i>
-            Khách đang lưu trú
         </a>
     </nav>
 

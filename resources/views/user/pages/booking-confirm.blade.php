@@ -222,12 +222,13 @@
                                                 @foreach ($services as $service)
                                                     <option value="{{ $service->id }}" data-name="{{ $service->name }}"
                                                         data-price="{{ $service->price }}" data-unit="{{ $service->unit }}"
-                                                        data-type="{{ $service->type }}">
+                                                        data-type="{{ $service->type }}"
+                                                        data-group="{{ $service->service_group ?? 'general' }}">
                                                         {{ $service->name }}
                                                         -
                                                         {{ number_format($service->price, 0, ',', '.') }}đ / {{ $service->unit }}
                                                         -
-                                                        {{ $service->type == 'minibar' ? 'Minibar' : 'Dịch vụ' }}
+                                                        {{ $service->group_label ?? ($service->type == 'minibar' ? 'Minibar' : 'Dịch vụ') }}
                                                     </option>
                                                 @endforeach
                                             </select>

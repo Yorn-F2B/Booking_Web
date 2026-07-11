@@ -217,7 +217,15 @@
 
                         <div class="booking-form-card">
 
-                            <h5>Thông tin khách hàng</h5>
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="mb-0">Thông tin khách hàng</h5>
+                                <div>
+                                    <input type="file" id="cccdInput" accept="image/*" class="d-none">
+                                    <button type="button" id="btnScanCccd" class="btn btn-sm btn-outline-primary" onclick="document.getElementById('cccdInput').click()">
+                                        <i class="bi bi-person-badge"></i> Quét thẻ CCCD
+                                    </button>
+                                </div>
+                            </div>
 
                             <div class="row g-3">
 
@@ -272,6 +280,30 @@
                                         value="{{ old('customer_address') }}" placeholder="Nhập địa chỉ nếu có">
 
                                     @error('customer_address')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Ngày sinh</label>
+                                    <input type="date" name="customer_birthday"
+                                        class="form-control @error('customer_birthday') is-invalid @enderror"
+                                        value="{{ old('customer_birthday') }}">
+
+                                    @error('customer_birthday')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Giới tính</label>
+                                    <select name="customer_gender" class="form-select @error('customer_gender') is-invalid @enderror">
+                                        <option value="">-- Chọn --</option>
+                                        <option value="male" {{ old('customer_gender') == 'male' ? 'selected' : '' }}>Nam</option>
+                                        <option value="female" {{ old('customer_gender') == 'female' ? 'selected' : '' }}>Nữ</option>
+                                    </select>
+
+                                    @error('customer_gender')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
                                 </div>
@@ -573,22 +605,76 @@
 
                             <div class="row g-3">
 
-                                <div class="col-md-6">
-                                    <label class="form-label">Tiền cọc</label>
+                                <div class="col-md-4">
+                                    <label class="form-label">Phương thức thanh toán</label>
+                                    <select name="payment_method" id="paymentMethod"
+                                        class="form-select @error('payment_method') is-invalid @enderror">
+                                        <option value="none" {{ old('payment_method', 'none') == 'none' ? 'selected' : '' }}>
+                                            Chưa thu tiền
+                                        </option>
+                                        <option value="cash" {{ old('payment_method') == 'cash' ? 'selected' : '' }}>
+                                            Tiền mặt tại quầy
+                                        </option>
+                                        <option value="bank_transfer" {{ old('payment_method') == 'bank_transfer' ? 'selected' : '' }}>
+                                            Chuyển khoản tại quầy
+                                        </option>
+                                        <option value="vnpay" {{ old('payment_method') == 'vnpay' ? 'selected' : '' }}>
+                                            Online VNPay
+                                        </option>
+                                    </select>
+
+                                    @error('payment_method')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+
+                                    <div class="booking-help-text mt-1">
+                                        Có thể tạo booking chưa thu tiền, thu trực tiếp, hoặc chuyển khách sang VNPay.
+                                    </div>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label">Kiểu thanh toán</label>
+                                    <select name="payment_type" id="paymentType"
+                                        class="form-select @error('payment_type') is-invalid @enderror">
+                                        <option value="" {{ old('payment_type') === null ? 'selected' : '' }}>
+                                            -- Chọn sau --
+                                        </option>
+                                        <option value="deposit_30" {{ old('payment_type') == 'deposit_30' ? 'selected' : '' }}>
+                                            Thu cọc 30%
+                                        </option>
+                                        <option value="full_100" {{ old('payment_type') == 'full_100' ? 'selected' : '' }}>
+                                            Thu đủ 100%
+                                        </option>
+                                        <option value="custom" {{ old('payment_type') == 'custom' ? 'selected' : '' }}>
+                                            Nhập số tiền thực thu
+                                        </option>
+                                    </select>
+
+                                    @error('payment_type')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+
+                                    <div class="booking-help-text mt-1" id="paymentTypeHelp">
+                                        Chọn phương thức thanh toán để hệ thống tự tính số tiền cần thu.
+                                    </div>
+                                </div>
+
+                                <div class="col-md-4" id="customPaymentAmountBox">
+                                    <label class="form-label">Số tiền thu thực tế</label>
                                     <input type="number" name="deposit_amount" id="depositAmount"
                                         class="form-control @error('deposit_amount') is-invalid @enderror"
-                                        value="{{ old('deposit_amount', 0) }}" min="0">
+                                        value="{{ old('deposit_amount', 0) }}" min="0" step="1000">
 
                                     @error('deposit_amount')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
 
-                                    <div class="booking-help-text mt-1">
-                                        Nếu nhập lớn hơn 0, trạng thái thanh toán sẽ là "Đã cọc".
+                                    <div class="booking-help-text mt-1" id="paymentAmountHelp">
+                                        Chỉ nhập khi chọn kiểu "Nhập số tiền thực thu".
                                     </div>
                                 </div>
 
-                                <div class="col-md-6">
+                                <div class="col-md-12">
                                     <div class="booking-total-box">
                                         <div class="booking-help-text">Tổng tiền tạm tính</div>
                                         <strong id="estimatedTotalText">0đ</strong>
@@ -637,8 +723,8 @@
                                             -
                                             {{ number_format($service->price, 0, ',', '.') }}đ / {{ $service->unit }}
                                             <span
-                                                class="badge bg-{{ $service->type == 'minibar' ? 'warning text-dark' : 'primary' }}">
-                                                {{ $service->type == 'minibar' ? 'Minibar' : 'Dịch vụ' }}
+                                                class="badge bg-{{ ($service->service_group ?? '') == 'vehicle' ? 'dark' : (($service->type == 'minibar') ? 'warning text-dark' : 'primary') }}">
+                                                {{ $service->group_label ?? ($service->type == 'minibar' ? 'Minibar' : 'Dịch vụ') }}
                                             </span>
                                         </label>
                                     </div>
@@ -746,6 +832,27 @@
                                                                 if ($promotion->discount_type == 'percent' && (float) $promotion->max_discount_amount > 0) {
                                                                     $promotionDiscountText .= ' - tối đa ' . number_format((float) $promotion->max_discount_amount, 0, ',', '.') . 'đ';
                                                                 }
+
+
+                                                                $promotionServiceOffersPayload = $promotion->serviceOffers
+                                                                    ->map(function ($offer) {
+                                                                        return [
+                                                                            'service_id' => $offer->service_id,
+                                                                            'service_name' => $offer->service->name ?? 'Dịch vụ',
+                                                                            'service_unit' => $offer->service->unit ?? '',
+                                                                            'service_price' => (float) ($offer->service->price ?? 0),
+                                                                            'service_type' => $offer->service->type ?? 'service',
+                                                                            'discount_type' => $offer->discount_type,
+                                                                            'discount_value' => (float) $offer->discount_value,
+                                                                            'quantity' => (int) $offer->quantity,
+                                                                            'auto_add_service' => (bool) $offer->auto_add_service,
+                                                                        ];
+                                                                    })
+                                                                    ->values();
+
+                                                                $promotionServiceOffersJson = $promotionServiceOffersPayload->toJson(
+                                                                    JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+                                                                );
                                                             @endphp
 
                                                             <label class="promotion-card mb-0">
@@ -760,19 +867,7 @@
                                                                         data-discount-type="{{ $promotion->discount_type }}"
                                                                         data-discount-value="{{ (float) $promotion->discount_value }}"
                                                                         data-max-discount="{{ (float) $promotion->max_discount_amount }}"
-                                                                        data-service-offers='@json($promotion->serviceOffers->map(function ($offer) {
-                                                                            return [
-                                                                                'service_id' => $offer->service_id,
-                                                                                'service_name' => $offer->service->name ?? 'Dịch vụ',
-                                                                                'service_unit' => $offer->service->unit ?? '',
-                                                                                'service_price' => (float) ($offer->service->price ?? 0),
-                                                                                'service_type' => $offer->service->type ?? 'service',
-                                                                                'discount_type' => $offer->discount_type,
-                                                                                'discount_value' => (float) $offer->discount_value,
-                                                                                'quantity' => (int) $offer->quantity,
-                                                                                'auto_add_service' => (bool) $offer->auto_add_service,
-                                                                            ];
-                                                                        })->values())'
+                                                                        data-service-offers="{{ e($promotionServiceOffersJson) }}"
                                                                         @checked(in_array($promotion->code, old('promotion_codes', [])))>
 
                                                                     <div class="ms-1">
@@ -804,6 +899,12 @@
                                                                             <div class="promotion-meta mt-1 text-success">
                                                                                 Dịch vụ ưu đãi:
                                                                                 {{ $promotion->serviceOffers->map(fn ($offer) => $offer->offer_label)->implode(' · ') }}
+                                                                            </div>
+                                                                        @endif
+                                                                        @if ($promotion->roomUpgradeOffers->count() > 0)
+                                                                            <div class="promotion-meta mt-1 text-primary">
+                                                                                Nâng hạng:
+                                                                                {{ $promotion->roomUpgradeOffers->map(fn ($offer) => $offer->kind_label . ' - ' . $offer->cover_label)->implode(' · ') }}
                                                                             </div>
                                                                         @endif
                                                                     </div>
@@ -929,6 +1030,13 @@
             const promotionSubtotalText = document.getElementById('promotionSubtotalText');
             const promotionDiscountText = document.getElementById('promotionDiscountText');
             const promotionFinalText = document.getElementById('promotionFinalText');
+
+            const paymentMethod = document.getElementById('paymentMethod');
+            const paymentType = document.getElementById('paymentType');
+            const depositAmount = document.getElementById('depositAmount');
+            const customPaymentAmountBox = document.getElementById('customPaymentAmountBox');
+            const paymentTypeHelp = document.getElementById('paymentTypeHelp');
+            const paymentAmountHelp = document.getElementById('paymentAmountHelp');
 
             const hourlyPreviewWrapper = document.getElementById('hourlyPreviewWrapper');
             const hourlyPreviewBox = document.getElementById('hourlyPreviewBox');
@@ -1731,11 +1839,90 @@
                 const total = promotionTotals.finalTotal;
 
                 estimatedTotalText.innerText = formatMoney(total);
+                updatePaymentUi(total);
 
                 if (roomTotal <= 0 && serviceTotal > 0) {
                     nightCountText.innerText = 'Đã cộng dịch vụ đặt trước. Chọn hạng phòng và thời gian lưu trú để tính tiền phòng.';
                 } else {
                     nightCountText.innerText = summaryText;
+                }
+            }
+
+            function updatePaymentUi(total) {
+                if (!paymentMethod || !paymentType || !depositAmount) {
+                    return;
+                }
+
+                const method = paymentMethod.value || 'none';
+                const type = paymentType.value || '';
+                const customOption = paymentType.querySelector('option[value="custom"]');
+                const deposit30 = Math.round(Number(total || 0) * 0.3);
+                const full100 = Math.max(0, Number(total || 0));
+
+                if (method === 'none') {
+                    paymentType.value = '';
+                    paymentType.disabled = true;
+                    depositAmount.disabled = true;
+                    depositAmount.value = 0;
+
+                    if (customPaymentAmountBox) {
+                        customPaymentAmountBox.classList.add('d-none');
+                    }
+
+                    if (paymentTypeHelp) {
+                        paymentTypeHelp.innerText = 'Booking sẽ được tạo ở trạng thái chưa thanh toán.';
+                    }
+
+                    return;
+                }
+
+                paymentType.disabled = false;
+
+                if (!paymentType.value) {
+                    paymentType.value = 'deposit_30';
+                }
+
+                if (method === 'vnpay' && customOption) {
+                    customOption.disabled = true;
+
+                    if (paymentType.value === 'custom') {
+                        paymentType.value = 'deposit_30';
+                    }
+                } else if (customOption) {
+                    customOption.disabled = false;
+                }
+
+                const activeType = paymentType.value;
+                const isCustom = activeType === 'custom' && method !== 'vnpay';
+
+                if (customPaymentAmountBox) {
+                    customPaymentAmountBox.classList.toggle('d-none', !isCustom);
+                }
+
+                depositAmount.disabled = !isCustom;
+
+                if (!isCustom) {
+                    depositAmount.value = 0;
+                }
+
+                if (paymentTypeHelp) {
+                    if (method === 'vnpay') {
+                        paymentTypeHelp.innerText = activeType === 'full_100'
+                            ? 'Sau khi tạo booking, hệ thống sẽ chuyển sang VNPay để khách thanh toán đủ ' + formatMoney(full100) + '.'
+                            : 'Sau khi tạo booking, hệ thống sẽ chuyển sang VNPay để khách đặt cọc 30% khoảng ' + formatMoney(deposit30) + '.';
+                    } else if (activeType === 'full_100') {
+                        paymentTypeHelp.innerText = 'Ghi nhận thu đủ số còn lại: ' + formatMoney(full100) + '.';
+                    } else if (activeType === 'custom') {
+                        paymentTypeHelp.innerText = 'Lễ tân nhập đúng số tiền khách thực trả tại quầy.';
+                    } else {
+                        paymentTypeHelp.innerText = 'Ghi nhận cọc 30% khoảng ' + formatMoney(deposit30) + '.';
+                    }
+                }
+
+                if (paymentAmountHelp) {
+                    paymentAmountHelp.innerText = isCustom
+                        ? 'Số tiền nhập không được lớn hơn tổng tiền sau giảm giá.'
+                        : 'Ô này chỉ bật khi chọn kiểu nhập số tiền thực thu.';
                 }
             }
 
@@ -1794,6 +1981,14 @@
 
             roomCategorySelect.addEventListener('change', refreshBookingForm);
             roomQuantity.addEventListener('input', refreshBookingForm);
+
+            if (paymentMethod) {
+                paymentMethod.addEventListener('change', refreshBookingForm);
+            }
+
+            if (paymentType) {
+                paymentType.addEventListener('change', refreshBookingForm);
+            }
 
             serviceRows.forEach(function (row) {
                 const checkbox = row.querySelector('.service-check');
@@ -1881,5 +2076,222 @@
 
         });
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const cccdInput = document.getElementById('cccdInput');
+            if (cccdInput) {
+                cccdInput.addEventListener('change', async function (e) {
+                    const file = e.target.files[0];
+                    if (!file) return;
 
+                    const btn = document.getElementById('btnScanCccd');
+                    const originalText = btn ? btn.innerHTML : '';
+                    if (btn) {
+                        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang quét và phân tích...';
+                        btn.disabled = true;
+                    }
+
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        const img = new Image();
+                        img.src = URL.createObjectURL(file);
+                        
+                        await new Promise(resolve => img.onload = resolve);
+                        
+                        const MAX_WIDTH = 1200;
+                        let width = img.width;
+                        let height = img.height;
+                        if (width > MAX_WIDTH) {
+                            height = Math.round(height * MAX_WIDTH / width);
+                            width = MAX_WIDTH;
+                        }
+                        
+                        canvas.width = width;
+                        canvas.height = height;
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        const imageData = ctx.getImageData(0, 0, width, height);
+                        const data = imageData.data;
+                        
+                        for (let i = 0; i < data.length; i += 4) {
+                            const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                            const color = avg > 115 ? 255 : 0; 
+                            data[i] = data[i + 1] = data[i + 2] = color;
+                        }
+                        ctx.putImageData(imageData, 0, 0);
+
+                        const result = await Tesseract.recognize(
+                            canvas.toDataURL('image/jpeg'),
+                            'vie',
+                            { logger: m => console.log(m) }
+                        );
+                        
+                        const text = (result.data.text || '').normalize('NFC');
+                        console.log("OCR Result:", text);
+                        
+                        let cccd = '';
+                        let fullName = '';
+                        let dob = '';
+                        let address = '';
+                        let gender = '';
+
+                        const cccdMatch = text.match(/\b\d{12}\b/);
+                        if (cccdMatch) cccd = cccdMatch[0];
+
+                        const dobMatch = text.match(/\b(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})\b/);
+                        if (dobMatch) dob = `${dobMatch[3]}-${dobMatch[2]}-${dobMatch[1]}`; 
+
+                        if (/Nam/i.test(text)) gender = 'male';
+                        else if (/Nữ/i.test(text)) gender = 'female';
+
+                        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                        
+                        let nameLineIndex = -1;
+                        for (let i = 0; i < lines.length; i++) {
+                            let lowerLine = lines[i].toLowerCase();
+                            if (lowerLine.includes('họ và tên') || lowerLine.includes('full name') || lowerLine.includes('ho va ten') || lowerLine.includes('tên:')) {
+                                nameLineIndex = i;
+                                break;
+                            }
+                        }
+
+                        if (nameLineIndex !== -1) {
+                            let currentLineText = lines[nameLineIndex].replace(/.*(họ và tên|full name|ho va ten|tên)[:\-\s]*/i, '').trim();
+                            if (currentLineText.length > 5 && !currentLineText.toLowerCase().includes('ngày sinh')) {
+                                fullName = currentLineText;
+                            } else if (nameLineIndex + 1 < lines.length) {
+                                fullName = lines[nameLineIndex + 1];
+                            }
+                        } 
+                        
+                        if (!fullName) {
+                            for (let i = 0; i < lines.length; i++) {
+                                let upperCount = (lines[i].match(/[A-ZĂÂÊÔƠƯĐÁÀẢÃẠẮẰẲẴẶẤẦẨẪẬÉÈẺẼẸẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌỐỒỔỖỘỚỜỞỠỢÚÙỦŨỤỨỪỬỮỰÝỲỶỸỴ]/g) || []).length;
+                                let totalCount = lines[i].replace(/\s/g, '').length;
+                                if (totalCount > 0 && upperCount / totalCount > 0.5 && lines[i].length > 6 && !lines[i].includes('CỘNG HÒA') && !lines[i].includes('ĐỘC LẬP') && !lines[i].includes('CĂN CƯỚC') && !lines[i].includes('SOCIALIST')) {
+                                    fullName = lines[i];
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (fullName) {
+                            fullName = fullName.replace(/[^a-zA-ZĂÂÊÔƠƯĐÁÀẢÃẠẮẰẲẴẶẤẦẨẪẬÉÈẺẼẸẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌỐỒỔỖỘỚỜỞỠỢÚÙỦŨỤỨỪỬỮỰÝỲỶỸỴ\s]/gi, '').trim().toUpperCase();
+                        }
+
+                        let addressLines = [];
+                        let foundAddress = false;
+                        for (let i = 0; i < lines.length; i++) {
+                            let lowerLine = lines[i].toLowerCase();
+                            if (foundAddress) {
+                                if (lowerLine.includes('có giá trị đến') || lowerLine.includes('ngày') || lowerLine.includes('date') || lowerLine.includes('giám đốc') || lowerLine.includes('đặc điểm')) break;
+                                addressLines.push(lines[i]);
+                            } else if (lowerLine.includes('thường trú') || lowerLine.includes('residence') || lowerLine.includes('thuong tru') || lowerLine.includes('nơi trú') || (lowerLine.includes('nơi') && lowerLine.includes('trú'))) {
+                                foundAddress = true;
+                                let curr = lines[i].replace(/.*(thường trú|residence|thuong tru|nơi trú|trú)[:\-\s]*/i, '').trim();
+                                if (curr.length > 3) addressLines.push(curr);
+                            }
+                        }
+                        
+                        if (addressLines.length === 0) {
+                            for (let i = 0; i < lines.length; i++) {
+                                let lowerLine = lines[i].toLowerCase();
+                                if (lowerLine.includes('xã,') || lowerLine.includes('phường,') || lowerLine.includes('quận,') || lowerLine.includes('huyện,') || lowerLine.includes('thành phố') || lowerLine.includes('tỉnh,')) {
+                                    addressLines.push(lines[i]);
+                                    if (i + 1 < lines.length && !lines[i+1].toLowerCase().includes('có giá trị')) {
+                                        addressLines.push(lines[i+1]);
+                                    }
+                                }
+                            }
+                        }
+
+                        if (addressLines.length === 0) {
+                            let commaLines = [];
+                            for (let i = Math.floor(lines.length / 2); i < lines.length; i++) {
+                                let lowerLine = lines[i].toLowerCase();
+                                if (lowerLine.includes('ngày') || lowerLine.includes('giá trị') || lowerLine.includes('date') || lowerLine.includes('cộng hòa')) continue;
+                                if (lines[i].includes(',')) commaLines.push(lines[i]);
+                            }
+                            if (commaLines.length > 0) {
+                                addressLines.push(commaLines[commaLines.length - 1]);
+                                if (commaLines.length > 1 && lines.indexOf(commaLines[commaLines.length - 1]) - lines.indexOf(commaLines[commaLines.length - 2]) === 1) {
+                                    addressLines.unshift(commaLines[commaLines.length - 2]);
+                                }
+                            }
+                        }
+
+                        if (addressLines.length === 0) {
+                            let genderLineIndex = -1;
+                            for (let i = 0; i < lines.length; i++) {
+                                if (lines[i].toLowerCase().includes('nam') || lines[i].toLowerCase().includes('nữ')) {
+                                    genderLineIndex = i;
+                                    break;
+                                }
+                            }
+                            if (genderLineIndex !== -1) {
+                                let remainingLines = lines.slice(genderLineIndex + 1).filter(l => {
+                                    let low = l.toLowerCase();
+                                    return !low.includes('có giá trị') && !low.includes('date') && !low.includes('đặc điểm') && !low.includes('giám đốc') && !low.includes('quốc tịch') && !low.includes('nationality') && !low.includes('quê') && !low.includes('origin');
+                                });
+                                if (remainingLines.length > 0) {
+                                    addressLines.push(remainingLines[remainingLines.length - 1]);
+                                    if (remainingLines.length > 1) {
+                                        addressLines.unshift(remainingLines[remainingLines.length - 2]);
+                                    }
+                                }
+                            }
+                        }
+
+                        if (addressLines.length > 0) {
+                            address = addressLines.join(' ');
+                            address = address.replace(/,/g, ' , ');
+                            address = address.replace(/[^a-zA-Z0-9ĂÂÊÔƠƯĐÁÀẢÃẠẮẰẲẴẶẤẦẨẪẬÉÈẺẼẸẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌỐỒỔỖỘỚỜỞỠỢÚÙỦŨỤỨỪỬỮỰÝỲỶỸỴ\,\s]/gi, ' ');
+                            
+                            let words = address.split(/\s+/);
+                            let cleanWords = [];
+                            for (let w of words) {
+                                if (w === '') continue;
+                                if (w === ',') {
+                                    if (cleanWords.length > 0 && cleanWords[cleanWords.length - 1] !== ',') {
+                                        cleanWords.push(',');
+                                    }
+                                    continue;
+                                }
+                                
+                                if (/^[a-zăâêôơưđáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/.test(w)) continue;
+                                if (w.length === 1 && !/^\d$/.test(w)) continue;
+                                
+                                let low = w.toLowerCase();
+                                if (['place', 'of', 'residence', 'residenoe', 'origin', 'date', 'nationality'].includes(low)) continue;
+                                
+                                cleanWords.push(w);
+                            }
+                            
+                            address = cleanWords.join(' ').replace(/\s+,\s+/g, ', ').replace(/^[\s,]+|[\s,]+$/g, '');
+                        }
+
+                        if (cccd) document.querySelector('input[name="customer_cccd"]').value = cccd;
+                        if (fullName) document.querySelector('input[name="customer_name"]').value = fullName;
+                        if (dob) document.querySelector('input[name="customer_birthday"]').value = dob;
+                        if (gender) document.querySelector('select[name="customer_gender"]').value = gender;
+                        if (address) document.querySelector('input[name="customer_address"]').value = address;
+
+                        alert('Quét hoàn tất! Vui lòng kiểm tra kỹ và chỉnh sửa lại nếu có lỗi nhận diện chữ.');
+                        
+                    } catch (err) {
+                        console.error(err);
+                        alert('Có lỗi xảy ra khi quét ảnh. Vui lòng thử lại.');
+                    } finally {
+                        if (btn) {
+                            btn.innerHTML = originalText;
+                            btn.disabled = false;
+                        }
+                        e.target.value = ''; 
+                    }
+                });
+            }
+        });
+    </script>
 @endsection

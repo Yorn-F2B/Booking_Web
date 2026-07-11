@@ -136,9 +136,10 @@
                         <select name="position" class="form-select">
                             <option value="">— Chọn chức vụ —</option>
                             <option value="Quản lý" {{ old('position') == 'Quản lý' ? 'selected' : '' }}>Quản lý</option>
+                            <option value="Trưởng lễ tân" {{ old('position') == 'Trưởng lễ tân' ? 'selected' : '' }}>Trưởng lễ tân</option>
                             <option value="Lễ tân" {{ old('position') == 'Lễ tân' ? 'selected' : '' }}>Lễ tân</option>
-                            <option value="Buồng phòng" {{ old('position') == 'Buồng phòng' ? 'selected' : '' }}>
-                                Buồng phòng</option>
+                            <option value="Trưởng buồng phòng" {{ old('position') == 'Trưởng buồng phòng' ? 'selected' : '' }}>Trưởng buồng phòng</option>
+                            <option value="Buồng phòng" {{ old('position') == 'Buồng phòng' ? 'selected' : '' }}>Buồng phòng</option>
                         </select>
                     </div>
 

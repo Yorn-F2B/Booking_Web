@@ -272,6 +272,17 @@
                                             {{ $category->name }}
                                         </h2>
 
+                                        @php
+                                            $categoryReviewStats = ($roomCategoryReviewStats ?? collect())->get($category->id);
+                                        @endphp
+
+                                        @if ($categoryReviewStats && (int) $categoryReviewStats->review_count > 0)
+                                            <div class="text-warning small mb-2">
+                                                ★ {{ number_format((float) $categoryReviewStats->average_rating, 1) }}
+                                                <span class="text-muted">/ 5 · {{ (int) $categoryReviewStats->review_count }} đánh giá</span>
+                                            </div>
+                                        @endif
+
                                         <p class="small text-muted mb-2">
                                             {{ $category->area ?? 'Chưa cập nhật' }}m²,
                                             {{ $category->bed_count ?? 1 }} giường

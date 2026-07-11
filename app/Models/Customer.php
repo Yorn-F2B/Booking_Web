@@ -29,4 +29,9 @@ class Customer extends Model
     {
         return $this->hasMany(Booking::class);
     }
+
+    public function hotelReviews()
+    {
+        return $this->hasMany(HotelReview::class);
+    }
 }

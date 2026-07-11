@@ -69,6 +69,11 @@ class Promotion extends Model
         return $this->hasMany(PromotionServiceOffer::class);
     }
 
+    public function roomUpgradeOffers()
+    {
+        return $this->hasMany(PromotionRoomUpgradeOffer::class);
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
