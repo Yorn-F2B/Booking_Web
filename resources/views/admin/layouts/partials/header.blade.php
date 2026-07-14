@@ -11,11 +11,53 @@
     $isHousekeepingSupervisor = $role === 'housekeeping_supervisor';
     $isHousekeeping = $role === 'housekeeping';
 
-    $canManageStaff = $isSuperAdmin || $isManager || $isReceptionistLead || $isHousekeepingSupervisor;
-    $canManageCatalog = $isSuperAdmin || $isManager;
-    $canManageFrontDesk = $isSuperAdmin || $isManager || $isReceptionistLead || $isReceptionist;
-    $canManageRooms = $isSuperAdmin || $isManager || $isHousekeepingSupervisor || $isHousekeeping;
-    $canViewManagement = $isSuperAdmin || $isManager;
+    /*
+    |--------------------------------------------------------------------------
+    | Phân quyền hiển thị menu
+    |--------------------------------------------------------------------------
+    | - Super Admin: toàn bộ menu.
+    | - Manager: vận hành, buồng phòng, cấu hình, phân công và khách hàng.
+    | - Receptionist Lead: vận hành lễ tân + phân công lễ tân.
+    | - Receptionist: chỉ vận hành lễ tân.
+    | - Housekeeping Supervisor: buồng phòng + phân công buồng phòng.
+    | - Housekeeping: chỉ buồng phòng.
+    |
+    | Đây chỉ là lớp hiển thị menu. Route vẫn cần middleware role tương ứng.
+    */
+
+    $canUseFrontDesk = in_array($role, [
+        'super_admin',
+        'manager',
+        'receptionist_lead',
+        'receptionist',
+    ], true);
+
+    $canUseHousekeeping = in_array($role, [
+        'super_admin',
+        'manager',
+        'housekeeping_supervisor',
+        'housekeeping',
+    ], true);
+
+    $canManageCatalog = in_array($role, [
+        'super_admin',
+        'manager',
+    ], true);
+
+    $canViewCustomers = in_array($role, [
+        'super_admin',
+        'manager',
+    ], true);
+
+    $canViewStaffAssignments = in_array($role, [
+        'super_admin',
+        'manager',
+        'receptionist_lead',
+        'housekeeping_supervisor',
+    ], true);
+
+    $canManageStaffAccounts = $isSuperAdmin;
+    $canApproveInspections = $isSuperAdmin || $isManager;
 
     $operationsOpen = request()->routeIs([
         'admin.rooms.*',
@@ -112,13 +154,15 @@
     </div>
 
     <nav class="admin-nav">
-        <a href="{{ route('admin.dashboard') }}"
-            class="admin-nav-link {{ request()->routeIs('admin.dashboard') ? 'active' : '' }}">
-            <i class="bx bx-grid-alt"></i>
-            Tổng quan
-        </a>
+        @if($isSuperAdmin)
+            <a href="{{ route('admin.dashboard') }}"
+                class="admin-nav-link {{ request()->routeIs('admin.dashboard') ? 'active' : '' }}">
+                <i class="bx bx-grid-alt"></i>
+                Tổng quan
+            </a>
+        @endif
 
-        @if($canManageFrontDesk)
+        @if($canUseFrontDesk)
             <details class="admin-nav-group" {{ $operationsOpen ? 'open' : '' }}>
                 <summary>
                     <i class="bx bx-building-house"></i>
@@ -152,7 +196,7 @@
             </details>
         @endif
 
-        @if($canManageRooms)
+        @if($canUseHousekeeping)
             <details class="admin-nav-group" {{ $roomsOpen ? 'open' : '' }}>
                 <summary>
                     <i class="bx bx-bed"></i>
@@ -172,7 +216,7 @@
                     Kiểm tra phòng
                 </a>
 
-                @if($isSuperAdmin || $isManager)
+                @if($canApproveInspections)
                     <a href="{{ route('admin.inspection-approvals.index') }}"
                         class="admin-nav-link {{ request()->routeIs('admin.inspection-approvals.*') ? 'active' : '' }}">
                         <i class="bx bx-check-shield"></i>
@@ -228,7 +272,7 @@
             </details>
         @endif
 
-        @if($isSuperAdmin || $canManageStaff)
+        @if($canManageStaffAccounts || $canViewStaffAssignments)
             <details class="admin-nav-group" {{ $staffOpen ? 'open' : '' }}>
                 <summary>
                     <i class="bx bx-group"></i>
@@ -236,7 +280,7 @@
                     <i class="bx bx-chevron-down group-chevron"></i>
                 </summary>
 
-                @if($isSuperAdmin)
+                @if($canManageStaffAccounts)
                     <a href="{{ route('staffs.index') }}"
                         class="admin-nav-link {{ request()->routeIs('staffs.*') ? 'active' : '' }}">
                         <i class="bx bx-user-plus"></i>
@@ -244,7 +288,7 @@
                     </a>
                 @endif
 
-                @if($canManageStaff)
+                @if($canViewStaffAssignments)
                     <a href="{{ route('admin.staff-assignments.index') }}"
                         class="admin-nav-link {{ request()->routeIs('admin.staff-assignments.*') ? 'active' : '' }}">
                         <i class="bx bx-task"></i>
@@ -254,7 +298,7 @@
             </details>
         @endif
 
-        @if($canViewManagement)
+        @if($canViewCustomers)
             <details class="admin-nav-group" {{ $managementOpen ? 'open' : '' }}>
                 <summary>
                     <i class="bx bx-line-chart"></i>

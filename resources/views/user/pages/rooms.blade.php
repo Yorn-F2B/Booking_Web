@@ -172,24 +172,6 @@
 </select>
                             </div>
 
-                            <div class="col-md-12">
-                                <div class="alert alert-info mb-0 small">
-                                    Hệ thống kiểm tra phòng trống theo chính sách:
-                                    nhận phòng linh hoạt <strong>13:00 - 14:00</strong> nếu phòng sẵn sàng,
-                                    hệ thống giữ phòng theo mốc <strong>14:00</strong>,
-                                    trả phòng <strong>trước 12:00</strong>.
-
-                                    @if ($onlineBookingClosedToday)
-                                        <br>
-                                        <span class="text-danger fw-semibold">
-                                            Hôm nay đã quá mốc giữ phòng online lúc 14:00.
-                                            Ngày nhận phòng sớm nhất có thể chọn là
-                                            {{ \Carbon\Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') }}.
-                                        </span>
-                                    @endif
-                                </div>
-                            </div>
-
                             <div class="col-md-12 d-flex gap-2">
                                 <button type="submit" class="btn btn-primary">
                                     Kiểm tra phòng trống

@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Máy chủ: 127.0.0.1
--- Thời gian đã tạo: Th7 01, 2026 lúc 05:23 AM
+-- Thời gian đã tạo: Th7 13, 2026 lúc 01:05 PM
 -- Phiên bản máy phục vụ: 10.4.32-MariaDB
 -- Phiên bản PHP: 8.2.12
 
@@ -96,10 +96,10 @@ INSERT INTO `bookings` (`id`, `booking_code`, `customer_id`, `created_by`, `room
 (2, 'BK20260609053403WG2', 1, NULL, 1, 'overnight', 'advance', 'reception', '2026-06-10', '2026-06-13', '2026-06-10 14:00:00', '2026-06-13 12:00:00', 60, NULL, NULL, 2, 0, 2, 1, 7200000.00, 0.00, 7200000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'checked_out', NULL, NULL, '2026-06-08 22:34:03', '2026-06-09 00:28:43'),
 (3, 'BK202606090535414T8', 1, NULL, 1, 'overnight', 'advance', 'reception', '2026-06-10', '2026-06-13', '2026-06-10 14:00:00', '2026-06-13 12:00:00', 60, NULL, NULL, 2, 0, 1, 0, 3600000.00, 0.00, 3600000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'pending', NULL, '2026-06-08 22:35:54', '2026-06-08 22:35:41', '2026-06-08 22:35:54'),
 (4, 'BK20260609084552N4R', 1, NULL, 1, 'overnight', 'advance', 'reception', '2026-06-10', '2026-06-13', '2026-06-10 14:00:00', '2026-06-13 12:00:00', 60, NULL, NULL, 2, 0, 3, 1, 10800000.00, 0.00, 10800000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, '2026-06-10 06:23:21', '2026-06-09 01:45:52', '2026-06-10 06:23:21'),
-(5, 'BK20260610120420EOH', 1, NULL, 3, 'overnight', 'advance', 'reception', '2026-06-11', '2026-06-12', '2026-06-16 01:36:08', '2026-06-12 12:00:00', 60, NULL, NULL, 2, 1, 1, 0, 1800000.00, 0.00, 1800000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'confirmed', NULL, '2026-06-10 06:23:17', '2026-06-10 05:04:20', '2026-06-10 06:23:17'),
+(5, 'BK20260610120420EOH', 1, NULL, 3, 'overnight', 'advance', 'reception', '2026-06-11', '2026-06-12', '2026-06-11 14:00:00', '2026-06-12 12:00:00', 60, NULL, NULL, 2, 1, 1, 0, 1800000.00, 0.00, 1800000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'confirmed', NULL, '2026-06-10 06:23:17', '2026-06-10 05:04:20', '2026-06-10 06:23:17'),
 (6, 'BK202606101254125AV', 1, NULL, 4, 'overnight', 'advance', 'reception', '2026-06-11', '2026-06-12', '2026-06-11 14:00:00', '2026-06-12 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 5000000.00, 0.00, 5000000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, '2026-06-10 06:23:14', '2026-06-10 05:54:12', '2026-06-10 06:23:14'),
 (7, 'BK202606101323005VJ', 1, NULL, 4, 'overnight', 'advance', 'reception', '2026-06-11', '2026-06-12', '2026-06-11 14:00:00', '2026-06-12 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 5000000.00, 0.00, 5000000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, '2026-06-10 06:23:11', '2026-06-10 06:23:00', '2026-06-10 06:23:11'),
-(8, 'BK20260610132706BW9', 1, NULL, 4, 'overnight', 'advance', 'reception', '2026-06-11', '2026-06-12', '2026-06-15 23:41:44', '2026-06-12 12:00:00', 60, NULL, '2026-06-11 15:33:00', 1, 0, 1, 0, 5100000.00, 0.00, 5100000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '11/06/2026 14:45 - Đã yêu cầu kiểm tra phòng trước khi check-out.\r\n11/06/2026 15:10 - Admin duyệt phí hư hại phòng 401: +100.000đ.', NULL, '2026-06-10 06:27:06', '2026-06-11 08:33:00'),
+(8, 'BK20260610132706BW9', 1, NULL, 4, 'overnight', 'advance', 'reception', '2026-06-11', '2026-06-12', '2026-06-11 14:00:00', '2026-06-12 12:00:00', 60, NULL, '2026-06-11 15:33:00', 1, 0, 1, 0, 5100000.00, 0.00, 5100000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '11/06/2026 14:45 - Đã yêu cầu kiểm tra phòng trước khi check-out.\r\n11/06/2026 15:10 - Admin duyệt phí hư hại phòng 401: +100.000đ.', NULL, '2026-06-10 06:27:06', '2026-06-11 08:33:00'),
 (9, 'BK20260610132748PTD', 1, NULL, 3, 'overnight', 'advance', 'reception', '2026-06-12', '2026-06-13', '2026-06-12 14:00:00', '2026-06-13 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 1800000.00, 0.00, 1800000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, '2026-06-10 06:28:57', '2026-06-10 06:27:48', '2026-06-10 06:28:57'),
 (10, 'BK202606101329142YO', 1, NULL, 3, 'overnight', 'advance', 'reception', '2026-06-11', '2026-06-12', '2026-06-11 14:00:00', '2026-06-12 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 1800000.00, 0.00, 1800000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, '2026-06-10 06:29:26', '2026-06-10 06:29:14', '2026-06-10 06:29:26'),
 (11, 'BK260611ZSG78', 2, 4, 1, 'overnight', 'advance', 'reception', '2026-06-12', '2026-06-16', '2026-06-12 14:00:00', '2026-06-16 12:00:00', 60, NULL, NULL, 6, 2, 3, 1, 14400000.00, 0.00, 14400000.00, 5000000.00, 0.00, NULL, NULL, 'partial', 'cancelled', '11/06/2026 13:33 - Đổi từ phòng 402 sang phòng 405. Lý do: hỏng điều hòa\n11/06/2026 16:44 - Booking đã được hủy bởi nhân viên.', NULL, '2026-06-11 06:14:43', '2026-06-11 09:44:11'),
@@ -118,31 +118,31 @@ INSERT INTO `bookings` (`id`, `booking_code`, `customer_id`, `created_by`, `room
 (24, 'BK202606151600037SQ', 4, NULL, 2, 'overnight', 'advance', 'reception', '2026-06-16', '2026-06-17', '2026-06-16 14:00:00', '2026-06-17 12:00:00', 60, NULL, NULL, 2, 0, 1, 0, 900000.00, 0.00, 900000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, NULL, '2026-06-15 09:00:03', '2026-06-15 09:00:37'),
 (25, 'BK20260615161102IP0', 4, NULL, 4, 'overnight', 'advance', 'reception', '2026-06-16', '2026-06-17', '2026-06-16 14:00:00', '2026-06-17 12:00:00', 60, '2026-06-15 19:36:23', NULL, 6, 0, 1, 0, 5400000.00, 0.00, 5400000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', '15/06/2026 17:12 - Check-in thực tế: 4 người lớn / 0 trẻ em. Khách vượt sức chứa, đã đổi sang hạng phòng Presidential Suite. Lý do: Vượt sức chứa khi check-in.\r\n15/06/2026 19:27 - Check-in thực tế: 7 người lớn / 0 trẻ em. Khách vượt sức chứa, giữ nguyên phòng và thu phụ phí 400.000đ.\r\n15/06/2026 19:36 - Check-in thực tế: 6 người lớn / 0 trẻ em.', NULL, '2026-06-15 09:11:02', '2026-06-15 12:36:41'),
 (26, 'BK20260615193744EQZ', 4, NULL, 3, 'overnight', 'advance', 'reception', '2026-06-17', '2026-06-18', '2026-06-17 14:00:00', '2026-06-18 12:00:00', 60, '2026-06-15 19:38:17', NULL, 1, 0, 1, 0, 1800000.00, 0.00, 1800000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', '15/06/2026 19:38 - Check-in thực tế: 1 người lớn / 0 trẻ em.', NULL, '2026-06-15 12:37:44', '2026-06-15 12:40:42'),
-(27, 'BK20260615194053GFA', 4, NULL, 2, 'overnight', 'advance', 'reception', '2026-06-17', '2026-06-18', '2026-06-15 19:58:42', '2026-06-18 12:00:00', 60, '2026-06-16 03:07:20', NULL, 1, 0, 1, 0, 1800000.00, 0.00, 1800000.00, 0.00, 900000.00, 7.14, 'Khách đến muộn quá 6 giờ, đã gọi xác nhận đang đến, phụ thu 100% giá/đêm.', 'unpaid', 'cancelled', '16/06/2026 02:59 - Hủy phòng do khách đến muộn quá 6 giờ, từ chối hoàn tiền cọc.\r\n16/06/2026 03:00 - Check-in thực tế: 1 người lớn / 0 trẻ em.  Khách đến muộn quá 6 giờ, đã gọi xác nhận đang đến, phụ thu 100% giá/đêm. Số tiền phụ thu: 900.000đ.\r\n16/06/2026 03:07 - Check-in thực tế: 1 người lớn / 0 trẻ em.  Khách đến muộn quá 6 giờ, đã gọi xác nhận đang đến, phụ thu 100% giá/đêm. Số tiền phụ thu: 900.000đ.', NULL, '2026-06-15 12:40:53', '2026-06-15 21:59:35'),
+(27, 'BK20260615194053GFA', 4, NULL, 2, 'overnight', 'advance', 'reception', '2026-06-17', '2026-06-18', '2026-06-17 14:00:00', '2026-06-18 12:00:00', 60, '2026-06-16 03:07:20', NULL, 1, 0, 1, 0, 1800000.00, 0.00, 1800000.00, 0.00, 900000.00, 7.14, 'Khách đến muộn quá 6 giờ, đã gọi xác nhận đang đến, phụ thu 100% giá/đêm.', 'unpaid', 'cancelled', '16/06/2026 02:59 - Hủy phòng do khách đến muộn quá 6 giờ, từ chối hoàn tiền cọc.\r\n16/06/2026 03:00 - Check-in thực tế: 1 người lớn / 0 trẻ em.  Khách đến muộn quá 6 giờ, đã gọi xác nhận đang đến, phụ thu 100% giá/đêm. Số tiền phụ thu: 900.000đ.\r\n16/06/2026 03:07 - Check-in thực tế: 1 người lớn / 0 trẻ em.  Khách đến muộn quá 6 giờ, đã gọi xác nhận đang đến, phụ thu 100% giá/đêm. Số tiền phụ thu: 900.000đ.', NULL, '2026-06-15 12:40:53', '2026-06-15 21:59:35'),
 (28, 'BK20260616033519CFA', 4, NULL, 2, 'overnight', 'advance', 'reception', '2026-06-16', '2026-06-17', '2026-06-16 14:00:00', '2026-06-17 12:00:00', 60, '2026-06-16 03:35:32', '2026-06-16 03:39:25', 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '16/06/2026 03:35 - Check-in thực tế: 1 người lớn / 0 trẻ em. \n16/06/2026 03:38 - Đã yêu cầu kiểm tra phòng trước khi check-out.', NULL, '2026-06-15 20:35:19', '2026-06-15 20:39:25'),
-(29, 'BK260616ODKK0', 7, 4, 2, 'overnight', 'advance', 'reception', '2026-06-16', '2026-06-17', '2026-06-16 02:35:34', '2026-06-17 12:00:00', 60, '2026-06-16 05:43:23', '2026-06-16 13:21:18', 4, 0, 1, 0, 2184000.00, 0.00, 2184000.00, 0.00, 180000.00, 3.13, 'Khách đến muộn từ 2 đến dưới 4 giờ, phụ thu 20% giá/đêm.', 'paid', 'checked_out', '16/06/2026 05:10 - Đổi từ phòng 202 sang phòng 201. Lý do: Hỏng đèn\n16/06/2026 05:43 - Check-in thực tế: 4 người lớn / 0 trẻ em / 0 em bé. Đã thu phụ phí phát sinh khi check-in: Phụ thu thêm người lớn x 2: 400.000đ. Tổng phụ thu: 400.000đ. Khách đến muộn từ 2 đến dưới 4 giờ, phụ thu 20% giá/đêm. Số tiền phụ thu: 180.000đ.\n16/06/2026 11:54 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n16/06/2026 13:20 - Admin duyệt phí hư hại phòng 201: +150.000đ.', NULL, '2026-06-15 21:04:23', '2026-06-16 06:21:18'),
+(29, 'BK260616ODKK0', 7, 4, 2, 'overnight', 'advance', 'reception', '2026-06-16', '2026-06-17', '2026-06-16 14:00:00', '2026-06-17 12:00:00', 60, '2026-06-16 05:43:23', '2026-06-16 13:21:18', 4, 0, 1, 0, 2184000.00, 0.00, 2184000.00, 0.00, 180000.00, 3.13, 'Khách đến muộn từ 2 đến dưới 4 giờ, phụ thu 20% giá/đêm.', 'paid', 'checked_out', '16/06/2026 05:10 - Đổi từ phòng 202 sang phòng 201. Lý do: Hỏng đèn\n16/06/2026 05:43 - Check-in thực tế: 4 người lớn / 0 trẻ em / 0 em bé. Đã thu phụ phí phát sinh khi check-in: Phụ thu thêm người lớn x 2: 400.000đ. Tổng phụ thu: 400.000đ. Khách đến muộn từ 2 đến dưới 4 giờ, phụ thu 20% giá/đêm. Số tiền phụ thu: 180.000đ.\n16/06/2026 11:54 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n16/06/2026 13:20 - Admin duyệt phí hư hại phòng 201: +150.000đ.', NULL, '2026-06-15 21:04:23', '2026-06-16 06:21:18'),
 (30, 'BK20260616132210LAT', 4, NULL, 2, 'overnight', 'advance', 'reception', '2026-06-17', '2026-06-18', '2026-06-17 14:00:00', '2026-06-18 12:00:00', 60, '2026-06-16 13:22:39', '2026-06-16 13:39:07', 1, 0, 1, 0, 984000.00, 0.00, 984000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '16/06/2026 13:22 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé. \n16/06/2026 13:22 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n16/06/2026 13:23 - Admin duyệt phí hư hại phòng 201: +70.000đ.', NULL, '2026-06-16 06:22:10', '2026-06-16 06:39:07'),
 (31, 'BK20260616133921JRE', 4, NULL, 2, 'overnight', 'advance', 'reception', '2026-06-17', '2026-06-18', '2026-06-17 14:00:00', '2026-06-18 12:00:00', 60, '2026-06-16 13:39:53', '2026-06-16 13:55:04', 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '16/06/2026 13:39 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé. \n16/06/2026 13:54 - Đã yêu cầu kiểm tra phòng trước khi check-out.', NULL, '2026-06-16 06:39:21', '2026-06-16 06:55:04'),
 (32, 'BK20260616135547IMG', 4, NULL, 2, 'overnight', 'advance', 'reception', '2026-06-17', '2026-06-18', '2026-06-17 14:00:00', '2026-06-18 12:00:00', 60, '2026-06-16 14:02:42', '2026-06-16 14:24:33', 1, 0, 1, 0, 1350000.00, 0.00, 1350000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '16/06/2026 14:02 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé. \n16/06/2026 14:23 - Đổi từ phòng 203 sang phòng 201. Lý do: Đổi phòng và gia hạn cho khách\n16/06/2026 14:23 - Gia hạn lưu trú từ 18/06/2026 11:00 đến 18/06/2026 15:00. Gia hạn thêm 4 giờ, phụ thu 50% giá/đêm. Phụ thu: 450.000đ.\n16/06/2026 14:24 - Đã yêu cầu kiểm tra phòng trước khi check-out.', NULL, '2026-06-16 06:55:47', '2026-06-16 07:24:33'),
 (33, 'BK260616PBMOZ', 8, 4, 2, 'overnight', 'advance', 'reception', '2026-06-18', '2026-06-19', '2026-06-18 14:00:00', '2026-06-19 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', '18/06/2026 03:08 - Booking đã được hủy bởi nhân viên.', NULL, '2026-06-16 07:02:26', '2026-06-17 20:08:49'),
 (34, 'BK20260618011733YM4', 4, NULL, 2, 'overnight', 'advance', 'reception', '2026-06-19', '2026-06-20', '2026-06-19 14:00:00', '2026-06-20 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, NULL, '2026-06-17 18:17:33', '2026-06-17 18:18:16'),
 (35, 'BK20260618012232J3A', 4, NULL, 2, 'overnight', 'advance', 'reception', '2026-06-18', '2026-06-19', '2026-06-18 14:00:00', '2026-06-19 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 1260000.00, 0.00, 1260000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', '18/06/2026 12:26 - Booking đã được hủy bởi nhân viên.', NULL, '2026-06-17 18:22:32', '2026-06-18 05:26:27'),
-(36, 'BK260618QNDUZ', 9, 4, 1, 'hourly', 'advance', 'reception', '2026-06-18', '2026-06-18', '2026-06-18 03:00:00', '2026-06-18 11:00:00', 60, '2026-06-18 11:42:14', '2026-06-18 13:13:25', 2, 0, 1, 0, 2640000.00, 0.00, 2640000.00, 0.00, 1200000.00, 8.70, 'Khách đến muộn quá 6 giờ, đã gọi xác nhận đang đến, phụ thu 100% giá/đêm.', 'paid', 'checked_out', '18/06/2026 11:42 - Check-in thực tế: 2 người lớn / 0 trẻ em / 0 em bé.  Khách đến muộn quá 6 giờ, đã gọi xác nhận đang đến, phụ thu 100% giá/đêm. Số tiền phụ thu: 1.200.000đ.\n18/06/2026 12:29 - Gia hạn lưu trú từ 18/06/2026 09:00 đến 18/06/2026 15:00. Booking theo giờ, gia hạn thêm 6 giờ. Đơn giá tạm tính theo giá giờ hiện tại: 120.000đ/giờ. Chuyển phòng 103 → 101 cùng hạng Deluxe Sea View. Phụ thu: 720.000đ.\n18/06/2026 13:12 - Đã yêu cầu kiểm tra phòng trước khi check-out.', NULL, '2026-06-17 19:55:46', '2026-06-18 06:13:25'),
+(36, 'BK260618QNDUZ', 9, 4, 1, 'hourly', 'advance', 'reception', '2026-06-18', '2026-06-18', '2026-06-18 14:00:00', '2026-06-18 12:00:00', 60, '2026-06-18 11:42:14', '2026-06-18 13:13:25', 2, 0, 1, 0, 2640000.00, 0.00, 2640000.00, 0.00, 1200000.00, 8.70, 'Khách đến muộn quá 6 giờ, đã gọi xác nhận đang đến, phụ thu 100% giá/đêm.', 'paid', 'checked_out', '18/06/2026 11:42 - Check-in thực tế: 2 người lớn / 0 trẻ em / 0 em bé.  Khách đến muộn quá 6 giờ, đã gọi xác nhận đang đến, phụ thu 100% giá/đêm. Số tiền phụ thu: 1.200.000đ.\n18/06/2026 12:29 - Gia hạn lưu trú từ 18/06/2026 09:00 đến 18/06/2026 15:00. Booking theo giờ, gia hạn thêm 6 giờ. Đơn giá tạm tính theo giá giờ hiện tại: 120.000đ/giờ. Chuyển phòng 103 → 101 cùng hạng Deluxe Sea View. Phụ thu: 720.000đ.\n18/06/2026 13:12 - Đã yêu cầu kiểm tra phòng trước khi check-out.', NULL, '2026-06-17 19:55:46', '2026-06-18 06:13:25'),
 (37, 'BK260618TEG6J', 10, 4, 2, 'overnight', 'advance', 'reception', '2026-06-18', '2026-06-19', '2026-06-18 14:00:00', '2026-06-19 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', '18/06/2026 14:09 - Booking đã được hủy bởi nhân viên.', NULL, '2026-06-17 19:57:47', '2026-06-18 07:09:02'),
 (38, 'BK260618GSSGF', 11, 4, 3, 'overnight', 'advance', 'reception', '2026-06-18', '2026-06-19', '2026-06-18 14:00:00', '2026-06-19 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 1800000.00, 0.00, 1800000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', '18/06/2026 03:08 - Booking đã được hủy bởi nhân viên.', NULL, '2026-06-17 20:07:51', '2026-06-17 20:08:03'),
 (39, 'BK20260618122651N35', 4, NULL, 1, 'overnight', 'advance', 'reception', '2026-06-18', '2026-06-19', '2026-06-18 14:00:00', '2026-06-19 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 1200000.00, 0.00, 1200000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, NULL, '2026-06-18 05:26:51', '2026-06-18 05:27:00'),
 (40, 'BK20260618122747XPM', 4, NULL, 2, 'overnight', 'advance', 'reception', '2026-06-18', '2026-06-19', '2026-06-18 14:00:00', '2026-06-19 12:00:00', 60, NULL, NULL, 1, 0, 2, 0, 1800000.00, 0.00, 1800000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', '18/06/2026 13:34 - Đã đổi toàn bộ booking sang hạng phòng Superior Double. Lý do: Khách yêu cầu đổi hạng phòng.\n18/06/2026 13:52 - Đã thêm 1 phòng hạng Superior Double vào booking. Lý do: Khách phát sinh nhu cầu thêm phòng.\n18/06/2026 13:52 - Đã đổi phòng 201 từ hạng Superior Double sang phòng 103 hạng Deluxe Sea View. Chênh lệch tiền phòng: 300.000đ. Lý do: Khách yêu cầu đổi 1 phòng.\n18/06/2026 14:03 - Đã đổi phòng 103 từ hạng Deluxe Sea View sang phòng 201 hạng Superior Double. Chênh lệch tiền phòng: -300.000đ. Lý do: Khách yêu cầu đổi 1 phòng.\n18/06/2026 16:27 - Booking đã được hủy bởi nhân viên.', NULL, '2026-06-18 05:27:47', '2026-06-18 09:27:53'),
-(41, 'BK260618C7BGC', 12, 4, 2, 'hourly', 'walk_in', 'reception', '2026-06-18', '2026-06-18', '2026-06-18 16:45:00', '2026-06-18 18:45:00', 60, '2026-06-18 16:42:47', '2026-06-18 19:51:14', 1, 0, 1, 0, 270000.00, 0.00, 270000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '18/06/2026 16:42 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé.  Booking chưa thu tiền/cọc, lễ tân cần thu tại quầy hoặc khi check-out.\n18/06/2026 19:50 - Đã yêu cầu kiểm tra phòng trước khi check-out.', NULL, '2026-06-18 09:40:30', '2026-06-18 12:51:14'),
-(42, 'BK260618TGJ8P', 13, 4, 2, 'hourly', 'walk_in', 'reception', '2026-06-18', '2026-06-18', '2026-06-18 19:00:00', '2026-06-18 21:00:00', 60, NULL, NULL, 1, 0, 1, 0, 270000.00, 0.00, 270000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', '18/06/2026 17:00 - Booking đã được hủy bởi nhân viên.', NULL, '2026-06-18 09:56:08', '2026-06-18 10:00:16'),
+(41, 'BK260618C7BGC', 12, 4, 2, 'hourly', 'walk_in', 'reception', '2026-06-18', '2026-06-18', '2026-06-18 14:00:00', '2026-06-18 12:00:00', 60, '2026-06-18 16:42:47', '2026-06-18 19:51:14', 1, 0, 1, 0, 270000.00, 0.00, 270000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '18/06/2026 16:42 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé.  Booking chưa thu tiền/cọc, lễ tân cần thu tại quầy hoặc khi check-out.\n18/06/2026 19:50 - Đã yêu cầu kiểm tra phòng trước khi check-out.', NULL, '2026-06-18 09:40:30', '2026-06-18 12:51:14'),
+(42, 'BK260618TGJ8P', 13, 4, 2, 'hourly', 'walk_in', 'reception', '2026-06-18', '2026-06-18', '2026-06-18 14:00:00', '2026-06-18 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 270000.00, 0.00, 270000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', '18/06/2026 17:00 - Booking đã được hủy bởi nhân viên.', NULL, '2026-06-18 09:56:08', '2026-06-18 10:00:16'),
 (43, 'BK20260618173207IPM', 4, NULL, 1, 'overnight', 'advance', 'user_online', '2026-06-18', '2026-06-19', '2026-06-18 14:00:00', '2026-06-19 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 1200000.00, 0.00, 1200000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', '18/06/2026 17:35 - Booking đã được hủy bởi nhân viên.', NULL, '2026-06-18 10:32:07', '2026-06-18 10:35:14'),
 (44, 'BK20260618173544HLO', 4, NULL, 1, 'overnight', 'advance', 'user_online', '2026-06-18', '2026-06-19', '2026-06-18 14:00:00', '2026-06-19 12:00:00', 60, '2026-06-18 17:36:26', '2026-06-18 17:37:00', 1, 0, 1, 0, 1800000.00, 0.00, 1800000.00, 0.00, 600000.00, 3.61, 'Khách đến muộn từ trên 3 giờ đến 6 giờ, đã thông báo trước/đã xác nhận giữ phòng, phụ thu 50% giá 1 đêm.', 'paid', 'checked_out', '18/06/2026 17:36 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé.  Booking chưa thu tiền/cọc, lễ tân cần thu tại quầy hoặc khi check-out. Khách đến muộn từ trên 3 giờ đến 6 giờ, đã thông báo trước/đã xác nhận giữ phòng, phụ thu 50% giá 1 đêm. Số tiền phụ thu: 600.000đ.\n18/06/2026 17:36 - Đã yêu cầu kiểm tra phòng trước khi check-out.', NULL, '2026-06-18 10:35:44', '2026-06-18 10:37:00'),
 (45, 'BK20260618184642DNU', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-06-19', '2026-06-20', '2026-06-19 14:00:00', '2026-06-20 12:00:00', 60, '2026-06-18 20:03:27', '2026-06-18 20:04:58', 2, 0, 1, 0, 1140000.00, 0.00, 1140000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '18/06/2026 20:03 - Check-in thực tế: 2 người lớn / 0 trẻ em / 0 em bé.  Booking chưa thu tiền/cọc, lễ tân cần thu tại quầy hoặc khi check-out.\n18/06/2026 20:04 - Đã yêu cầu kiểm tra phòng trước khi check-out.', NULL, '2026-06-18 11:46:42', '2026-06-18 13:04:58'),
-(46, 'BK2606182FY12', 16, 4, 3, 'hourly', 'walk_in', 'reception', '2026-06-18', '2026-06-18', '2026-06-18 20:00:00', '2026-06-18 23:00:00', 60, '2026-06-18 19:57:54', '2026-06-19 21:57:46', 1, 0, 1, 0, 6240000.00, 0.00, 6240000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '18/06/2026 19:57 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé.  Booking chưa thu tiền/cọc, lễ tân cần thu tại quầy hoặc khi check-out.\n19/06/2026 21:57 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n19/06/2026 21:57 - Check-out thực tế. Tổng phải thu: 6.240.000đ. Cọc: 0đ. Còn lại đã thu: 6.240.000đ. Phí phát sinh: Phụ thu check-out muộn: 5.520.000đ. Booking theo giờ trả muộn 22.96 giờ, tính thêm 23 giờ theo đơn giá tạm tính 240.000đ/giờ.', NULL, '2026-06-18 12:52:52', '2026-06-19 14:57:46'),
+(46, 'BK2606182FY12', 16, 4, 3, 'hourly', 'walk_in', 'reception', '2026-06-18', '2026-06-18', '2026-06-18 14:00:00', '2026-06-18 12:00:00', 60, '2026-06-18 19:57:54', '2026-06-19 21:57:46', 1, 0, 1, 0, 6240000.00, 0.00, 6240000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '18/06/2026 19:57 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé.  Booking chưa thu tiền/cọc, lễ tân cần thu tại quầy hoặc khi check-out.\n19/06/2026 21:57 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n19/06/2026 21:57 - Check-out thực tế. Tổng phải thu: 6.240.000đ. Cọc: 0đ. Còn lại đã thu: 6.240.000đ. Phí phát sinh: Phụ thu check-out muộn: 5.520.000đ. Booking theo giờ trả muộn 22.96 giờ, tính thêm 23 giờ theo đơn giá tạm tính 240.000đ/giờ.', NULL, '2026-06-18 12:52:52', '2026-06-19 14:57:46'),
 (47, 'BK202606182043185FJ', 4, NULL, 4, 'overnight', 'advance', 'user_online', '2026-06-19', '2026-06-20', '2026-06-19 14:00:00', '2026-06-20 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 5300000.00, 0.00, 5300000.00, 0.00, 0.00, 7.10, 'No-show sau 18:00, không liên lạc được. Chưa ghi nhận tiền cọc trên hệ thống; lễ tân kiểm tra lại thanh toán nếu có.', 'unpaid', 'cancelled', '19/06/2026 21:05 - Hủy no-show do khách chưa đến sau 18:00 và không liên lạc được. Chưa ghi nhận tiền cọc trên hệ thống; lễ tân kiểm tra lại thanh toán nếu có. Phòng được mở bán lại.', NULL, '2026-06-18 13:43:18', '2026-06-19 14:05:50'),
-(48, 'BK20260618204608QO7', 14, NULL, 4, 'overnight', 'advance', 'user_online', '2026-06-20', '2026-06-19', '2026-06-20 14:00:00', '2026-06-19 21:55:44', 60, '2026-06-18 20:48:53', '2026-06-19 21:55:44', 2, 0, 1, 0, 15000000.00, 0.00, 15000000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '18/06/2026 20:48 - Check-in thực tế: 2 người lớn / 0 trẻ em / 0 em bé.  Booking chưa thu tiền/cọc, lễ tân cần thu tại quầy hoặc khi check-out.\n18/06/2026 20:56 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n19/06/2026 21:55 - Check-out thực tế. Tổng phải thu: 15.000.000đ. Cọc: 0đ. Còn lại đã thu: 15.000.000đ. Không phát sinh phụ thu check-out.', NULL, '2026-06-18 13:46:08', '2026-06-19 14:55:44'),
+(48, 'BK20260618204608QO7', 14, NULL, 4, 'overnight', 'advance', 'user_online', '2026-06-20', '2026-06-19', '2026-06-20 14:00:00', '2026-06-19 12:00:00', 60, '2026-06-18 20:48:53', '2026-06-19 21:55:44', 2, 0, 1, 0, 15000000.00, 0.00, 15000000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '18/06/2026 20:48 - Check-in thực tế: 2 người lớn / 0 trẻ em / 0 em bé.  Booking chưa thu tiền/cọc, lễ tân cần thu tại quầy hoặc khi check-out.\n18/06/2026 20:56 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n19/06/2026 21:55 - Check-out thực tế. Tổng phải thu: 15.000.000đ. Cọc: 0đ. Còn lại đã thu: 15.000.000đ. Không phát sinh phụ thu check-out.', NULL, '2026-06-18 13:46:08', '2026-06-19 14:55:44'),
 (49, 'BK20260619211657P59', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-06-20', '2026-06-21', '2026-06-20 14:00:00', '2026-06-21 12:00:00', 60, '2026-06-19 21:53:14', '2026-06-19 21:54:44', 1, 0, 1, 0, 1800000.00, 0.00, 1800000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '19/06/2026 21:53 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé. Booking chưa thu tiền/cọc, lễ tân cần thu tại quầy hoặc khi check-out. Check-in sớm lúc 19/06/2026 21:53, sớm hơn giờ chuẩn 16 giờ 6 phút. Nhận trước ngày check-in 1 ngày, tính thêm 1 đêm. Phụ thu: 900.000đ.\n19/06/2026 21:53 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n19/06/2026 21:54 - Check-out thực tế. Tổng phải thu: 1.800.000đ. Cọc: 0đ. Còn lại đã thu: 1.800.000đ. Không phát sinh phụ thu check-out.', NULL, '2026-06-19 14:16:57', '2026-06-19 14:54:44'),
 (50, 'BK20260619221047JWD', 4, NULL, 4, 'overnight', 'advance', 'user_online', '2026-06-20', '2026-06-21', '2026-06-20 14:00:00', '2026-06-21 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 5000000.00, 0.00, 5000000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, NULL, '2026-06-19 15:10:47', '2026-06-19 15:14:07'),
-(51, 'BK260619TWVKJ', 17, 4, 4, 'hourly', 'walk_in', 'reception', '2026-06-19', '2026-06-20', '2026-06-19 22:10:00', '2026-06-20 15:00:00', 60, '2026-06-19 22:13:23', '2026-06-19 22:15:49', 1, 0, 1, 0, 5674157.00, 0.00, 5674157.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '19/06/2026 22:14 - Gia hạn lưu trú từ 20/06/2026 13:00 đến 20/06/2026 15:00. Booking theo giờ, gia hạn thêm 2 giờ. Đơn giá tạm tính theo giá giờ hiện tại: 337.079đ/giờ. Phụ thu: 674.157đ.\n19/06/2026 22:14 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n19/06/2026 22:15 - Check-out thực tế. Tổng phải thu: 5.674.157đ. Cọc: 0đ. Còn lại đã thu: 5.674.157đ. Không phát sinh phụ thu check-out.', NULL, '2026-06-19 15:13:23', '2026-06-19 15:15:49'),
+(51, 'BK260619TWVKJ', 17, 4, 4, 'hourly', 'walk_in', 'reception', '2026-06-19', '2026-06-20', '2026-06-19 14:00:00', '2026-06-20 12:00:00', 60, '2026-06-19 22:13:23', '2026-06-19 22:15:49', 1, 0, 1, 0, 5674157.00, 0.00, 5674157.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '19/06/2026 22:14 - Gia hạn lưu trú từ 20/06/2026 13:00 đến 20/06/2026 15:00. Booking theo giờ, gia hạn thêm 2 giờ. Đơn giá tạm tính theo giá giờ hiện tại: 337.079đ/giờ. Phụ thu: 674.157đ.\n19/06/2026 22:14 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n19/06/2026 22:15 - Check-out thực tế. Tổng phải thu: 5.674.157đ. Cọc: 0đ. Còn lại đã thu: 5.674.157đ. Không phát sinh phụ thu check-out.', NULL, '2026-06-19 15:13:23', '2026-06-19 15:15:49'),
 (52, 'BK20260619221619QVP', 4, NULL, 4, 'overnight', 'advance', 'user_online', '2026-06-20', '2026-06-21', '2026-06-20 14:00:00', '2026-06-21 12:00:00', 60, '2026-06-19 22:16:43', '2026-06-19 23:00:07', 1, 0, 1, 0, 10750000.00, 0.00, 10750000.00, 0.00, 0.00, NULL, NULL, 'paid', 'checked_out', '19/06/2026 22:16 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé. Booking chưa thu tiền/cọc, lễ tân cần thu tại quầy hoặc khi check-out. Check-in sớm lúc 19/06/2026 22:16, sớm hơn giờ chuẩn 15 giờ 43 phút. Nhận trước ngày check-in 1 ngày, tính thêm 1 đêm. Phụ thu: 5.000.000đ.\n19/06/2026 22:58 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n19/06/2026 22:58 - Admin duyệt kiểm tra phòng 401: dịch vụ tại phòng +50.000đ, hư hại +50.000đ. Tổng cộng +100.000đ.\n19/06/2026 23:00 - Check-out thực tế. Tổng phải thu: 10.750.000đ. Cọc: 0đ. Còn lại đã thu: 10.750.000đ. Không phát sinh phụ thu check-out.', NULL, '2026-06-19 15:16:19', '2026-06-19 16:00:07'),
 (53, 'BK20260620144210BEP', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-06-21', '2026-06-22', '2026-06-21 14:00:00', '2026-06-22 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, NULL, '2026-06-20 07:42:10', '2026-06-20 07:42:46'),
 (54, 'BK202606201454387BA', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-06-21', '2026-06-22', '2026-06-21 14:00:00', '2026-06-22 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 0.00, 0.00, NULL, NULL, 'unpaid', 'cancelled', NULL, NULL, '2026-06-20 07:54:38', '2026-06-21 09:58:30'),
@@ -158,15 +158,37 @@ INSERT INTO `bookings` (`id`, `booking_code`, `customer_id`, `created_by`, `room
 (64, 'BK20260622105342WAB', 14, NULL, 4, 'overnight', 'advance', 'user_online', '2026-06-26', '2026-06-29', '2026-06-26 14:00:00', '2026-06-29 12:00:00', 60, NULL, NULL, 2, 0, 1, 0, 15180000.00, 380000.00, 14800000.00, 14800000.00, 0.00, NULL, NULL, 'paid', 'cancelled', 'Đã ghi nhận thanh toán VNPay nhưng hệ thống không còn phòng trống để tự động gán. Cần lễ tân xử lý thủ công.', NULL, '2026-06-22 03:53:42', '2026-06-22 04:05:18'),
 (65, 'BK20260622110355MWQ', 4, NULL, 4, 'overnight', 'advance', 'user_online', '2026-06-26', '2026-06-30', '2026-06-26 14:00:00', '2026-06-30 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 20000000.00, 0.00, 20000000.00, 6000000.00, 0.00, NULL, NULL, 'partial', 'cancelled', NULL, NULL, '2026-06-22 04:03:55', '2026-06-22 08:04:45'),
 (66, 'BK20260622110638MYQ', 14, NULL, 4, 'overnight', 'advance', 'user_online', '2026-06-23', '2026-06-26', '2026-06-23 14:00:00', '2026-06-26 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 15000000.00, 0.00, 15000000.00, 4500000.00, 0.00, 48.38, 'Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 24/06/2026 14:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 4.500.000đ.', 'partial', 'cancelled', '25/06/2026 14:23 - Hủy no-show do khách không đến trong hạn giữ phòng. Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 24/06/2026 14:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 4.500.000đ. Phòng được mở bán lại.', NULL, '2026-06-22 04:06:38', '2026-06-25 07:23:01'),
-(67, 'BK20260622150521YKX', 4, NULL, 3, 'overnight', 'advance', 'user_online', '2026-06-22', '2026-06-24', '2026-06-22 16:15:00', '2026-06-24 12:00:00', 60, '2026-06-22 16:15:39', '2026-06-22 16:23:54', 1, 0, 1, 0, 3600000.00, 0.00, 3600000.00, 540000.00, 0.00, 0.01, 'Booking nhiều đêm, khách cọc một phần/chưa thanh toán đủ và vẫn trong hạn giữ phòng 1 ngày đến 23/06/2026 16:15. Cho check-in bình thường, không phụ thu check-in muộn. Giữ nguyên ngày trả phòng ban đầu.', 'paid', 'checked_out', '22/06/2026 16:15 - Đổi ngày lưu trú từ 23/06/2026 14:00 → 24/06/2026 12:00 sang 22/06/2026 16:15 → 24/06/2026 12:00. Chênh lệch tiền phòng: 1.800.000đ.\n22/06/2026 16:15 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé. Booking nhiều đêm, khách cọc một phần/chưa thanh toán đủ và vẫn trong hạn giữ phòng 1 ngày đến 23/06/2026 16:15. Cho check-in bình thường, không phụ thu check-in muộn. Giữ nguyên ngày trả phòng ban đầu.\n22/06/2026 16:23 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n22/06/2026 16:23 - Check-out thực tế. Tổng phải thu: 3.600.000đ. Cọc: 540.000đ. Còn lại đã thu: 3.060.000đ. Không phát sinh phụ thu check-out.', NULL, '2026-06-22 08:05:21', '2026-06-22 09:23:54'),
+(67, 'BK20260622150521YKX', 4, NULL, 3, 'overnight', 'advance', 'user_online', '2026-06-22', '2026-06-24', '2026-06-22 14:00:00', '2026-06-24 12:00:00', 60, '2026-06-22 16:15:39', '2026-06-22 16:23:54', 1, 0, 1, 0, 3600000.00, 0.00, 3600000.00, 540000.00, 0.00, 0.01, 'Booking nhiều đêm, khách cọc một phần/chưa thanh toán đủ và vẫn trong hạn giữ phòng 1 ngày đến 23/06/2026 16:15. Cho check-in bình thường, không phụ thu check-in muộn. Giữ nguyên ngày trả phòng ban đầu.', 'paid', 'checked_out', '22/06/2026 16:15 - Đổi ngày lưu trú từ 23/06/2026 14:00 → 24/06/2026 12:00 sang 22/06/2026 16:15 → 24/06/2026 12:00. Chênh lệch tiền phòng: 1.800.000đ.\n22/06/2026 16:15 - Check-in thực tế: 1 người lớn / 0 trẻ em / 0 em bé. Booking nhiều đêm, khách cọc một phần/chưa thanh toán đủ và vẫn trong hạn giữ phòng 1 ngày đến 23/06/2026 16:15. Cho check-in bình thường, không phụ thu check-in muộn. Giữ nguyên ngày trả phòng ban đầu.\n22/06/2026 16:23 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n22/06/2026 16:23 - Check-out thực tế. Tổng phải thu: 3.600.000đ. Cọc: 540.000đ. Còn lại đã thu: 3.060.000đ. Không phát sinh phụ thu check-out.', NULL, '2026-06-22 08:05:21', '2026-06-22 09:23:54'),
 (68, 'BK20260622163249NQJ', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-06-23', '2026-06-24', '2026-06-23 14:00:00', '2026-06-24 12:00:00', 60, NULL, NULL, 2, 0, 1, 0, 900000.00, 0.00, 900000.00, 270000.00, 0.00, NULL, NULL, 'partial', 'cancelled', NULL, NULL, '2026-06-22 09:32:49', '2026-06-22 09:58:58'),
 (69, 'BK20260623111437BIR', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-06-23', '2026-06-24', '2026-06-23 14:00:00', '2026-06-24 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 900000.00, 0.00, NULL, NULL, 'paid', 'cancelled', NULL, NULL, '2026-06-23 04:14:37', '2026-06-23 06:20:04'),
 (70, 'BK20260623132045HY1', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-06-23', '2026-06-24', '2026-06-23 14:00:00', '2026-06-24 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 270000.00, 0.00, NULL, NULL, 'partial', 'cancelled', NULL, NULL, '2026-06-23 06:20:45', '2026-06-23 06:28:47'),
 (71, 'BK202606231329044B1', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-06-23', '2026-06-24', '2026-06-23 14:00:00', '2026-06-24 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 270000.00, 0.00, NULL, NULL, 'partial', 'cancelled', NULL, NULL, '2026-06-23 06:29:04', '2026-06-23 06:36:15'),
 (72, 'BK20260623133959OXO', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-06-23', '2026-06-24', '2026-06-23 14:00:00', '2026-06-24 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 270000.00, 0.00, NULL, NULL, 'partial', 'cancelled', NULL, NULL, '2026-06-23 06:39:59', '2026-06-23 08:16:42'),
 (73, 'BK20260630113239BS2', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-06-30', '2026-07-01', '2026-06-30 14:00:00', '2026-07-01 12:00:00', 60, '2026-06-30 11:34:13', '2026-06-30 11:35:05', 2, 0, 1, 0, 900000.00, 0.00, 900000.00, 270000.00, 0.00, NULL, NULL, 'paid', 'checked_out', '30/06/2026 11:34 - Check-in thực tế: 2 người lớn / 0 trẻ em / 0 em bé. Check-in sớm trong cùng ngày lúc 30/06/2026 11:34, sớm hơn giờ chuẩn 2 giờ 25 phút. Check-in sớm cùng ngày từ 11:00 đến trước 14:00, miễn phí nếu phòng đã sẵn sàng. Phụ thu: 0đ.\n30/06/2026 11:34 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n30/06/2026 11:35 - Check-out thực tế. Tổng phải thu: 900.000đ. Cọc: 270.000đ. Còn lại đã thu: 630.000đ. Không phát sinh phụ thu check-out.', NULL, '2026-06-30 04:32:39', '2026-06-30 04:35:05'),
-(74, 'BK20260630160020FTF', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-07-01', '2026-07-02', '2026-07-01 14:00:00', '2026-07-02 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 270000.00, 0.00, NULL, NULL, 'partial', 'confirmed', NULL, NULL, '2026-06-30 09:00:20', '2026-06-30 09:01:16'),
-(75, 'BK20260630160322EMC', 14, NULL, 2, 'overnight', 'advance', 'user_online', '2026-07-02', '2026-07-03', '2026-07-02 14:00:00', '2026-07-03 12:00:00', 60, NULL, NULL, 2, 0, 1, 0, 900000.00, 0.00, 900000.00, 270000.00, 0.00, NULL, NULL, 'partial', 'confirmed', NULL, NULL, '2026-06-30 09:03:22', '2026-06-30 09:04:00');
+(74, 'BK20260630160020FTF', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-07-01', '2026-07-02', '2026-07-01 14:00:00', '2026-07-02 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 270000.00, 0.00, 221.31, 'Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 01/07/2026 18:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 270.000đ.', 'partial', 'cancelled', '10/07/2026 19:18 - Hủy no-show do khách không đến trong hạn giữ phòng. Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 01/07/2026 18:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 270.000đ. Phòng được mở bán lại.', NULL, '2026-06-30 09:00:20', '2026-07-10 12:18:30'),
+(75, 'BK20260630160322EMC', 14, NULL, 2, 'overnight', 'advance', 'user_online', '2026-07-02', '2026-07-03', '2026-07-02 14:00:00', '2026-07-03 12:00:00', 60, NULL, NULL, 2, 0, 1, 0, 900000.00, 0.00, 900000.00, 270000.00, 0.00, 197.31, 'Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 02/07/2026 18:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 270.000đ.', 'partial', 'cancelled', '10/07/2026 19:18 - Hủy no-show do khách không đến trong hạn giữ phòng. Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 02/07/2026 18:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 270.000đ. Phòng được mở bán lại.', NULL, '2026-06-30 09:03:22', '2026-07-10 12:18:38'),
+(76, 'BK260710MLVBG', 18, 4, 1, 'hourly', 'walk_in', 'reception', '2026-07-10', '2026-07-10', '2026-07-10 19:29:00', '2026-07-10 21:29:00', 60, '2026-07-10 19:30:45', '2026-07-10 19:36:12', 1, 0, 1, 0, 607000.00, 0.00, 707000.00, 707000.00, 0.00, NULL, NULL, 'paid', 'checked_out', '10/07/2026 19:35 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n10/07/2026 19:35 - Admin duyệt kiểm tra phòng 402: hư hại +50.000đ. Tổng cộng +50.000đ.\n10/07/2026 19:36 - Check-out thực tế. Tổng phải thu: 707.000đ. Đã thu trước check-out: 0đ. Còn lại khi check-out: 707.000đ. Thu thêm khi check-out: 707.000đ bằng tiền mặt tại quầy. Mã giao dịch: CASHOUTBK260710MLVBG20260710193612A9EWR. Không phát sinh phụ thu check-out.', NULL, '2026-07-10 12:30:45', '2026-07-10 12:36:12'),
+(77, 'BK20260711131605DQF', 4, NULL, 2, 'overnight', 'advance', 'user_online', '2026-07-11', '2026-07-12', '2026-07-11 14:00:00', '2026-07-12 12:00:00', 60, NULL, NULL, 1, 0, 1, 0, 900000.00, 0.00, 900000.00, 270000.00, 0.00, 5.61, 'Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 11/07/2026 18:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 270.000đ.', 'partial', 'cancelled', '11/07/2026 19:36 - Hủy no-show do khách không đến trong hạn giữ phòng. Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 11/07/2026 18:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 270.000đ. Phòng được mở bán lại.', NULL, '2026-07-11 06:16:05', '2026-07-11 12:36:50');
+
+-- --------------------------------------------------------
+
+--
+-- Cấu trúc bảng cho bảng `booking_guests`
+--
+
+CREATE TABLE `booking_guests` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `booking_id` bigint(20) UNSIGNED NOT NULL,
+  `booking_room_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `full_name` varchar(255) NOT NULL,
+  `cccd` varchar(255) DEFAULT NULL,
+  `birthday` date DEFAULT NULL,
+  `gender` enum('male','female','other') DEFAULT NULL,
+  `nationality` varchar(255) DEFAULT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -354,7 +376,19 @@ INSERT INTO `booking_logs` (`id`, `booking_id`, `user_id`, `action`, `descriptio
 (163, 74, 8, 'vnpay_payment_success', 'Thanh toán VNPay thành công: 270.000đ. Trạng thái thanh toán: partial. Đã tự động gán phòng/xác nhận booking nếu đơn còn chờ xử lý..', '2026-06-30 09:01:16', '2026-06-30 09:01:16'),
 (164, 74, 8, 'booking_email_sent_after_payment', 'Đã gửi email xác nhận booking sau khi thanh toán VNPay thành công đến vlinh319@gmail.com.', '2026-06-30 09:01:23', '2026-06-30 09:01:23'),
 (165, 75, 11, 'vnpay_payment_success', 'Thanh toán VNPay thành công: 270.000đ. Trạng thái thanh toán: partial. Đã tự động gán phòng/xác nhận booking nếu đơn còn chờ xử lý..', '2026-06-30 09:04:00', '2026-06-30 09:04:00'),
-(166, 75, 11, 'booking_email_sent_after_payment', 'Đã gửi email xác nhận booking sau khi thanh toán VNPay thành công đến du319@gmail.com.', '2026-06-30 09:04:05', '2026-06-30 09:04:05');
+(166, 75, 11, 'booking_email_sent_after_payment', 'Đã gửi email xác nhận booking sau khi thanh toán VNPay thành công đến du319@gmail.com.', '2026-06-30 09:04:05', '2026-06-30 09:04:05'),
+(167, 74, 4, 'cancel_late_arrival', 'Hủy no-show do khách không đến trong hạn giữ phòng. Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 01/07/2026 18:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 270.000đ. Phòng được mở bán lại.', '2026-07-10 12:18:30', '2026-07-10 12:18:30'),
+(168, 75, 4, 'cancel_late_arrival', 'Hủy no-show do khách không đến trong hạn giữ phòng. Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 02/07/2026 18:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 270.000đ. Phòng được mở bán lại.', '2026-07-10 12:18:38', '2026-07-10 12:18:38'),
+(169, 76, 4, 'booking_created', 'Tạo booking ở ngay - theo giờ bởi lễ tân. Gán phòng: 402. Thời gian: 10/07/2026 19:29 - 10/07/2026 21:29. Chính sách giá: Ở ngay theo giờ: block tối thiểu 2 giờ đầu = 50% giá qua đêm. Thời lượng thực tế được làm tròn lên 2 giờ. Tỷ lệ tính tiền: 50% giá qua đêm.. Cảnh báo: ca thuê theo giờ này trả phòng lúc 10/07/2026 21:29, cộng 60 phút dọn phòng sẽ chiếm phòng đến 10/07/2026 22:29, vượt mốc check-in cam kết 14:00. Sau khi giữ 1 phòng theo giờ, hạng Deluxe Sea View còn 6 phòng có thể bán qua đêm trong khung 10/07/2026 14:00 → 11/07/2026 12:00. Lễ tân vẫn được tạo booking nếu khách xác nhận thuê theo giờ.. Tổng tiền tạm tính: 600.000đ.', '2026-07-10 12:30:45', '2026-07-10 12:30:45'),
+(170, 76, 4, 'booking_email_failed', 'Không gửi được email xác nhận booking đến vanp33@gmail.com: Failed to authenticate on SMTP server with username \"chientr319@gmail.com\" using the following authenticators: \"LOGIN\", \"PLAIN\", \"XOAUTH2\". Authenticator \"LOGIN\" returned \"Expected response code \"235\" but got code \"535\", with message \"535-5.7.8 Username and Password not accepted. For more information, go to\r\n535 5.7.8  https://support.google.com/mail/?p=BadCredentials d9443c01a7336-2ccc9d1e5d0sm60081035ad.42 - gsmtp\".\". Authenticator \"PLAIN\" returned \"Expected response code \"235\" but got code \"535\", with message \"535-5.7.8 Username and Password not accepted. For more information, go to\r\n535 5.7.8  https://support.google.com/mail/?p=BadCredentials d9443c01a7336-2ccc9d1e5d0sm60081035ad.42 - gsmtp\".\". Authenticator \"XOAUTH2\" returned \"Expected response code \"235\" but got code \"334\", with message \"334 eyJzdGF0dXMiOiI0MDAiLCJzY2hlbWVzIjoiQmVhcmVyIiwic2NvcGUiOiJodHRwczovL21haWwuZ29vZ2xlLmNvbS8ifQ==\".\".', '2026-07-10 12:30:54', '2026-07-10 12:30:54'),
+(171, 76, 4, 'service_added', 'Thêm dịch vụ/minibar vào booking: Nước suối x 1 = 7.000đ. Tổng cộng thêm: 7.000đ.', '2026-07-10 12:35:11', '2026-07-10 12:35:11'),
+(172, 76, 4, 'request_inspection', 'Yêu cầu kiểm tra phòng trước check-out. Phòng cần kiểm tra: 402.', '2026-07-10 12:35:17', '2026-07-10 12:35:17'),
+(173, 76, 4, 'inspection_reported', 'Buồng phòng báo cáo kiểm tra phòng 402: hư hại: Vỡ ly thủy tinh x1 = 50.000đ — tạm tính 50.000đ. Chờ admin duyệt.', '2026-07-10 12:35:34', '2026-07-10 12:35:34'),
+(174, 76, 4, 'inspection_approved', 'Admin duyệt kiểm tra phòng 402. Dịch vụ tại phòng được duyệt: 0đ. Hư hại được duyệt: 50.000đ. Tổng cộng: 50.000đ. Mục duyệt: hư hại - Vỡ ly thủy tinh x1 = 50.000đ.', '2026-07-10 12:35:48', '2026-07-10 12:35:48'),
+(175, 76, 4, 'check_out', 'Xác nhận check-out lúc 10/07/2026 19:36. Phòng chuyển sang cần dọn: 402. Tiền phòng: 650.000đ. Dịch vụ/phụ thu: 7.000đ. Minibar/hư hại duyệt: 50.000đ. Tổng phải thu: 707.000đ. Đã thu trước check-out: 0đ. Còn lại khi check-out: 707.000đ. Thu thêm khi check-out: 707.000đ bằng tiền mặt tại quầy. Mã giao dịch: CASHOUTBK260710MLVBG20260710193612A9EWR. Không phát sinh phụ thu check-out.', '2026-07-10 12:36:12', '2026-07-10 12:36:12'),
+(176, 77, 8, 'vnpay_payment_success', 'Thanh toán VNPay thành công: 270.000đ. Trạng thái thanh toán: partial. Đã tự động gán phòng/xác nhận booking nếu đơn còn chờ xử lý..', '2026-07-11 06:17:43', '2026-07-11 06:17:43'),
+(177, 77, 8, 'booking_email_sent_after_payment', 'Đã gửi email xác nhận booking sau khi thanh toán VNPay thành công đến vlinh319@gmail.com.', '2026-07-11 06:17:51', '2026-07-11 06:17:51'),
+(178, 77, 4, 'cancel_late_arrival', 'Hủy no-show do khách không đến trong hạn giữ phòng. Booking cọc một phần/chưa thanh toán đủ đã quá hạn giữ phòng 11/07/2026 18:00, xử lý no-show/không hoàn cọc. Giữ 100% tiền cọc/tiền đã thu: 270.000đ. Phòng được mở bán lại.', '2026-07-11 12:36:50', '2026-07-11 12:36:50');
 
 -- --------------------------------------------------------
 
@@ -418,7 +452,9 @@ INSERT INTO `booking_payments` (`id`, `booking_id`, `provider`, `txn_ref`, `amou
 (31, 72, 'vnpay', 'BK20260623133959OXO20260623133959YUTTL', 270000.00, 'success', 'deposit_30', 'NCB', '15594970', '00', '00', '2026-06-23 06:40:34', '{\"vnp_Amount\":\"27000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15594970\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Coc 30 phan tram booking BK20260623133959OXO - GD BK20260623133959OXO20260623133959YUTTL\",\"vnp_PayDate\":\"20260623134019\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15594970\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260623133959OXO20260623133959YUTTL\",\"vnp_SecureHash\":\"f2096cd770fe6602fee2f323d9ed88db8a06acd1455ba530f35c22d63b9b67bc0fa7d9c38378720ea8d8332d7e6233bfa8196e80f487a6b19cfd24608ee273b6\",\"booking_confirm_email_sent_at\":\"2026-06-23 13:40:39\",\"booking_confirm_email_to\":\"tc19092006@gmail.com\"}', '2026-06-23 06:39:59', '2026-06-23 06:40:39'),
 (32, 73, 'vnpay', 'BK20260630113239BS220260630113240LKCBT', 270000.00, 'success', 'deposit_30', 'NCB', '15604249', '00', '00', '2026-06-30 04:33:20', '{\"vnp_Amount\":\"27000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15604249\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Coc 30 phan tram booking BK20260630113239BS2 - GD BK20260630113239BS220260630113240LKCBT\",\"vnp_PayDate\":\"20260630113308\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15604249\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260630113239BS220260630113240LKCBT\",\"vnp_SecureHash\":\"7a1b7b909caa0e920c95dd50c2c1dd07e0f6c6985090ba6a6e441dbef80690525da0e37e9c3acb24405519ac8abf9c6ae0263676398d30c8593000b2b47b96b1\",\"booking_confirm_email_sent_at\":\"2026-06-30 11:33:28\",\"booking_confirm_email_to\":\"vlinh319@gmail.com\"}', '2026-06-30 04:32:40', '2026-06-30 04:33:28'),
 (33, 74, 'vnpay', 'BK20260630160020FTF20260630160021VA2IK', 270000.00, 'success', 'deposit_30', 'NCB', '15604688', '00', '00', '2026-06-30 09:01:16', '{\"vnp_Amount\":\"27000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15604688\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Coc 30 phan tram booking BK20260630160020FTF - GD BK20260630160020FTF20260630160021VA2IK\",\"vnp_PayDate\":\"20260630160057\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15604688\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260630160020FTF20260630160021VA2IK\",\"vnp_SecureHash\":\"84b594e1208c24cced07561d69819671d04b75284bf757fb85d5bcdb20d5fe35a0aa5451092d7280fb18f0764e84a5eddb9366b193ab402c849dc230ef179e91\",\"booking_confirm_email_sent_at\":\"2026-06-30 16:01:23\",\"booking_confirm_email_to\":\"vlinh319@gmail.com\"}', '2026-06-30 09:00:21', '2026-06-30 09:01:23'),
-(34, 75, 'vnpay', 'BK20260630160322EMC20260630160322EOEGG', 270000.00, 'success', 'deposit_30', 'NCB', '15604693', '00', '00', '2026-06-30 09:04:00', '{\"vnp_Amount\":\"27000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15604693\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Coc 30 phan tram booking BK20260630160322EMC - GD BK20260630160322EMC20260630160322EOEGG\",\"vnp_PayDate\":\"20260630160344\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15604693\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260630160322EMC20260630160322EOEGG\",\"vnp_SecureHash\":\"01b9701e20dc66f9f5113801758185fb97696763ab458c2076bc1994ed3afb868811ce570f8e36cd8f8ac782c13bab6385055f736f719ee885279e0bdee61913\",\"booking_confirm_email_sent_at\":\"2026-06-30 16:04:05\",\"booking_confirm_email_to\":\"du319@gmail.com\"}', '2026-06-30 09:03:22', '2026-06-30 09:04:05');
+(34, 75, 'vnpay', 'BK20260630160322EMC20260630160322EOEGG', 270000.00, 'success', 'deposit_30', 'NCB', '15604693', '00', '00', '2026-06-30 09:04:00', '{\"vnp_Amount\":\"27000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15604693\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Coc 30 phan tram booking BK20260630160322EMC - GD BK20260630160322EMC20260630160322EOEGG\",\"vnp_PayDate\":\"20260630160344\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15604693\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260630160322EMC20260630160322EOEGG\",\"vnp_SecureHash\":\"01b9701e20dc66f9f5113801758185fb97696763ab458c2076bc1994ed3afb868811ce570f8e36cd8f8ac782c13bab6385055f736f719ee885279e0bdee61913\",\"booking_confirm_email_sent_at\":\"2026-06-30 16:04:05\",\"booking_confirm_email_to\":\"du319@gmail.com\"}', '2026-06-30 09:03:22', '2026-06-30 09:04:05'),
+(35, 76, 'cash', 'CASHOUTBK260710MLVBG20260710193612A9EWR', 707000.00, 'success', 'full_100', NULL, NULL, NULL, NULL, '2026-07-10 12:36:12', '{\"source\":\"checkout\",\"method\":\"cash\",\"type\":\"remaining_at_checkout\",\"staff_id\":4,\"note\":\"L\\u1ec5 t\\u00e2n x\\u00e1c nh\\u1eadn kh\\u00e1ch \\u0111\\u00e3 thanh to\\u00e1n kho\\u1ea3n c\\u00f2n l\\u1ea1i khi check-out.\"}', '2026-07-10 12:36:12', '2026-07-10 12:36:12'),
+(36, 77, 'vnpay', 'BK20260711131605DQF202607111316068D5WY', 270000.00, 'success', 'deposit_30', 'NCB', '15617162', '00', '00', '2026-07-11 06:17:43', '{\"vnp_Amount\":\"27000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15617162\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Coc 30 phan tram booking BK20260711131605DQF - GD BK20260711131605DQF202607111316068D5WY\",\"vnp_PayDate\":\"20260711131737\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15617162\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260711131605DQF202607111316068D5WY\",\"vnp_SecureHash\":\"c9657962337f622a980331b7213838c8a759273b285cb39aa96690b9cdf446f98b7dc5f6ec179c731b1264e068399e6e1d448fb745efbb4fddf1ab083a91780f\",\"booking_confirm_email_sent_at\":\"2026-07-11 13:17:51\",\"booking_confirm_email_to\":\"vlinh319@gmail.com\"}', '2026-07-11 06:16:06', '2026-07-11 06:17:51');
 
 -- --------------------------------------------------------
 
@@ -638,7 +674,9 @@ INSERT INTO `booking_rooms` (`id`, `booking_id`, `room_id`, `adult_count`, `chil
 (87, 72, 4, 1, 0, 900000.00, 0.00, NULL, '2026-06-23 06:40:34'),
 (88, 73, 4, 2, 0, 900000.00, 0.00, NULL, '2026-06-30 04:33:21'),
 (89, 74, 14, 1, 0, 900000.00, 0.00, NULL, '2026-06-30 09:01:16'),
-(90, 75, 14, 2, 0, 900000.00, 0.00, NULL, '2026-06-30 09:04:00');
+(90, 75, 14, 2, 0, 900000.00, 0.00, NULL, '2026-06-30 09:04:00'),
+(91, 76, 10, 0, 0, 1200000.00, 0.00, NULL, '2026-07-10 12:30:45'),
+(92, 77, 14, 1, 0, 900000.00, 0.00, NULL, '2026-07-11 06:16:05');
 
 -- --------------------------------------------------------
 
@@ -698,7 +736,8 @@ INSERT INTO `booking_service_items` (`id`, `booking_id`, `service_id`, `name`, `
 (32, 62, 33, 'Đồ uống chào mừng', 'service', 80000.00, 2, 2, 'confirmed', NULL, NULL, NULL, 160000.00, 'Tự thêm từ mã ưu đãi EARLY_UPGRADE: Tặng 2 phần đồ uống chào mừng trong lúc khách chờ xử lý nhận phòng/đổi hạng.', '2026-06-21 16:46:15', '2026-06-21 16:46:15'),
 (33, 62, 30, 'Phụ thu check-in sớm', 'violation_fee', 1800000.00, 1, 1, 'confirmed', 4, '2026-06-21 23:46:53', 'Nhận trước ngày check-in 1 ngày, tính thêm 1 đêm.', 1800000.00, 'Check-in sớm lúc 21/06/2026 23:46. Đến sớm 14 giờ 13 phút. Nhận trước ngày check-in 1 ngày, tính thêm 1 đêm.', '2026-06-21 16:46:53', '2026-06-21 16:46:53'),
 (34, 63, 32, 'Buffet sáng', 'service', 180000.00, 1, 1, 'confirmed', NULL, NULL, NULL, 180000.00, 'Tự thêm từ mã ưu đãi WELCOME200BF: Tặng 1 suất buffet sáng miễn phí khi dùng mã WELCOME200BF.', '2026-06-22 03:46:50', '2026-06-22 03:46:50'),
-(35, 64, 32, 'Buffet sáng', 'service', 180000.00, 1, 1, 'confirmed', NULL, NULL, NULL, 180000.00, 'Tự thêm từ mã ưu đãi WELCOME200BF: Tặng 1 suất buffet sáng miễn phí khi dùng mã WELCOME200BF.', '2026-06-22 03:53:42', '2026-06-22 03:53:42');
+(35, 64, 32, 'Buffet sáng', 'service', 180000.00, 1, 1, 'confirmed', NULL, NULL, NULL, 180000.00, 'Tự thêm từ mã ưu đãi WELCOME200BF: Tặng 1 suất buffet sáng miễn phí khi dùng mã WELCOME200BF.', '2026-06-22 03:53:42', '2026-06-22 03:53:42'),
+(36, 76, 4, 'Nước suối', 'minibar', 7000.00, 1, 1, 'confirmed', 4, '2026-07-10 19:35:11', 'Dịch vụ/minibar khách gọi thêm, tính tiền ngay vào booking.', 7000.00, NULL, '2026-07-10 12:35:11', '2026-07-10 12:35:11');
 
 -- --------------------------------------------------------
 
@@ -764,7 +803,44 @@ CREATE TABLE `chat_assignment_logs` (
 
 INSERT INTO `chat_assignment_logs` (`id`, `conversation_id`, `from_staff_id`, `to_staff_id`, `reason`, `created_at`, `updated_at`) VALUES
 (1, 1, NULL, 5, 'Gán cho nhân viên đang xử lý ít khách nhất', '2026-06-22 06:48:23', '2026-06-22 06:48:23'),
-(2, 1, 5, 5, 'Chuyển cuộc trò chuyện cho nhân viên khác', '2026-06-22 06:48:40', '2026-06-22 06:48:40');
+(2, 1, 5, 5, 'Chuyển cuộc trò chuyện cho nhân viên khác', '2026-06-22 06:48:40', '2026-06-22 06:48:40'),
+(3, 2, NULL, 7, 'Gán cho nhân viên đang xử lý ít khách nhất', '2026-07-10 08:27:15', '2026-07-10 08:27:15');
+
+-- --------------------------------------------------------
+
+--
+-- Cấu trúc bảng cho bảng `chat_attachments`
+--
+
+CREATE TABLE `chat_attachments` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `message_id` bigint(20) UNSIGNED NOT NULL,
+  `disk` varchar(50) NOT NULL DEFAULT 'local',
+  `path` varchar(500) NOT NULL,
+  `original_name` varchar(255) NOT NULL,
+  `mime_type` varchar(150) DEFAULT NULL,
+  `extension` varchar(20) DEFAULT NULL,
+  `size` bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+  `type` enum('image','file') NOT NULL DEFAULT 'file',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Đang đổ dữ liệu cho bảng `chat_attachments`
+--
+
+INSERT INTO `chat_attachments` (`id`, `message_id`, `disk`, `path`, `original_name`, `mime_type`, `extension`, `size`, `type`, `created_at`, `updated_at`) VALUES
+(1, 9, 'local', 'chat-attachments/2026/07/10/1d01d69c-d770-45e8-ba21-2f7b31acf81a.png', 'Screenshot 2026-07-10 141037.png', 'image/png', 'png', 41674, 'image', '2026-07-10 09:45:13', '2026-07-10 09:45:13'),
+(2, 10, 'local', 'chat-attachments/2026/07/10/87d35e43-b3c9-47d7-8d56-fd1d97f90c89.png', 'Screenshot 2026-07-10 141037.png', 'image/png', 'png', 41674, 'image', '2026-07-10 09:45:13', '2026-07-10 09:45:13'),
+(3, 11, 'local', 'chat-attachments/2026/07/10/4abfb307-2eb0-4cbb-8899-5bc95163164a.png', 'Screenshot 2026-07-10 141037.png', 'image/png', 'png', 41674, 'image', '2026-07-10 09:45:19', '2026-07-10 09:45:19'),
+(4, 12, 'local', 'chat-attachments/2026/07/10/eac14e44-c0b5-4e05-8292-b3e44ac2f779.png', 'Screenshot (881).png', 'image/png', 'png', 2629869, 'image', '2026-07-10 09:45:27', '2026-07-10 09:45:27'),
+(5, 13, 'local', 'chat-attachments/2026/07/10/6e75232f-04d9-4567-b2f1-d07a1f6c5f52.zip', 'WorkShop6.zip', 'application/zip', 'zip', 20582, 'file', '2026-07-10 09:45:36', '2026-07-10 09:45:36'),
+(6, 17, 'local', 'chat-attachments/2026/07/10/f210bf42-4bbf-4482-9580-39304c53b3af.png', 'Screenshot (846).png', 'image/png', 'png', 2555070, 'image', '2026-07-10 10:14:52', '2026-07-10 10:14:52'),
+(7, 17, 'local', 'chat-attachments/2026/07/10/3c337cc3-dbeb-4718-903b-10bed31d500d.png', 'Screenshot (847).png', 'image/png', 'png', 2627726, 'image', '2026-07-10 10:14:52', '2026-07-10 10:14:52'),
+(8, 19, 'local', 'chat-attachments/2026/07/10/34ae05f1-c4ab-46c6-b8d5-b084c7d37f60.png', 'Screenshot (845).png', 'image/png', 'png', 1591581, 'image', '2026-07-10 10:16:13', '2026-07-10 10:16:13'),
+(9, 23, 'local', 'chat-attachments/2026/07/10/6b3ad335-9759-415d-b20c-8af174295abb.png', 'Screenshot (845).png', 'image/png', 'png', 1591581, 'image', '2026-07-10 10:41:30', '2026-07-10 10:41:30'),
+(10, 35, 'local', 'chat-attachments/2026/07/11/87965f11-ae88-4277-ad3f-811f6deab79c.png', 'Screenshot (866).png', 'image/png', 'png', 485851, 'image', '2026-07-11 04:58:36', '2026-07-11 04:58:36');
 
 -- --------------------------------------------------------
 
@@ -793,7 +869,8 @@ CREATE TABLE `chat_conversations` (
 --
 
 INSERT INTO `chat_conversations` (`id`, `customer_id`, `booking_id`, `assigned_staff_id`, `guest_name`, `guest_email`, `guest_phone`, `status`, `priority_score`, `last_message_at`, `closed_at`, `created_at`, `updated_at`) VALUES
-(1, 8, NULL, 5, NULL, NULL, NULL, 'active', 90, '2026-06-30 08:45:37', '2026-06-30 08:08:17', '2026-06-22 06:48:23', '2026-06-30 08:45:37');
+(1, 8, NULL, 5, NULL, NULL, NULL, 'active', 90, '2026-07-11 04:58:41', NULL, '2026-06-22 06:48:23', '2026-07-11 04:58:41'),
+(2, 13, NULL, 7, NULL, NULL, NULL, 'active', 90, '2026-07-10 15:38:03', NULL, '2026-07-10 08:27:15', '2026-07-10 15:38:03');
 
 -- --------------------------------------------------------
 
@@ -806,8 +883,9 @@ CREATE TABLE `chat_messages` (
   `conversation_id` bigint(20) UNSIGNED NOT NULL,
   `sender_type` enum('customer','staff','system') NOT NULL,
   `sender_id` bigint(20) UNSIGNED DEFAULT NULL,
-  `message` text NOT NULL,
+  `message` text DEFAULT NULL,
   `is_read` tinyint(1) NOT NULL DEFAULT 0,
+  `read_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -816,11 +894,43 @@ CREATE TABLE `chat_messages` (
 -- Đang đổ dữ liệu cho bảng `chat_messages`
 --
 
-INSERT INTO `chat_messages` (`id`, `conversation_id`, `sender_type`, `sender_id`, `message`, `is_read`, `created_at`, `updated_at`) VALUES
-(1, 1, 'customer', 8, 'Tôi muốn hỏi còn phòng hôm nay không?', 0, '2026-06-22 06:48:23', '2026-06-22 06:48:23'),
-(2, 1, 'staff', 4, 'bạn muốn hỏi hạng phòng nào ạ?', 0, '2026-06-22 07:09:04', '2026-06-22 07:09:04'),
-(3, 1, 'customer', 8, 'Tôi cần hỗ trợ thanh toán/cọc VNPay.', 0, '2026-06-30 08:07:52', '2026-06-30 08:07:52'),
-(4, 1, 'staff', 5, 'fegbfsno', 0, '2026-06-30 08:45:37', '2026-06-30 08:45:37');
+INSERT INTO `chat_messages` (`id`, `conversation_id`, `sender_type`, `sender_id`, `message`, `is_read`, `read_at`, `created_at`, `updated_at`) VALUES
+(1, 1, 'customer', 8, 'Tôi muốn hỏi còn phòng hôm nay không?', 1, '2026-07-10 10:32:02', '2026-06-22 06:48:23', '2026-07-10 10:32:02'),
+(2, 1, 'staff', 4, 'bạn muốn hỏi hạng phòng nào ạ?', 0, NULL, '2026-06-22 07:09:04', '2026-06-22 07:09:04'),
+(3, 1, 'customer', 8, 'Tôi cần hỗ trợ thanh toán/cọc VNPay.', 1, '2026-07-10 10:32:02', '2026-06-30 08:07:52', '2026-07-10 10:32:02'),
+(4, 1, 'staff', 5, 'fegbfsno', 0, NULL, '2026-06-30 08:45:37', '2026-06-30 08:45:37'),
+(5, 2, 'customer', 13, 'Tôi muốn hỏi còn phòng hôm nay không?', 1, '2026-07-10 10:31:06', '2026-07-10 08:27:15', '2026-07-10 10:31:06'),
+(6, 2, 'staff', 4, 'bạn cần hạng nào?', 0, NULL, '2026-07-10 08:27:39', '2026-07-10 08:27:39'),
+(7, 2, 'customer', 13, 'hạng sang nhất', 1, '2026-07-10 10:31:06', '2026-07-10 08:28:05', '2026-07-10 10:31:06'),
+(8, 2, 'staff', 4, 'còn ạ', 0, NULL, '2026-07-10 09:06:51', '2026-07-10 09:06:51'),
+(9, 2, 'customer', 13, 'àgrtry', 1, '2026-07-10 10:31:06', '2026-07-10 09:45:11', '2026-07-10 10:31:06'),
+(10, 2, 'customer', 13, 'àgrtry', 1, '2026-07-10 10:31:06', '2026-07-10 09:45:13', '2026-07-10 10:31:06'),
+(11, 2, 'customer', 13, 'àgrtry', 1, '2026-07-10 10:31:06', '2026-07-10 09:45:19', '2026-07-10 10:31:06'),
+(12, 2, 'customer', 13, 'àgrtry', 1, '2026-07-10 10:31:06', '2026-07-10 09:45:27', '2026-07-10 10:31:06'),
+(13, 2, 'customer', 13, 'àgrtry', 1, '2026-07-10 10:31:06', '2026-07-10 09:45:36', '2026-07-10 10:31:06'),
+(14, 2, 'customer', 13, 'àgrtry', 1, '2026-07-10 10:31:06', '2026-07-10 09:45:50', '2026-07-10 10:31:06'),
+(15, 2, 'customer', 13, 'ghygtrerfw', 1, '2026-07-10 10:31:06', '2026-07-10 10:09:42', '2026-07-10 10:31:06'),
+(16, 2, 'staff', 4, 'aaaaa', 0, NULL, '2026-07-10 10:14:23', '2026-07-10 10:14:23'),
+(17, 2, 'customer', 13, 'sssss', 1, '2026-07-10 10:31:06', '2026-07-10 10:14:52', '2026-07-10 10:31:06'),
+(18, 2, 'customer', 13, 'aaw', 1, '2026-07-10 10:31:06', '2026-07-10 10:15:14', '2026-07-10 10:31:06'),
+(19, 2, 'staff', 4, 'dèwergtr', 0, NULL, '2026-07-10 10:16:13', '2026-07-10 10:16:13'),
+(20, 2, 'customer', 13, 'aesfffd', 1, '2026-07-10 10:31:06', '2026-07-10 10:22:29', '2026-07-10 10:31:06'),
+(21, 2, 'staff', 4, 'dèwdcas', 0, NULL, '2026-07-10 10:22:55', '2026-07-10 10:22:55'),
+(22, 2, 'customer', 13, 'tryuiyt', 1, '2026-07-10 10:31:06', '2026-07-10 10:22:59', '2026-07-10 10:31:06'),
+(23, 2, 'customer', 13, 'frgtrfwed', 1, '2026-07-10 10:41:31', '2026-07-10 10:41:30', '2026-07-10 10:41:31'),
+(24, 2, 'customer', 13, 'frg', 1, '2026-07-10 10:42:26', '2026-07-10 10:41:43', '2026-07-10 10:42:26'),
+(25, 2, 'customer', 13, 'dèwr', 1, '2026-07-10 10:42:26', '2026-07-10 10:42:23', '2026-07-10 10:42:26'),
+(26, 2, 'staff', 4, 'ẻghbfrwnjc', 0, NULL, '2026-07-10 10:42:44', '2026-07-10 10:42:44'),
+(27, 2, 'staff', 4, 'qrewtyukujyhter', 0, NULL, '2026-07-10 10:42:53', '2026-07-10 10:42:53'),
+(28, 2, 'staff', 4, 'qrewtyukujyhter', 0, NULL, '2026-07-10 10:52:45', '2026-07-10 10:52:45'),
+(29, 2, 'staff', 4, 'vgbhjn', 0, NULL, '2026-07-10 10:53:04', '2026-07-10 10:53:04'),
+(30, 2, 'staff', 4, 'dxcfvg', 0, NULL, '2026-07-10 10:55:36', '2026-07-10 10:55:36'),
+(31, 2, 'customer', 13, 'ẻgethr', 1, '2026-07-10 15:37:58', '2026-07-10 15:37:57', '2026-07-10 15:37:58'),
+(32, 2, 'staff', 4, 'eregt', 0, NULL, '2026-07-10 15:38:03', '2026-07-10 15:38:03'),
+(33, 1, 'customer', 8, 'hello', 1, '2026-07-11 04:57:57', '2026-07-11 04:57:50', '2026-07-11 04:57:57'),
+(34, 1, 'staff', 4, 'hi', 0, NULL, '2026-07-11 04:58:10', '2026-07-11 04:58:10'),
+(35, 1, 'customer', 8, 'điều hòa hư rồi', 1, '2026-07-11 04:58:37', '2026-07-11 04:58:36', '2026-07-11 04:58:37'),
+(36, 1, 'staff', 4, 'ô kê', 0, NULL, '2026-07-11 04:58:41', '2026-07-11 04:58:41');
 
 -- --------------------------------------------------------
 
@@ -868,7 +978,9 @@ INSERT INTO `customers` (`id`, `user_id`, `first_name`, `last_name`, `phone`, `c
 (14, 11, 'Đào', 'Du', '0985795457', '038245722002', 'du319@gmail.com', '2026-06-19', 'male', 'Định Tân', NULL, NULL, 'active', '2026-06-18 12:28:59', '2026-06-18 12:28:59', NULL),
 (15, 12, 'Nguyễn', 'Anh', '0985795325', '038232522002', 'anh319@gmail.com', '2026-06-21', 'male', 'Định Tân', NULL, NULL, 'active', '2026-06-18 12:29:46', '2026-06-18 12:46:18', NULL),
 (16, NULL, 'a', 'aa', '0985795056', '038206022056', 'a2tvdu33@gmail.com', NULL, NULL, 'yên định', NULL, NULL, 'active', '2026-06-18 12:52:52', '2026-06-18 12:52:52', NULL),
-(17, NULL, 'a', 'Tran', '0985795157', '038206022157', 'nguyena157@gmail.com', NULL, NULL, 'yên định', NULL, NULL, 'active', '2026-06-19 15:13:23', '2026-06-19 15:13:23', NULL);
+(17, NULL, 'a', 'Tran', '0985795157', '038206022157', 'nguyena157@gmail.com', NULL, NULL, 'yên định', NULL, NULL, 'active', '2026-06-19 15:13:23', '2026-06-19 15:13:23', NULL),
+(18, NULL, 'P', 'Nguyen Van', '0985795640', '038206022640', 'vanp33@gmail.com', NULL, NULL, 'yên định', NULL, NULL, 'active', '2026-07-10 12:30:45', '2026-07-10 12:30:45', NULL),
+(19, 13, 'Chiến', 'Trịnh', '0985795298', '036206022298', 'tc19092006@gmail.com', '1988-10-16', 'male', 'Huyện Yên Định', NULL, NULL, 'active', '2026-07-10 15:22:38', '2026-07-10 15:22:38', NULL);
 
 -- --------------------------------------------------------
 
@@ -925,6 +1037,39 @@ CREATE TABLE `hotel_reviews` (
 
 INSERT INTO `hotel_reviews` (`id`, `booking_id`, `user_id`, `customer_id`, `room_category_id`, `rating`, `cleanliness_rating`, `service_rating`, `location_rating`, `value_rating`, `title`, `comment`, `status`, `approved_by`, `approved_at`, `hidden_by`, `hidden_at`, `hidden_reason`, `admin_reply`, `replied_by`, `replied_at`, `created_at`, `updated_at`, `deleted_at`) VALUES
 (1, 73, 8, 4, 2, 4, 4, 4, 4, 4, 'Nhân viên tốt', 'Trải nghiệm tốt, nhân viên chuyên nghiệp', 'approved', 4, '2026-06-30 04:37:17', NULL, NULL, NULL, NULL, NULL, NULL, '2026-06-30 04:36:29', '2026-06-30 04:37:17', NULL);
+
+-- --------------------------------------------------------
+
+--
+-- Cấu trúc bảng cho bảng `invoices`
+--
+
+CREATE TABLE `invoices` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `invoice_code` varchar(255) NOT NULL,
+  `booking_id` bigint(20) UNSIGNED NOT NULL,
+  `customer_name` varchar(255) NOT NULL,
+  `room_numbers` text NOT NULL,
+  `check_in_date` date NOT NULL,
+  `check_out_date` date NOT NULL,
+  `actual_check_in` datetime DEFAULT NULL,
+  `actual_check_out` datetime DEFAULT NULL,
+  `room_charge` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `service_charge` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `minibar_charge` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `extra_charge` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `damage_fee` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `deposit_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `remaining_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `total_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `payment_status` varchar(255) NOT NULL DEFAULT 'unpaid',
+  `issued_at` timestamp NULL DEFAULT NULL,
+  `printed_at` timestamp NULL DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `created_by` bigint(20) UNSIGNED DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -998,7 +1143,17 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES
 (18, '2026_06_07_190319_create_booking_rooms_table', 7),
 (19, '2026_06_11_140937_create_room_inspections_table', 8),
 (20, '2026_06_11_145746_create_room_inspection_items_table', 9),
-(21, '2026_06_14_160425_add_check_in_out_at_to_bookings_table', 10);
+(21, '2026_06_14_160425_add_check_in_out_at_to_bookings_table', 10),
+(22, '2026_06_14_161005_add_check_in_out_at_to_bookings_table', 11),
+(23, '2026_07_07_134033_add_google_id_to_users_table', 12),
+(24, '2026_06_15_164536_create_booking_service_items_table', 13),
+(25, '2026_06_15_164608_update_services_type_add_extra_guest_fee', 14),
+(26, '2026_06_30_000001_create_hotel_reviews_table', 15),
+(27, '2026_07_08_015859_create_invoices_table', 16),
+(28, '2026_06_22_163017_create_booking_guests_table', 17),
+(29, '2026_07_02_210156_create_room_action_logs_table', 17),
+(30, '2026_07_03_054022_add_inspection_to_rooms_status_enum', 17),
+(31, '2026_07_03_070028_add_status_schedule_to_rooms_table', 17);
 
 -- --------------------------------------------------------
 
@@ -1141,7 +1296,9 @@ CREATE TABLE `rooms` (
   `room_number` varchar(20) NOT NULL,
   `room_category_id` bigint(20) UNSIGNED NOT NULL,
   `floor_number` int(11) DEFAULT NULL,
-  `status` enum('available','reserved','occupied','inspection','cleaning','maintenance') DEFAULT 'available',
+  `status` enum('available','reserved','occupied','cleaning','maintenance','inspection') NOT NULL DEFAULT 'available',
+  `status_from` datetime DEFAULT NULL COMMENT 'Thời điểm bắt đầu trạng thái hiện tại',
+  `status_until` datetime DEFAULT NULL COMMENT 'Thời điểm kết thúc trạng thái hiện tại',
   `note` text DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -1152,21 +1309,38 @@ CREATE TABLE `rooms` (
 -- Đang đổ dữ liệu cho bảng `rooms`
 --
 
-INSERT INTO `rooms` (`id`, `room_number`, `room_category_id`, `floor_number`, `status`, `note`, `created_at`, `updated_at`, `deleted_at`) VALUES
-(1, '101', 1, 1, 'available', NULL, '2026-06-08 22:25:58', '2026-06-18 10:37:05', NULL),
-(2, '102', 1, 1, 'available', NULL, '2026-06-08 22:26:07', '2026-06-18 10:35:14', NULL),
-(3, '103', 1, 1, 'available', NULL, '2026-06-08 22:26:18', '2026-06-18 07:03:41', NULL),
-(4, '201', 2, 2, 'cleaning', NULL, '2026-06-08 22:26:38', '2026-06-30 04:35:05', NULL),
-(5, '202', 2, 2, 'maintenance', NULL, '2026-06-08 22:26:49', '2026-06-18 10:00:51', NULL),
-(6, '203', 2, 2, 'maintenance', NULL, '2026-06-08 22:26:59', '2026-06-18 10:00:54', NULL),
-(7, '301', 3, 3, 'available', NULL, '2026-06-08 22:27:09', '2026-06-30 04:32:09', NULL),
-(8, '302', 3, 3, 'available', NULL, '2026-06-08 22:27:15', '2026-06-30 04:32:15', NULL),
-(9, '401', 4, 4, 'available', NULL, '2026-06-08 22:27:46', '2026-06-22 08:04:45', NULL),
-(10, '402', 1, 4, 'available', NULL, '2026-06-08 22:33:44', '2026-06-18 07:04:06', NULL),
-(11, '403', 1, 4, 'available', NULL, '2026-06-11 06:12:48', '2026-06-18 07:04:18', NULL),
-(12, '404', 1, 4, 'available', NULL, '2026-06-11 06:12:57', '2026-06-18 07:04:22', NULL),
-(13, '405', 1, 4, 'available', NULL, '2026-06-11 06:13:05', '2026-06-18 07:04:25', NULL),
-(14, '406', 2, 4, 'reserved', NULL, '2026-06-21 05:21:55', '2026-06-30 09:01:16', NULL);
+INSERT INTO `rooms` (`id`, `room_number`, `room_category_id`, `floor_number`, `status`, `status_from`, `status_until`, `note`, `created_at`, `updated_at`, `deleted_at`) VALUES
+(1, '101', 1, 1, 'available', NULL, NULL, NULL, '2026-06-08 22:25:58', '2026-06-18 10:37:05', NULL),
+(2, '102', 1, 1, 'available', NULL, NULL, NULL, '2026-06-08 22:26:07', '2026-06-18 10:35:14', NULL),
+(3, '103', 1, 1, 'available', NULL, NULL, NULL, '2026-06-08 22:26:18', '2026-06-18 07:03:41', NULL),
+(4, '201', 2, 2, 'cleaning', NULL, NULL, NULL, '2026-06-08 22:26:38', '2026-06-30 04:35:05', NULL),
+(5, '202', 2, 2, 'maintenance', NULL, NULL, NULL, '2026-06-08 22:26:49', '2026-06-18 10:00:51', NULL),
+(6, '203', 2, 2, 'maintenance', NULL, NULL, NULL, '2026-06-08 22:26:59', '2026-06-18 10:00:54', NULL),
+(7, '301', 3, 3, 'available', NULL, NULL, NULL, '2026-06-08 22:27:09', '2026-06-30 04:32:09', NULL),
+(8, '302', 3, 3, 'available', NULL, NULL, NULL, '2026-06-08 22:27:15', '2026-06-30 04:32:15', NULL),
+(9, '401', 4, 4, 'available', NULL, NULL, NULL, '2026-06-08 22:27:46', '2026-06-22 08:04:45', NULL),
+(10, '402', 1, 4, 'cleaning', NULL, NULL, NULL, '2026-06-08 22:33:44', '2026-07-10 12:36:12', NULL),
+(11, '403', 1, 4, 'available', NULL, NULL, NULL, '2026-06-11 06:12:48', '2026-06-18 07:04:18', NULL),
+(12, '404', 1, 4, 'available', NULL, NULL, NULL, '2026-06-11 06:12:57', '2026-06-18 07:04:22', NULL),
+(13, '405', 1, 4, 'available', NULL, NULL, NULL, '2026-06-11 06:13:05', '2026-06-18 07:04:25', NULL),
+(14, '406', 2, 4, 'available', NULL, NULL, NULL, '2026-06-21 05:21:55', '2026-07-11 12:36:50', NULL);
+
+-- --------------------------------------------------------
+
+--
+-- Cấu trúc bảng cho bảng `room_action_logs`
+--
+
+CREATE TABLE `room_action_logs` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `room_id` bigint(20) UNSIGNED NOT NULL,
+  `user_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `action_type` varchar(50) NOT NULL,
+  `action_time` datetime NOT NULL,
+  `note` text DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -1322,7 +1496,8 @@ INSERT INTO `room_inspections` (`id`, `booking_id`, `room_id`, `inspected_by`, `
 (22, 52, 9, 4, 4, 'confirmed', 1, NULL, 100000.00, NULL, NULL, '2026-06-19 15:58:30', '2026-06-19 15:58:45', '2026-06-19 15:58:04', '2026-06-19 15:58:45'),
 (23, 62, 7, 4, 4, 'confirmed', 0, NULL, 0.00, NULL, NULL, '2026-06-22 03:41:10', '2026-06-22 03:41:18', '2026-06-22 03:40:46', '2026-06-22 03:41:18'),
 (24, 67, 8, 4, 4, 'confirmed', 0, NULL, 0.00, NULL, NULL, '2026-06-22 09:23:35', '2026-06-22 09:23:41', '2026-06-22 09:23:26', '2026-06-22 09:23:41'),
-(25, 73, 4, 4, 4, 'confirmed', 0, NULL, 0.00, NULL, NULL, '2026-06-30 04:34:30', '2026-06-30 04:34:39', '2026-06-30 04:34:20', '2026-06-30 04:34:39');
+(25, 73, 4, 4, 4, 'confirmed', 0, NULL, 0.00, NULL, NULL, '2026-06-30 04:34:30', '2026-06-30 04:34:39', '2026-06-30 04:34:20', '2026-06-30 04:34:39'),
+(26, 76, 10, 4, 4, 'confirmed', 1, NULL, 50000.00, NULL, NULL, '2026-07-10 12:35:34', '2026-07-10 12:35:48', '2026-07-10 12:35:17', '2026-07-10 12:35:48');
 
 -- --------------------------------------------------------
 
@@ -1365,7 +1540,8 @@ INSERT INTO `room_inspection_items` (`id`, `room_inspection_id`, `service_id`, `
 (18, 21, 5, 'damage_fee', 'Bia', 'lon', 10000.00, 3, 30000.00, 'rejected', NULL, '2026-06-19 15:15:22', '2026-06-19 15:15:32'),
 (22, 22, 6, 'damage_fee', 'Vỡ ly thủy tinh', 'cái', 50000.00, 1, 50000.00, 'approved', NULL, '2026-06-19 15:58:30', '2026-06-19 15:58:45'),
 (23, 22, 5, 'minibar', 'Bia', 'lon', 10000.00, 1, 10000.00, 'approved', NULL, '2026-06-19 15:58:30', '2026-06-19 15:58:45'),
-(24, 22, 20, 'minibar', 'Snack', 'gói', 20000.00, 2, 40000.00, 'approved', NULL, '2026-06-19 15:58:30', '2026-06-19 15:58:45');
+(24, 22, 20, 'minibar', 'Snack', 'gói', 20000.00, 2, 40000.00, 'approved', NULL, '2026-06-19 15:58:30', '2026-06-19 15:58:45'),
+(25, 26, 6, 'damage_fee', 'Vỡ ly thủy tinh', 'cái', 50000.00, 1, 50000.00, 'approved', NULL, '2026-07-10 12:35:34', '2026-07-10 12:35:48');
 
 -- --------------------------------------------------------
 
@@ -1444,11 +1620,10 @@ CREATE TABLE `sessions` (
 --
 
 INSERT INTO `sessions` (`id`, `user_id`, `ip_address`, `user_agent`, `payload`, `last_activity`) VALUES
-('2KfKkJcP1Z2bycBm4CSTFAuEXlTEfZ63O3PQpNOE', 4, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoiWWpXa29yTHQxRG1rUjcxWFVSb2VEVU5iMktIZXlsZVUzQlN4cVpPYSI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6Mzk6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9ib29raW5ncy83NSI7czo1OiJyb3V0ZSI7czoxOToiYWRtaW4uYm9va2luZ3Muc2hvdyI7fXM6NjoiX2ZsYXNoIjthOjI6e3M6Mzoib2xkIjthOjA6e31zOjM6Im5ldyI7YTowOnt9fXM6NTA6ImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjtpOjQ7fQ==', 1782810290),
-('cwlDTrHkanjq3bsWnIHeuv648DcMnJ5DqyocfUYh', 8, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoiNGt0RFlNVDZWVlU2MlIyZk5yNnFDNjc5aXk0UTEySEx6SmhvQ2RVeiI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6NDE6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9ib29raW5nLWhpc3RvcnkvLi4uIjtzOjU6InJvdXRlIjtzOjEzOiJib29raW5ncy5zaG93Ijt9czo2OiJfZmxhc2giO2E6Mjp7czozOiJvbGQiO2E6MDp7fXM6MzoibmV3IjthOjA6e319czo1MDoibG9naW5fd2ViXzU5YmEzNmFkZGMyYjJmOTQwMTU4MGYwMTRjN2Y1OGVhNGUzMDk4OWQiO2k6ODt9', 1782810085),
-('F1sRDM9jErsG7Ala3a1Ne2pd6irSyVk0WAXd2Xid', 5, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoidFBGc0JpbnZOTVFCVTAwUEc5bFdZQnBvM3FJOGdWYnlBSm5ORW9ORyI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6NDU6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9yb29tLWF2YWlsYWJpbGl0eSI7czo1OiJyb3V0ZSI7czoyOToiYWRtaW4ucm9vbS1hdmFpbGFiaWxpdHkuaW5kZXgiO31zOjY6Il9mbGFzaCI7YToyOntzOjM6Im9sZCI7YTowOnt9czozOiJuZXciO2E6MDp7fX1zOjUwOiJsb2dpbl93ZWJfNTliYTM2YWRkYzJiMmY5NDAxNTgwZjAxNGM3ZjU4ZWE0ZTMwOTg5ZCI7aTo1O30=', 1782809148),
-('jGulYzON205lNnSXcK3kRejQSi3pD0zqwcTGPqEt', 11, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoienFRSkdNQ2JnMGdmcjdndXRSWlNnWFBCUUkyZnl5MXZoaG9UVERkTiI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6NDE6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9ib29raW5nLWhpc3RvcnkvLi4uIjtzOjU6InJvdXRlIjtzOjEzOiJib29raW5ncy5zaG93Ijt9czo2OiJfZmxhc2giO2E6Mjp7czozOiJvbGQiO2E6MDp7fXM6MzoibmV3IjthOjA6e319czo1MDoibG9naW5fd2ViXzU5YmEzNmFkZGMyYjJmOTQwMTU4MGYwMTRjN2Y1OGVhNGUzMDk4OWQiO2k6MTE7fQ==', 1782810246),
-('WIRfeLrJs8L1X9a7tK70uNcpvSRAduC1Y60jD7Bb', 4, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoianFzZkNjSWxxU0FsaFBBTWlFMUZ2aE0wRDR3MmdjMUpZTlNuMlVHOSI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6Mzk6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9ib29raW5ncy83NSI7czo1OiJyb3V0ZSI7czoxOToiYWRtaW4uYm9va2luZ3Muc2hvdyI7fXM6NjoiX2ZsYXNoIjthOjI6e3M6Mzoib2xkIjthOjA6e31zOjM6Im5ldyI7YTowOnt9fXM6NTA6ImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjtpOjQ7fQ==', 1782830445);
+('cUy2mBjmcVl8Kg5VkE2LuFmMTX1HEKaOzabJW5Zw', 4, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoiZHc3ZU9IVkFNcFpCWXVieWtrVlZWdWVpcDZKMWRGUkF5NzU3TE54cCI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6MzY6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9ib29raW5ncyI7czo1OiJyb3V0ZSI7czoyMDoiYWRtaW4uYm9va2luZ3MuaW5kZXgiO31zOjY6Il9mbGFzaCI7YToyOntzOjM6Im9sZCI7YTowOnt9czozOiJuZXciO2E6MDp7fX1zOjUwOiJsb2dpbl93ZWJfNTliYTM2YWRkYzJiMmY5NDAxNTgwZjAxNGM3ZjU4ZWE0ZTMwOTg5ZCI7aTo0O30=', 1783773421),
+('Vrh4EjPiTMMzgHlU3eqiMSOzLSMJDh5q4hEto4LJ', 8, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoibGFKclFWZ1dnb01oT3E0ZkdIdjhQU1Q3QzVxVzZQZlNsM0NCY2JjMCI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6MzU6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC91c2VyLXNldHRpbmdzIjtzOjU6InJvdXRlIjtzOjEzOiJ1c2VyLnNldHRpbmdzIjt9czo2OiJfZmxhc2giO2E6Mjp7czozOiJvbGQiO2E6MDp7fXM6MzoibmV3IjthOjA6e319czo1MDoibG9naW5fd2ViXzU5YmEzNmFkZGMyYjJmOTQwMTU4MGYwMTRjN2Y1OGVhNGUzMDk4OWQiO2k6ODt9', 1783861607),
+('YZ0vzfqQIZ8UNNAhG1Y56iL5A5QZTcHkvSMLnbY5', 4, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'YTo1OntzOjY6Il90b2tlbiI7czo0MDoiUDJEZENIZ2djclYzMThFeXhxQlh4WjJBaW9wZWNObDZZTVJiVVJ0ZyI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6Mjc6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbiI7czo1OiJyb3V0ZSI7czoxNToiYWRtaW4uZGFzaGJvYXJkIjt9czo2OiJfZmxhc2giO2E6Mjp7czozOiJvbGQiO2E6MDp7fXM6MzoibmV3IjthOjA6e319czozOiJ1cmwiO2E6MTp7czo4OiJpbnRlbmRlZCI7czo4NToiaHR0cDovLzEyNy4wLjAuMTo4MDAwL2Jvb2tpbmdzL2NvbmZpcm0/cm9vbV9jYXRlZ29yeV9pZD0zJmFkdWx0X2NvdW50PTEmY2hpbGRfY291bnQ9MCI7fXM6NTA6ImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjtpOjQ7fQ==', 1783859312),
+('ZLRz38Kk9SfrXAih1Swd3A5SeWSskuOR9B2j8WpY', 8, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoiaWFWZEFmY2NJVE1icjVBdUhQQzZvVzZiNTdIeWRuS01kRld4eDdKQSI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6MjE6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMCI7czo1OiJyb3V0ZSI7czo0OiJob21lIjt9czo2OiJfZmxhc2giO2E6Mjp7czozOiJvbGQiO2E6MDp7fXM6MzoibmV3IjthOjA6e319czo1MDoibG9naW5fd2ViXzU5YmEzNmFkZGMyYjJmOTQwMTU4MGYwMTRjN2Y1OGVhNGUzMDk4OWQiO2k6ODt9', 1783773849);
 
 -- --------------------------------------------------------
 
@@ -1532,9 +1707,10 @@ CREATE TABLE `users` (
   `id` bigint(20) UNSIGNED NOT NULL,
   `name` varchar(255) NOT NULL,
   `email` varchar(255) NOT NULL,
+  `google_id` varchar(255) DEFAULT NULL,
   `avatar` varchar(255) DEFAULT NULL,
   `email_verified_at` timestamp NULL DEFAULT NULL,
-  `password` varchar(255) NOT NULL,
+  `password` varchar(255) DEFAULT NULL,
   `role` enum('super_admin','manager','receptionist_lead','receptionist','housekeeping_supervisor','housekeeping','customer') NOT NULL DEFAULT 'customer',
   `status` enum('active','inactive','banned') NOT NULL DEFAULT 'active',
   `remember_token` varchar(100) DEFAULT NULL,
@@ -1547,16 +1723,17 @@ CREATE TABLE `users` (
 -- Đang đổ dữ liệu cho bảng `users`
 --
 
-INSERT INTO `users` (`id`, `name`, `email`, `avatar`, `email_verified_at`, `password`, `role`, `status`, `remember_token`, `created_at`, `updated_at`, `deleted_at`) VALUES
-(4, 'Chiến Trịnh', 'chientr33@gmail.com', 'avatars/ou5dhWm1C3m3Fqlr3J66AEUc8OTonk0yE3E8JyO6.jpg', NULL, '$2y$12$2yzPWmde1rX4Zb7iOBk9s.Rmzq2UyoW38cdb2/ire1ZbehL14eKWK', 'super_admin', 'active', NULL, '2026-06-05 06:28:47', '2026-06-05 06:29:03', NULL),
-(5, 'LT1', 'lt1@gmail.com', NULL, NULL, '$2y$12$QDau.PoEC2nLvrTkIzz5IOu40ocx9nBFT6MJ/B3REtvTSFZhYvTFa', 'receptionist', 'active', 'Lf2eRgPXYRyW5kjxqMcBYJEGWI96rqniXPoWQgJEWvV4ITRm10b6jH3q9KnZ', '2026-06-12 02:56:26', '2026-06-13 01:49:31', NULL),
-(6, 'Buồng 1', 'bp1@gmail.com', NULL, NULL, '$2y$12$oZt9xTFvAwXhZ7SRORYFvu2vKjJRacLNHPHYas81GHldy.Q36g.7S', 'housekeeping', 'active', NULL, '2026-06-12 03:42:42', '2026-06-13 01:49:08', NULL),
-(7, 'Quản lý 1', 'ql1@gmail.com', NULL, NULL, '$2y$12$jgIUMmboUCdS3iUWvRmiJeyVm2DsiNk3QwmDF1Ri5g0HZx3TQMIA.', 'manager', 'active', NULL, '2026-06-12 03:44:16', '2026-06-12 03:46:51', NULL),
-(8, 'Văn Linh', 'vlinh319@gmail.com', 'avatars/d1rPXMAKPhIDOTtzfMS7Z59sZxNz2KFDKkIozx7O.png', NULL, '$2y$12$mWt1IDXuO7VoGKJsgDjMVeJpA9tYT4Lnpo/m0/icQcgrblUzVUP2m', 'customer', 'active', NULL, '2026-06-13 01:37:37', '2026-06-25 07:17:15', NULL),
-(9, 'Trịnh Chiến', 'chientrinh3@gmail.com', NULL, NULL, '$2y$12$U5KELy3DfyyMdT6d1ftTFOprhudInfE1Z/3mqycRBIP5MTZNnR.Y6', 'customer', 'active', NULL, '2026-06-13 19:32:52', '2026-06-13 19:32:52', NULL),
-(10, 'Trịnh a', 'chientrinh1@gmail.com', NULL, NULL, '$2y$12$Ve5YrscIP59YSWfsNDhv7.yyL8iV7dqfbjsO73ZUV4kZf9bYH9KOi', 'customer', 'active', NULL, '2026-06-13 19:34:31', '2026-06-13 19:34:31', NULL),
-(11, 'Đào Du', 'du319@gmail.com', NULL, NULL, '$2y$12$BPBWaHx9Eg7JKE8nO5LTlO3QdKcl62ZY11TT3ORquEcuzasyMXsDO', 'customer', 'active', NULL, '2026-06-18 12:28:59', '2026-06-18 12:28:59', NULL),
-(12, 'Nguyễn Anh', 'anh319@gmail.com', NULL, NULL, '$2y$12$tkQhEttAO2bwRH8IRy0KGec8Q5KZc8UhO/5zHOvkda5L4PXTCJL8a', 'customer', 'active', NULL, '2026-06-18 12:29:46', '2026-06-18 12:46:18', NULL);
+INSERT INTO `users` (`id`, `name`, `email`, `google_id`, `avatar`, `email_verified_at`, `password`, `role`, `status`, `remember_token`, `created_at`, `updated_at`, `deleted_at`) VALUES
+(4, 'Chiến Trịnh', 'chientr33@gmail.com', NULL, 'avatars/ou5dhWm1C3m3Fqlr3J66AEUc8OTonk0yE3E8JyO6.jpg', NULL, '$2y$12$2yzPWmde1rX4Zb7iOBk9s.Rmzq2UyoW38cdb2/ire1ZbehL14eKWK', 'super_admin', 'active', NULL, '2026-06-05 06:28:47', '2026-06-05 06:29:03', NULL),
+(5, 'LT1', 'lt1@gmail.com', NULL, NULL, NULL, '$2y$12$QDau.PoEC2nLvrTkIzz5IOu40ocx9nBFT6MJ/B3REtvTSFZhYvTFa', 'receptionist', 'active', 'Lf2eRgPXYRyW5kjxqMcBYJEGWI96rqniXPoWQgJEWvV4ITRm10b6jH3q9KnZ', '2026-06-12 02:56:26', '2026-06-13 01:49:31', NULL),
+(6, 'Buồng 1', 'bp1@gmail.com', NULL, NULL, NULL, '$2y$12$oZt9xTFvAwXhZ7SRORYFvu2vKjJRacLNHPHYas81GHldy.Q36g.7S', 'housekeeping', 'active', NULL, '2026-06-12 03:42:42', '2026-06-13 01:49:08', NULL),
+(7, 'Quản lý 1', 'ql1@gmail.com', NULL, NULL, NULL, '$2y$12$jgIUMmboUCdS3iUWvRmiJeyVm2DsiNk3QwmDF1Ri5g0HZx3TQMIA.', 'manager', 'active', NULL, '2026-06-12 03:44:16', '2026-06-12 03:46:51', NULL),
+(8, 'Linh Văn', 'vlinh319@gmail.com', NULL, 'avatars/d1rPXMAKPhIDOTtzfMS7Z59sZxNz2KFDKkIozx7O.png', NULL, '$2y$12$mWt1IDXuO7VoGKJsgDjMVeJpA9tYT4Lnpo/m0/icQcgrblUzVUP2m', 'customer', 'active', NULL, '2026-06-13 01:37:37', '2026-07-11 06:16:05', NULL),
+(9, 'Trịnh Chiến', 'chientrinh3@gmail.com', NULL, NULL, NULL, '$2y$12$U5KELy3DfyyMdT6d1ftTFOprhudInfE1Z/3mqycRBIP5MTZNnR.Y6', 'customer', 'active', NULL, '2026-06-13 19:32:52', '2026-06-13 19:32:52', NULL),
+(10, 'Trịnh a', 'chientrinh1@gmail.com', NULL, NULL, NULL, '$2y$12$Ve5YrscIP59YSWfsNDhv7.yyL8iV7dqfbjsO73ZUV4kZf9bYH9KOi', 'customer', 'active', NULL, '2026-06-13 19:34:31', '2026-06-13 19:34:31', NULL),
+(11, 'Đào Du', 'du319@gmail.com', NULL, NULL, NULL, '$2y$12$BPBWaHx9Eg7JKE8nO5LTlO3QdKcl62ZY11TT3ORquEcuzasyMXsDO', 'customer', 'active', NULL, '2026-06-18 12:28:59', '2026-06-18 12:28:59', NULL),
+(12, 'Nguyễn Anh', 'anh319@gmail.com', NULL, NULL, NULL, '$2y$12$tkQhEttAO2bwRH8IRy0KGec8Q5KZc8UhO/5zHOvkda5L4PXTCJL8a', 'customer', 'active', NULL, '2026-06-18 12:29:46', '2026-06-18 12:46:18', NULL),
+(13, 'Trịnh Chiến', 'tc19092006@gmail.com', '114766218040428006282', 'https://lh3.googleusercontent.com/a/ACg8ocJSqD0le1IYnsHDdhYqivqOzwZxPdK3p3k6K3o7Jxnbybnrrw=s96-c', '2026-07-10 08:20:38', NULL, 'customer', 'active', 'iwvnTTYrbvPv5hYJIEkmjqazH0rvk6U50TKQ4SbxX41OxgoAh0sxkAT8m1Mu', '2026-07-10 08:07:06', '2026-07-10 15:22:38', NULL);
 
 --
 -- Chỉ mục cho các bảng đã đổ
@@ -1578,6 +1755,14 @@ ALTER TABLE `bookings`
   ADD KEY `bookings_created_by_foreign` (`created_by`),
   ADD KEY `bookings_room_category_id_foreign` (`room_category_id`),
   ADD KEY `idx_bookings_time_range` (`check_in_at`,`check_out_at`);
+
+--
+-- Chỉ mục cho bảng `booking_guests`
+--
+ALTER TABLE `booking_guests`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `booking_guests_booking_id_foreign` (`booking_id`),
+  ADD KEY `booking_guests_booking_room_id_foreign` (`booking_room_id`);
 
 --
 -- Chỉ mục cho bảng `booking_logs`
@@ -1673,6 +1858,13 @@ ALTER TABLE `chat_assignment_logs`
   ADD KEY `chat_assignment_logs_to_staff_id_index` (`to_staff_id`);
 
 --
+-- Chỉ mục cho bảng `chat_attachments`
+--
+ALTER TABLE `chat_attachments`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `chat_attachments_message_id_index` (`message_id`);
+
+--
 -- Chỉ mục cho bảng `chat_conversations`
 --
 ALTER TABLE `chat_conversations`
@@ -1725,6 +1917,15 @@ ALTER TABLE `hotel_reviews`
   ADD KEY `hotel_reviews_approved_by_foreign` (`approved_by`),
   ADD KEY `hotel_reviews_hidden_by_foreign` (`hidden_by`),
   ADD KEY `hotel_reviews_replied_by_foreign` (`replied_by`);
+
+--
+-- Chỉ mục cho bảng `invoices`
+--
+ALTER TABLE `invoices`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `invoices_invoice_code_unique` (`invoice_code`),
+  ADD KEY `invoices_booking_id_foreign` (`booking_id`),
+  ADD KEY `invoices_created_by_foreign` (`created_by`);
 
 --
 -- Chỉ mục cho bảng `jobs`
@@ -1785,6 +1986,14 @@ ALTER TABLE `rooms`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `rooms_room_number_unique` (`room_number`),
   ADD KEY `rooms_room_category_id_foreign` (`room_category_id`);
+
+--
+-- Chỉ mục cho bảng `room_action_logs`
+--
+ALTER TABLE `room_action_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `room_action_logs_room_id_foreign` (`room_id`),
+  ADD KEY `room_action_logs_user_id_foreign` (`user_id`);
 
 --
 -- Chỉ mục cho bảng `room_categories`
@@ -1874,7 +2083,8 @@ ALTER TABLE `staff_room_assignments`
 --
 ALTER TABLE `users`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `users_email_unique` (`email`);
+  ADD UNIQUE KEY `users_email_unique` (`email`),
+  ADD UNIQUE KEY `users_google_id_unique` (`google_id`);
 
 --
 -- AUTO_INCREMENT cho các bảng đã đổ
@@ -1890,19 +2100,25 @@ ALTER TABLE `amenities`
 -- AUTO_INCREMENT cho bảng `bookings`
 --
 ALTER TABLE `bookings`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=76;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=78;
+
+--
+-- AUTO_INCREMENT cho bảng `booking_guests`
+--
+ALTER TABLE `booking_guests`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT cho bảng `booking_logs`
 --
 ALTER TABLE `booking_logs`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=167;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=179;
 
 --
 -- AUTO_INCREMENT cho bảng `booking_payments`
 --
 ALTER TABLE `booking_payments`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
 
 --
 -- AUTO_INCREMENT cho bảng `booking_promotions`
@@ -1926,13 +2142,13 @@ ALTER TABLE `booking_promotion_service_offers`
 -- AUTO_INCREMENT cho bảng `booking_rooms`
 --
 ALTER TABLE `booking_rooms`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=91;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=93;
 
 --
 -- AUTO_INCREMENT cho bảng `booking_service_items`
 --
 ALTER TABLE `booking_service_items`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=36;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
 
 --
 -- AUTO_INCREMENT cho bảng `booking_staff_assignments`
@@ -1944,25 +2160,31 @@ ALTER TABLE `booking_staff_assignments`
 -- AUTO_INCREMENT cho bảng `chat_assignment_logs`
 --
 ALTER TABLE `chat_assignment_logs`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+
+--
+-- AUTO_INCREMENT cho bảng `chat_attachments`
+--
+ALTER TABLE `chat_attachments`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
 
 --
 -- AUTO_INCREMENT cho bảng `chat_conversations`
 --
 ALTER TABLE `chat_conversations`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT cho bảng `chat_messages`
 --
 ALTER TABLE `chat_messages`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
 
 --
 -- AUTO_INCREMENT cho bảng `customers`
 --
 ALTER TABLE `customers`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=20;
 
 --
 -- AUTO_INCREMENT cho bảng `failed_jobs`
@@ -1977,6 +2199,12 @@ ALTER TABLE `hotel_reviews`
   MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
+-- AUTO_INCREMENT cho bảng `invoices`
+--
+ALTER TABLE `invoices`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT cho bảng `jobs`
 --
 ALTER TABLE `jobs`
@@ -1986,7 +2214,7 @@ ALTER TABLE `jobs`
 -- AUTO_INCREMENT cho bảng `migrations`
 --
 ALTER TABLE `migrations`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=32;
 
 --
 -- AUTO_INCREMENT cho bảng `promotions`
@@ -2013,6 +2241,12 @@ ALTER TABLE `rooms`
   MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
 
 --
+-- AUTO_INCREMENT cho bảng `room_action_logs`
+--
+ALTER TABLE `room_action_logs`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT cho bảng `room_categories`
 --
 ALTER TABLE `room_categories`
@@ -2034,13 +2268,13 @@ ALTER TABLE `room_category_images`
 -- AUTO_INCREMENT cho bảng `room_inspections`
 --
 ALTER TABLE `room_inspections`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=27;
 
 --
 -- AUTO_INCREMENT cho bảng `room_inspection_items`
 --
 ALTER TABLE `room_inspection_items`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=25;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
 
 --
 -- AUTO_INCREMENT cho bảng `services`
@@ -2070,7 +2304,7 @@ ALTER TABLE `staff_room_assignments`
 -- AUTO_INCREMENT cho bảng `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- Các ràng buộc cho các bảng đã đổ
@@ -2083,6 +2317,13 @@ ALTER TABLE `bookings`
   ADD CONSTRAINT `bookings_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `bookings_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`),
   ADD CONSTRAINT `bookings_room_category_id_foreign` FOREIGN KEY (`room_category_id`) REFERENCES `room_categories` (`id`);
+
+--
+-- Các ràng buộc cho bảng `booking_guests`
+--
+ALTER TABLE `booking_guests`
+  ADD CONSTRAINT `booking_guests_booking_id_foreign` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `booking_guests_booking_room_id_foreign` FOREIGN KEY (`booking_room_id`) REFERENCES `booking_rooms` (`id`) ON DELETE SET NULL;
 
 --
 -- Các ràng buộc cho bảng `booking_logs`
@@ -2146,6 +2387,12 @@ ALTER TABLE `chat_assignment_logs`
   ADD CONSTRAINT `chat_assignment_logs_to_staff_id_foreign` FOREIGN KEY (`to_staff_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
 
 --
+-- Các ràng buộc cho bảng `chat_attachments`
+--
+ALTER TABLE `chat_attachments`
+  ADD CONSTRAINT `chat_attachments_message_id_foreign` FOREIGN KEY (`message_id`) REFERENCES `chat_messages` (`id`) ON DELETE CASCADE;
+
+--
 -- Các ràng buộc cho bảng `chat_conversations`
 --
 ALTER TABLE `chat_conversations`
@@ -2179,6 +2426,13 @@ ALTER TABLE `hotel_reviews`
   ADD CONSTRAINT `hotel_reviews_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
 
 --
+-- Các ràng buộc cho bảng `invoices`
+--
+ALTER TABLE `invoices`
+  ADD CONSTRAINT `invoices_booking_id_foreign` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `invoices_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
 -- Các ràng buộc cho bảng `promotions`
 --
 ALTER TABLE `promotions`
@@ -2196,6 +2450,13 @@ ALTER TABLE `promotion_service_offers`
 --
 ALTER TABLE `rooms`
   ADD CONSTRAINT `rooms_room_category_id_foreign` FOREIGN KEY (`room_category_id`) REFERENCES `room_categories` (`id`) ON DELETE CASCADE;
+
+--
+-- Các ràng buộc cho bảng `room_action_logs`
+--
+ALTER TABLE `room_action_logs`
+  ADD CONSTRAINT `room_action_logs_room_id_foreign` FOREIGN KEY (`room_id`) REFERENCES `rooms` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `room_action_logs_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
 
 --
 -- Các ràng buộc cho bảng `room_category_amenities`

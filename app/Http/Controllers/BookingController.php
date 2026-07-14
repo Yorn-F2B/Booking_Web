@@ -108,19 +108,24 @@ class BookingController extends Controller
 
         $requestedRoomQuantity = 1;
 
-        $availableRoom = $this->findAvailableRoom(
+        $availableRooms = $this->findAvailableRooms(
             $roomCategory->id,
             $checkInAt,
-            $checkOutAt
+            $checkOutAt,
+            $requestedRoomQuantity
         );
 
-        if (!$availableRoom) {
+        if (count($availableRooms) < $requestedRoomQuantity) {
             $checkInText = date('d/m/Y', strtotime($data['check_in_date']));
             $checkOutText = date('d/m/Y', strtotime($data['check_out_date']));
 
             return back()
                 ->withInput()
-                ->with('error', 'Hạng phòng này không còn phòng trống trong thời gian đã chọn. Vui lòng chọn ngày hoặc hạng phòng khác.');
+                ->with('error', 'Chỉ còn ' . count($availableRooms) . ' phòng trống từ ngày '
+                    . $checkInText
+                    . ' đến ngày '
+                    . $checkOutText
+                    . '. Bạn yêu cầu ' . $requestedRoomQuantity . ' phòng. Vui lòng giảm số lượng phòng hoặc chọn ngày khác.');
         }
 
         $nightCount = $this->getNightCount(
@@ -171,8 +176,6 @@ class BookingController extends Controller
             'cccd' => preg_replace('/\s+/', '', (string) $request->input('cccd')),
             'email' => mb_strtolower(trim((string) $request->input('email'))),
             'address' => trim((string) $request->input('address')),
-            'birthday' => trim((string) $request->input('birthday')),
-            'gender' => trim((string) $request->input('gender')),
         ]);
 
         $data = $request->validate([
@@ -201,8 +204,6 @@ class BookingController extends Controller
                 Rule::unique('customers', 'email')->ignore($currentCustomer?->id),
             ],
             'address' => ['required', 'string', 'max:1000'],
-            'birthday' => ['nullable', 'date', 'before_or_equal:today'],
-            'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
 
             'note' => ['nullable', 'string', 'max:1000'],
             'payment_type' => ['required', Rule::in(['deposit_30', 'full_100'])],
@@ -229,9 +230,6 @@ class BookingController extends Controller
             'email.email' => 'Email không đúng định dạng.',
             'email.unique' => 'Email này đã được một tài khoản khác sử dụng.',
             'address.required' => 'Vui lòng nhập địa chỉ liên hệ.',
-            'birthday.date' => 'Ngày sinh đọc từ CCCD không hợp lệ.',
-            'birthday.before_or_equal' => 'Ngày sinh không được lớn hơn ngày hiện tại.',
-            'gender.in' => 'Giới tính đọc từ CCCD không hợp lệ.',
             'payment_type.required' => 'Vui lòng chọn hình thức thanh toán.',
             'payment_type.in' => 'Hình thức thanh toán không hợp lệ.',
         ]);
@@ -272,8 +270,6 @@ class BookingController extends Controller
                     'cccd' => $data['cccd'],
                     'email' => $data['email'],
                     'address' => $data['address'],
-                    'birthday' => $data['birthday'] ?? null,
-                    'gender' => $data['gender'] ?? null,
                     'status' => 'active',
                 ]
             );
@@ -296,13 +292,14 @@ class BookingController extends Controller
                 return 'active_booking_exists';
             }
 
-            $availableRoom = $this->findAvailableRoom(
+            $availableRooms = $this->findAvailableRooms(
                 $roomCategory->id,
                 $checkInAt,
-                $checkOutAt
+                $checkOutAt,
+                $requestedRoomQuantity
             );
 
-            if (!$availableRoom) {
+            if (count($availableRooms) < $requestedRoomQuantity) {
                 return null;
             }
 
@@ -324,7 +321,7 @@ class BookingController extends Controller
                     'check_in_at' => $checkInAt,
                     'check_out_at' => $checkOutAt,
                     'night_count' => $nightCount,
-                    'room_quantity' => 1,
+                    'room_quantity' => $requestedRoomQuantity,
                 ],
                 'user'
             );
@@ -361,7 +358,7 @@ class BookingController extends Controller
                 'check_out_at' => $checkOutAt,
                 'adult_count' => $data['adult_count'],
                 'child_count' => $data['child_count'] ?? 0,
-                'room_quantity' => 1,
+                'room_quantity' => $requestedRoomQuantity,
                 'prefer_adjacent_rooms' => 0,
                 'subtotal_amount' => $subtotalAmount,
                 'discount_amount' => $discountAmount,
@@ -371,18 +368,20 @@ class BookingController extends Controller
                 'status' => 'pending',
                 'note' => $data['note'] ?? null,
             ]);
-            BookingRoom::create([
-                'booking_id' => $booking->id,
-                'room_id' => $availableRoom->id,
-                'adult_count' => $data['adult_count'],
-                'child_count' => $data['child_count'] ?? 0,
-                'price_at_booking' => $roomCategory->price,
-                'surcharge' => 0,
-                'surcharge_reason' => null,
-                'created_at' => now('Asia/Ho_Chi_Minh'),
-            ]);
 
-            $availableRoom->update(['status' => 'reserved']);
+            // Create booking rooms for each requested room
+            foreach ($availableRooms as $index => $room) {
+                BookingRoom::create([
+                    'booking_id' => $booking->id,
+                    'room_id' => $room->id,
+                    'room_number' => $room->room_number,
+                    'check_in_at' => $checkInAt,
+                    'check_out_at' => $checkOutAt,
+                    'adult_count' => $data['adult_count'],
+                    'child_count' => $data['child_count'] ?? 0,
+                    'status' => 'reserved',
+                ]);
+            }
 
             foreach ($serviceItems as $item) {
                 BookingServiceItem::create([

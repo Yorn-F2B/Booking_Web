@@ -61,14 +61,6 @@
                         <div class="card-body p-4">
                             <h2 class="h5 fw-bold mb-3">Tìm phòng trống</h2>
 
-                            @if ($onlineBookingClosedToday)
-                                <div class="alert alert-warning small mb-3">
-                                    Hôm nay đã quá mốc giữ phòng online lúc <strong>14:00</strong>.
-                                    Ngày nhận phòng sớm nhất có thể chọn là
-                                    <strong>{{ \Carbon\Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') }}</strong>.
-                                </div>
-                            @endif
-
                             <form method="GET" action="{{ route('rooms') }}">
 
                                 <div class="row g-2 mb-3">

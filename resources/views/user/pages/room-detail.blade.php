@@ -389,14 +389,6 @@
 
                                     </div>
 
-                                    @if ($onlineBookingClosedToday)
-                                        <div class="alert alert-warning small mb-3">
-                                            Hôm nay đã quá giờ nhận phòng online lúc 14:00.
-                                            Ngày nhận phòng sớm nhất có thể chọn là
-                                            <strong>{{ \Carbon\Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') }}</strong>.
-                                        </div>
-                                    @endif
-
                                     <div class="row g-2 mb-3">
 
                                         <div class="col-4">
