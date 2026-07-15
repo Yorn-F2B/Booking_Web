@@ -2,8 +2,10 @@
 
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])
-    ->name('admin.dashboard');
+Route::middleware('role:super_admin')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])
+        ->name('admin.dashboard');
+});
 
 require __DIR__ . '/admin/rooms.php';
 
