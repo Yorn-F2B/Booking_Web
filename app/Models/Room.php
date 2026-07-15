@@ -52,6 +52,40 @@ class Room extends Model
         return $this->hasMany(StaffRoomAssignment::class);
     }
 
+    /**
+     * Kiểm tra phòng có đang được booking khác (ngoài $excludeBookingId) đang hoạt động giữ không.
+     * Dùng để tránh set status = available khi cancel/hủy booking tương lai
+     * mà phòng đang bị giữ/occupied bởi booking khác.
+     */
+    public function hasActiveBookingOtherThan(int $excludeBookingId): bool
+    {
+        return $this->bookingRooms()
+            ->whereHas('booking', function ($q) use ($excludeBookingId) {
+                $q->where('id', '!=', $excludeBookingId)
+                  ->whereIn('status', ['confirmed', 'checked_in', 'inspection_requested', 'pending']);
+            })
+            ->exists();
+    }
+
+    /**
+     * Giải phóng phòng khỏi một booking.
+     * Chỉ đổi status sang available nếu:
+     * 1. Không có booking nào khác đang active trên phòng này.
+     * 2. Tình trạng vật lý của phòng không nằm trong các trạng thái đang có người hoặc đang dọn/sửa.
+     */
+    public function releaseRoomFromBooking(int $bookingId): void
+    {
+        if ($this->hasActiveBookingOtherThan($bookingId)) {
+            return;
+        }
+
+        if (in_array($this->status, ['occupied', 'cleaning', 'inspection', 'maintenance'])) {
+            return;
+        }
+
+        $this->update(['status' => 'available']);
+    }
+
     public function scopeAvailableForPeriod(
         Builder $query,
         $checkInAt,

@@ -46,6 +46,7 @@ class Booking extends Model
         'late_arrival_hours',
         'late_arrival_policy',
         'cleaning_buffer_minutes',
+        'payment_expires_at',
     ];
 
     protected $casts = [
@@ -53,6 +54,7 @@ class Booking extends Model
         'check_out_at' => 'datetime',
         'actual_check_in' => 'datetime',
         'actual_check_out' => 'datetime',
+        'payment_expires_at' => 'datetime',
     ];
 
     public function customer()

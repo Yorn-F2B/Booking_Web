@@ -2467,9 +2467,7 @@ class BookingLifecycleController extends Controller
 
             foreach ($booking->bookingRooms as $bookingRoom) {
                 if ($bookingRoom->room) {
-                    $bookingRoom->room->update([
-                        'status' => 'available',
-                    ]);
+                    $bookingRoom->room->releaseRoomFromBooking($booking->id);
                 }
             }
 

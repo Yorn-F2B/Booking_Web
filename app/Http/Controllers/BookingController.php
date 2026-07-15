@@ -248,7 +248,8 @@ class BookingController extends Controller
                 $roomCategory->id,
                 $checkInAt,
                 $checkOutAt,
-                $requestedRoomQuantity
+                $requestedRoomQuantity,
+                true // Bug #3: lock for update
             );
 
             if (count($availableRooms) < $requestedRoomQuantity) {
@@ -319,7 +320,10 @@ class BookingController extends Controller
                 'payment_status' => 'unpaid',
                 'status' => 'pending',
                 'note' => $data['note'] ?? null,
+                'payment_expires_at' => now('Asia/Ho_Chi_Minh')->addMinutes(15),
             ]);
+
+            $isWithin24Hours = \Carbon\Carbon::parse($checkInAt, 'Asia/Ho_Chi_Minh')->diffInHours(now('Asia/Ho_Chi_Minh')) <= 24;
 
             // Create booking rooms for each requested room
             foreach ($availableRooms as $index => $room) {
@@ -331,8 +335,14 @@ class BookingController extends Controller
                     'check_out_at' => $checkOutAt,
                     'adult_count' => $data['adult_count'],
                     'child_count' => $data['child_count'] ?? 0,
+                    'price_at_booking' => (float) $roomCategory->price,
                     'status' => 'reserved',
                 ]);
+
+                // Chỉ set trạng thái vật lý của phòng thành reserved nếu trong 24h
+                if ($isWithin24Hours && $room->status === 'available') {
+                    $room->update(['status' => 'reserved']);
+                }
             }
 
             foreach ($serviceItems as $item) {
@@ -418,8 +428,9 @@ class BookingController extends Controller
 
         event(new BookingRealtimeUpdated($booking, 'created'));
 
+        $isWithin24Hours = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')->diffInHours(now('Asia/Ho_Chi_Minh')) <= 24;
         foreach ($booking->bookingRooms as $bookingRoom) {
-            if ($bookingRoom->room) {
+            if ($isWithin24Hours && $bookingRoom->room) {
                 event(new RoomRealtimeUpdated($bookingRoom->room, 'reserved'));
             }
         }
@@ -593,9 +604,7 @@ class BookingController extends Controller
 
         foreach ($booking->bookingRooms as $bookingRoom) {
             if ($bookingRoom->room) {
-                $bookingRoom->room->update([
-                    'status' => 'available',
-                ]);
+                $bookingRoom->room->releaseRoomFromBooking($booking->id);
             }
         }
 
@@ -605,6 +614,7 @@ class BookingController extends Controller
             ->back()
             ->with('success', 'Hủy đơn đặt phòng thành công.');
     }
+
 
     public function show(Booking $booking)
     {
@@ -844,11 +854,16 @@ class BookingController extends Controller
             ->first();
     }
 
-    private function findAvailableRooms($roomCategoryId, $checkInAt, $checkOutAt, $quantity)
+    private function findAvailableRooms($roomCategoryId, $checkInAt, $checkOutAt, $quantity, $lock = false)
     {
-        return Room::where('room_category_id', $roomCategoryId)
-            ->availableForPeriod($checkInAt, $checkOutAt)
-            ->inRandomOrder()
+        $query = Room::where('room_category_id', $roomCategoryId)
+            ->availableForPeriod($checkInAt, $checkOutAt);
+
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+
+        return $query->inRandomOrder()
             ->limit($quantity)
             ->get();
     }

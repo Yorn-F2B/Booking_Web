@@ -660,51 +660,24 @@ class VnpayController extends Controller
     private function assignRoomAfterSuccessfulPayment(Booking $booking): bool
     {
         if ($booking->bookingRooms()->exists()) {
+            $checkInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
+            $isWithin24Hours = $checkInAt->diffInHours(now('Asia/Ho_Chi_Minh')) <= 24;
+
             $booking->load('bookingRooms.room');
 
             foreach ($booking->bookingRooms as $bookingRoom) {
-                if ($bookingRoom->room && $bookingRoom->room->status === 'available') {
+                if ($isWithin24Hours && $bookingRoom->room && $bookingRoom->room->status === 'available') {
                     $bookingRoom->room->update([
                         'status' => 'reserved',
                     ]);
+                    event(new \App\Events\RoomRealtimeUpdated($bookingRoom->room, 'reserved'));
                 }
             }
 
             return true;
         }
 
-        $room = Room::where('room_category_id', $booking->room_category_id)
-            ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
-            ->orderBy('floor_number')
-            ->orderBy('room_number')
-            ->lockForUpdate()
-            ->first();
-
-        if (!$room) {
-            return false;
-        }
-
-        $booking->loadMissing('roomCategory');
-
-        BookingRoom::create([
-            'booking_id' => $booking->id,
-            'room_id' => $room->id,
-            'adult_count' => $booking->adult_count,
-            'child_count' => $booking->child_count ?? 0,
-            'price_at_booking' => (float) ($booking->roomCategory->price ?? 0),
-            'surcharge' => 0,
-            'surcharge_reason' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        if ($room->status === 'available') {
-            $room->update([
-                'status' => 'reserved',
-            ]);
-        }
-
-        return true;
+        return false;
     }
 
 

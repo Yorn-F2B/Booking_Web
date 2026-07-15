@@ -1,9 +1,14 @@
+<<<<<<< HEAD
 <?php
+=======
+﻿<?php
+>>>>>>> 02e67a93 (Update booking and chat features)
 
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
+<<<<<<< HEAD
 use App\Models\BookingPayment;
 use App\Models\RoomCategory;
 use App\Models\Service;
@@ -395,5 +400,307 @@ class ReportController extends Controller
             'title' => 'Báo cáo doanh thu dịch vụ',
             'serviceData' => $serviceData,
         ];
+=======
+use App\Models\BookingRoom;
+use App\Models\Room;
+use App\Models\RoomCategory;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+
+class ReportController extends Controller
+{
+    private const TIMEZONE = 'Asia/Ho_Chi_Minh';
+
+    // ─────────────────────────────────────────────────────────────────────
+    // ROOM REPORT – Tình trạng phòng theo ngày
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function room(Request $request)
+    {
+        $now = Carbon::now(self::TIMEZONE);
+
+        $date       = $request->input('date');
+        $startDate  = $request->input('start_date');
+        $endDate    = $request->input('end_date');
+        $floor      = $request->input('floor');
+        $categoryId = $request->input('category_id');
+        $status     = $request->input('status');
+
+        if (!$date && !$startDate && !$endDate) {
+            $date = $now->toDateString();
+        }
+
+        $isToday = $date === $now->toDateString() && !$startDate;
+
+        $targetDate = $startDate
+            ? Carbon::parse($startDate, self::TIMEZONE)
+            : Carbon::parse($date ?? $now->toDateString(), self::TIMEZONE);
+
+        $targetDateEnd = $endDate
+            ? Carbon::parse($endDate, self::TIMEZONE)->endOfDay()
+            : ($startDate
+                ? Carbon::parse($startDate, self::TIMEZONE)->endOfDay()
+                : $targetDate->copy()->endOfDay());
+
+        $roomQuery = Room::with(['category', 'bookingRooms' => function ($q) use ($targetDate, $targetDateEnd) {
+            $q->with(['booking.customer'])
+              ->whereHas('booking', function ($bq) use ($targetDate, $targetDateEnd) {
+                  $bq->whereIn('status', ['confirmed', 'checked_in', 'inspection_requested', 'pending'])
+                     ->where('check_in_at', '<=', $targetDateEnd)
+                     ->where('check_out_at', '>=', $targetDate);
+              });
+        }]);
+
+        if ($floor) {
+            $roomQuery->where('floor_number', $floor);
+        }
+        if ($categoryId) {
+            $roomQuery->where('room_category_id', $categoryId);
+        }
+
+        $rooms = $roomQuery->orderBy('floor_number')->orderBy('room_number')->get();
+
+        $roomListRaw = $rooms->map(function ($room) use ($isToday, $status) {
+            if ($isToday) {
+                $derivedStatus = $room->status;
+            } else {
+                $hasBooking = $room->bookingRooms->first();
+                if ($hasBooking) {
+                    $bStatus = $hasBooking->booking->status ?? null;
+                    $derivedStatus = $bStatus === 'checked_in' ? 'occupied' : 'reserved';
+                } else {
+                    $derivedStatus = 'available';
+                }
+            }
+
+            if ($status && $derivedStatus !== $status) {
+                return null;
+            }
+
+            $activeBookingRoom = $room->bookingRooms->first();
+            $customerName = '';
+            $checkOut     = '';
+            if ($activeBookingRoom && $activeBookingRoom->booking) {
+                $customerName = $activeBookingRoom->booking->customer->name ?? '';
+                $checkOut = $activeBookingRoom->booking->check_out_at
+                    ? Carbon::parse($activeBookingRoom->booking->check_out_at, self::TIMEZONE)->format('d/m H:i')
+                    : '';
+            }
+
+            return [
+                'room_number' => $room->room_number,
+                'floor'       => $room->floor_number,
+                'category'    => $room->category->name ?? '—',
+                'status'      => $derivedStatus,
+                'customer'    => $customerName,
+                'check_out'   => $checkOut,
+            ];
+        })->filter()->values();
+
+        $statusCounts    = $roomListRaw->groupBy('status')->map->count();
+        $totalRooms      = $roomListRaw->count();
+        $availableRooms  = (int) ($statusCounts['available']   ?? 0);
+        $reservedRooms   = (int) ($statusCounts['reserved']    ?? 0);
+        $occupiedRooms   = (int) ($statusCounts['occupied']    ?? 0);
+        $cleaningRooms   = (int) ($statusCounts['cleaning']    ?? 0);
+        $inspectionRooms = (int) ($statusCounts['inspection']  ?? 0);
+        $maintenanceRooms= (int) ($statusCounts['maintenance'] ?? 0);
+
+        $occupiedOrReserved = $occupiedRooms + $reservedRooms;
+        $occupancyRate = $totalRooms > 0 ? round(($occupiedOrReserved / $totalRooms) * 100, 1) : 0;
+
+        $previousOccupancyRate = null;
+        $occupancyChange = 0;
+        $occupancyTrend  = 'same';
+        if ($date && !$startDate) {
+            $previousOccupancyRate = $this->calcOccupancyForDate(
+                Carbon::parse($date, self::TIMEZONE)->subDay()->toDateString()
+            );
+            $occupancyChange = round($occupancyRate - $previousOccupancyRate, 1);
+            $occupancyTrend  = $occupancyChange > 0 ? 'up' : ($occupancyChange < 0 ? 'down' : 'same');
+        }
+
+        $allCategories = RoomCategory::orderBy('name')->get();
+        $categoryStats = $allCategories->map(function ($cat) use ($roomListRaw) {
+            $catRooms = $roomListRaw->where('category', $cat->name);
+            $total    = $catRooms->count();
+            $occupied = (int) $catRooms->where('status', 'occupied')->count();
+            $reserved = (int) $catRooms->where('status', 'reserved')->count();
+            $rate     = $total > 0 ? round((($occupied + $reserved) / $total) * 100, 1) : 0;
+            return [
+                'category'       => $cat->name,
+                'total'          => $total,
+                'occupied'       => $occupied,
+                'reserved'       => $reserved,
+                'available'      => (int) $catRooms->where('status', 'available')->count(),
+                'cleaning'       => (int) $catRooms->where('status', 'cleaning')->count(),
+                'maintenance'    => (int) $catRooms->where('status', 'maintenance')->count(),
+                'occupancy_rate' => $rate,
+            ];
+        })->filter(fn($r) => $r['total'] > 0)->values();
+
+        $statusLabels = [
+            'available'   => 'Trống',
+            'reserved'    => 'Đã đặt',
+            'occupied'    => 'Đang ở',
+            'cleaning'    => 'Đang dọn',
+            'inspection'  => 'Chờ kiểm tra',
+            'maintenance' => 'Bảo trì',
+        ];
+
+        $statusChart = [
+            'labels' => array_values($statusLabels),
+            'data'   => [
+                $availableRooms, $reservedRooms, $occupiedRooms,
+                $cleaningRooms, $inspectionRooms, $maintenanceRooms,
+            ],
+        ];
+
+        $categoryChart = [
+            'labels' => $categoryStats->pluck('category')->values()->toArray(),
+            'data'   => $categoryStats->pluck('occupancy_rate')->values()->toArray(),
+        ];
+
+        $floors     = Room::distinct()->orderBy('floor_number')->pluck('floor_number');
+        $categories = RoomCategory::orderBy('name')->get();
+        $statuses   = $statusLabels;
+        $roomList   = $roomListRaw;
+
+        return view('admin.pages.reports.room', compact(
+            'date', 'startDate', 'endDate', 'floor', 'categoryId', 'status',
+            'isToday', 'totalRooms', 'availableRooms', 'reservedRooms',
+            'occupiedRooms', 'cleaningRooms', 'inspectionRooms', 'maintenanceRooms',
+            'occupancyRate', 'previousOccupancyRate', 'occupancyChange', 'occupancyTrend',
+            'categoryStats', 'roomList', 'statusChart', 'categoryChart',
+            'floors', 'categories', 'statuses'
+        ));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // REVENUE REPORT
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function index(Request $request)
+    {
+        $now   = Carbon::now(self::TIMEZONE);
+        $mode  = $request->input('mode', 'month');
+        $year  = (int) ($request->input('year', $now->year));
+        $month = (int) ($request->input('month', $now->month));
+        $startDate = $request->input('start_date');
+        $endDate   = $request->input('end_date');
+
+        if ($mode === 'year') {
+            $from  = Carbon::create($year, 1, 1, 0, 0, 0, self::TIMEZONE);
+            $to    = $from->copy()->endOfYear();
+            $revenueRows = $this->revenueByMonth($from);
+            $title = "Doanh thu năm {$year}";
+        } elseif ($mode === 'range' && $startDate && $endDate) {
+            $from  = Carbon::parse($startDate, self::TIMEZONE)->startOfDay();
+            $to    = Carbon::parse($endDate, self::TIMEZONE)->endOfDay();
+            $revenueRows = $this->revenueByDay($from, $to);
+            $title = "Doanh thu " . $from->format('d/m/Y') . " – " . $to->format('d/m/Y');
+        } else {
+            $from  = Carbon::create($year, $month, 1, 0, 0, 0, self::TIMEZONE);
+            $to    = $from->copy()->endOfMonth();
+            $revenueRows = $this->revenueByDay($from, $to);
+            $title = "Doanh thu tháng {$month}/{$year}";
+        }
+
+        $totalRevenue  = collect($revenueRows)->sum('revenue');
+        $totalBookings = collect($revenueRows)->sum('bookings');
+
+        $todayRevenue = $this->sumRevenue($now->copy()->startOfDay(), $now->copy()->endOfDay());
+        $monthRevenue = $this->sumRevenue($now->copy()->startOfMonth(), $now->copy()->endOfMonth());
+
+        $years  = range($now->year - 2, $now->year + 1);
+        $months = range(1, 12);
+
+        return view('admin.pages.reports.index', compact(
+            'title', 'mode', 'year', 'month', 'startDate', 'endDate',
+            'revenueRows', 'totalRevenue', 'totalBookings',
+            'todayRevenue', 'monthRevenue',
+            'years', 'months', 'now'
+        ));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Private helpers
+    // ─────────────────────────────────────────────────────────────────────
+
+    private function calcOccupancyForDate(string $date): float
+    {
+        $totalRooms = Room::count();
+        if ($totalRooms === 0) return 0;
+
+        $targetDate = Carbon::parse($date, self::TIMEZONE);
+        $bookedRooms = BookingRoom::whereHas('booking', function ($q) use ($targetDate) {
+            $q->whereIn('status', ['confirmed', 'checked_in', 'inspection_requested'])
+              ->where('check_in_at', '<=', $targetDate->endOfDay())
+              ->where('check_out_at', '>=', $targetDate->startOfDay());
+        })->distinct('room_id')->count('room_id');
+
+        return round(($bookedRooms / $totalRooms) * 100, 1);
+    }
+
+    private function revenueByDay(Carbon $from, Carbon $to): array
+    {
+        $rows = Booking::query()
+            ->whereIn('status', ['checked_out', 'completed'])
+            ->where('payment_status', 'paid')
+            ->whereBetween('actual_check_out', [$from, $to])
+            ->selectRaw("DATE(actual_check_out) as period, SUM(estimated_total) as revenue, COUNT(*) as bookings")
+            ->groupBy('period')
+            ->orderBy('period')
+            ->get()
+            ->keyBy('period');
+
+        $result  = [];
+        $current = $from->copy();
+        while ($current->lte($to)) {
+            $key = $current->toDateString();
+            $result[] = [
+                'period'   => $key,
+                'label'    => $current->format('d/m'),
+                'revenue'  => (float) ($rows[$key]->revenue ?? 0),
+                'bookings' => (int) ($rows[$key]->bookings ?? 0),
+            ];
+            $current->addDay();
+        }
+        return $result;
+    }
+
+    private function revenueByMonth(Carbon $from): array
+    {
+        $rows = Booking::query()
+            ->whereIn('status', ['checked_out', 'completed'])
+            ->where('payment_status', 'paid')
+            ->whereYear('actual_check_out', $from->year)
+            ->selectRaw("DATE_FORMAT(actual_check_out, '%Y-%m') as period, SUM(estimated_total) as revenue, COUNT(*) as bookings")
+            ->groupBy('period')
+            ->orderBy('period')
+            ->get()
+            ->keyBy('period');
+
+        $result = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $key = $from->year . '-' . str_pad($m, 2, '0', STR_PAD_LEFT);
+            $result[] = [
+                'period'   => $key,
+                'label'    => "T{$m}",
+                'revenue'  => (float) ($rows[$key]->revenue ?? 0),
+                'bookings' => (int) ($rows[$key]->bookings ?? 0),
+            ];
+        }
+        return $result;
+    }
+
+    private function sumRevenue(Carbon $from, Carbon $to): float
+    {
+        return (float) Booking::query()
+            ->whereIn('status', ['checked_out', 'completed'])
+            ->where('payment_status', 'paid')
+            ->whereBetween('actual_check_out', [$from, $to])
+            ->sum('estimated_total');
+>>>>>>> 02e67a93 (Update booking and chat features)
     }
 }
