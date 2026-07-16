@@ -25,6 +25,10 @@ class VnpayController extends Controller
     {
         $this->ensureCustomerCanPay($booking);
 
+        if (!$vnpayService->isConfigured()) {
+            return back()->with('error', 'Cổng thanh toán VNPay hiện chưa được cấu hình. Vui lòng liên hệ quản trị viên hoặc lễ tân để được hỗ trợ.');
+        }
+
         if ($booking->payment_status === 'paid') {
             return back()->with('error', 'Booking này đã thanh toán đủ.');
         }
@@ -63,6 +67,10 @@ class VnpayController extends Controller
 
     public function adminCreate(Request $request, Booking $booking, VnpayService $vnpayService)
     {
+        if (!$vnpayService->isConfigured()) {
+            return back()->with('error', 'VNPay hiện chưa được cấu hình. Vui lòng cập nhật VNPAY_TMN_CODE và VNPAY_HASH_SECRET trước khi gửi yêu cầu thanh toán.');
+        }
+
         if ($booking->payment_status === 'paid') {
             return back()->with('error', 'Booking này đã thanh toán đủ.');
         }
@@ -201,6 +209,12 @@ class VnpayController extends Controller
 
     public function payRequest(Request $request, BookingPayment $payment, VnpayService $vnpayService)
     {
+        if (!$vnpayService->isConfigured()) {
+            return redirect()
+                ->route('home')
+                ->with('error', 'Cổng thanh toán VNPay hiện chưa được cấu hình. Vui lòng liên hệ lễ tân để được hỗ trợ.');
+        }
+
         if ($payment->provider !== 'admin_vnpay') {
             return redirect()
                 ->route('home')

@@ -174,4 +174,84 @@ class Booking extends Model
     {
         return $this->hasMany(Invoice::class);
     }
+
+    /**
+     * Calculate total room charge
+     */
+    public function calculateRoomCharge(): float
+    {
+        $nightCount = $this->getNightCount();
+        return (float) $this->bookingRooms->sum(function ($bookingRoom) use ($nightCount) {
+            return (float) $bookingRoom->price_at_booking * $nightCount;
+        });
+    }
+
+    /**
+     * Calculate total service charge (excluding minibar/damage from inspection)
+     */
+    public function calculateServiceCharge(): float
+    {
+        return (float) $this->serviceItems()
+            ->whereNotIn('billing_status', ['unused', 'cancelled'])
+            ->sum('total');
+    }
+
+    /**
+     * Calculate total approved minibar and damage charge from room inspections
+     */
+    public function calculateApprovedInspectionCharge(): float
+    {
+        return (float) $this->roomInspections()
+            ->with('items')
+            ->get()
+            ->flatMap->items
+            ->where('status', 'approved')
+            ->sum('total');
+    }
+
+    /**
+     * Calculate total promotion discount
+     */
+    public function calculatePromotionDiscount(): float
+    {
+        return (float) $this->discount_amount;
+    }
+
+    /**
+     * Calculate final total: room + services + approved inspection - discount
+     */
+    public function calculateFinalTotal(): float
+    {
+        $roomCharge = $this->calculateRoomCharge();
+        $serviceCharge = $this->calculateServiceCharge();
+        $inspectionCharge = $this->calculateApprovedInspectionCharge();
+        $discount = $this->calculatePromotionDiscount();
+
+        return round($roomCharge + $serviceCharge + $inspectionCharge - $discount, 0);
+    }
+
+    /**
+     * Calculate total successful payments
+     */
+    public function calculateTotalPaid(): float
+    {
+        return (float) $this->payments()
+            ->where('status', 'success')
+            ->sum('amount');
+    }
+
+    /**
+     * Get night count for booking
+     */
+    private function getNightCount(): int
+    {
+        if (!$this->check_in_date || !$this->check_out_date) {
+            return 1;
+        }
+
+        $checkIn = \Carbon\Carbon::parse($this->check_in_date);
+        $checkOut = \Carbon\Carbon::parse($this->check_out_date);
+
+        return max(1, $checkIn->diffInDays($checkOut));
+    }
 }

@@ -17,6 +17,7 @@ use Carbon\Carbon;
 use App\Models\BookingPayment;
 use App\Models\BookingLog;
 use App\Models\HotelReview;
+use App\Models\Invoice;
 use App\Services\VnpayService;
 use App\Services\PromotionService;
 use App\Events\BookingRealtimeUpdated;
@@ -154,7 +155,7 @@ class BookingController extends Controller
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, VnpayService $vnpayService)
     {
         $minOnlineCheckInDate = $this->getOnlineMinCheckInDate();
 
@@ -205,6 +206,12 @@ class BookingController extends Controller
             return back()
                 ->withInput()
                 ->with('error', 'Số trẻ em vượt quá sức chứa của hạng phòng.');
+        }
+
+        if (!$vnpayService->isConfigured()) {
+            return back()
+                ->withInput()
+                ->with('error', 'Cổng thanh toán VNPay hiện chưa được cấu hình. Vui lòng liên hệ quản trị viên hoặc chọn đặt phòng qua lễ tân.');
         }
 
         $booking = DB::transaction(function () use ($data, $roomCategory, $checkInAt, $checkOutAt) {
@@ -417,9 +424,25 @@ class BookingController extends Controller
 
         // Không gửi email xác nhận booking ở bước này vì khách chưa thanh toán.
         // Email xác nhận chính thức sẽ được gửi sau khi VNPay trả kết quả thành công.
-        return redirect()->away(
-            app(VnpayService::class)->createPaymentUrl($booking, $payment, $request)
-        );
+        try {
+            return redirect()->away(
+                $vnpayService->createPaymentUrl($booking, $payment, $request)
+            );
+        } catch (\Throwable $e) {
+            $payment->update([
+                'status' => 'failed',
+                'response_code' => 'CONFIG_ERROR',
+                'transaction_status' => 'CONFIG_ERROR',
+                'raw_response' => [
+                    'error' => $e->getMessage(),
+                    'failed_at' => now('Asia/Ho_Chi_Minh')->toDateTimeString(),
+                ],
+            ]);
+
+            return redirect()
+                ->route('bookings.show', $booking)
+                ->with('error', 'Không thể tạo link thanh toán VNPay lúc này. Vui lòng liên hệ quản trị viên hoặc thử lại sau.');
+        }
     }
 
     private function sendBookingCreatedEmail(Booking $booking, string $source = 'user_online'): array
@@ -510,7 +533,7 @@ class BookingController extends Controller
         $selectedPeriod = $request->input('period');
         $searchKeyword = trim((string) $request->input('q'));
 
-        $bookingsQuery = Booking::with(['roomCategory', 'bookingRooms.room', 'hotelReview'])
+        $bookingsQuery = Booking::with(['roomCategory', 'bookingRooms.room', 'hotelReview', 'invoices'])
             ->where('customer_id', $customer->id)
             ->when(in_array($selectedStatus, $allowedStatuses, true), function ($query) use ($selectedStatus) {
                 $query->where('status', $selectedStatus);
@@ -596,6 +619,7 @@ class BookingController extends Controller
             'bookingPromotions.serviceOffers',
             'promotionServiceOffers',
             'payments',
+            'invoices',
             'hotelReview.replier',
         ]);
 
@@ -611,14 +635,94 @@ class BookingController extends Controller
             ->latest()
             ->first();
 
+        $latestInvoice = $booking->invoices
+            ->sortByDesc(function ($invoice) {
+                return optional($invoice->issued_at)->timestamp ?? $invoice->id;
+            })
+            ->first();
+
         $defaultPaymentType = $latestPayment->payment_type ?? 'deposit_30';
 
         $canReviewBooking = $booking->canBeReviewed();
 
         return view(
             'user.pages.booking-detail',
-            compact('booking', 'availableServices', 'latestPayment', 'defaultPaymentType', 'canReviewBooking')
+            compact('booking', 'availableServices', 'latestPayment', 'latestInvoice', 'defaultPaymentType', 'canReviewBooking')
         );
+    }
+
+    public function showInvoice(Booking $booking)
+    {
+        $customer = Customer::where('user_id', Auth::id())->first();
+
+        if (!$customer || $booking->customer_id != $customer->id) {
+            abort(403);
+        }
+
+        if (!in_array($booking->status, ['checked_out', 'completed'], true)) {
+            return redirect()
+                ->route('bookings.show', $booking)
+                ->with('error', 'Hóa đơn chỉ khả dụng sau khi booking đã trả phòng.');
+        }
+
+        $invoice = Invoice::with([
+            'booking',
+            'booking.customer',
+            'booking.bookingRooms.room',
+            'booking.payments',
+            'customer',
+            'issuer',
+            'creator',
+        ])
+            ->where('booking_id', $booking->id)
+            ->latest('issued_at')
+            ->latest('id')
+            ->first();
+
+        if (!$invoice) {
+            return redirect()
+                ->route('bookings.show', $booking)
+                ->with('error', 'Hóa đơn cho booking này đang được chuẩn bị. Vui lòng thử lại sau.');
+        }
+
+        return view('user.pages.invoice', compact('booking', 'invoice'));
+    }
+
+    public function printInvoice(Booking $booking)
+    {
+        $customer = Customer::where('user_id', Auth::id())->first();
+
+        if (!$customer || $booking->customer_id != $customer->id) {
+            abort(403);
+        }
+
+        if (!in_array($booking->status, ['checked_out', 'completed'], true)) {
+            return redirect()
+                ->route('bookings.show', $booking)
+                ->with('error', 'Hóa đơn chỉ khả dụng sau khi booking đã trả phòng.');
+        }
+
+        $invoice = Invoice::with([
+            'booking',
+            'booking.customer',
+            'booking.bookingRooms.room',
+            'booking.payments',
+            'customer',
+            'issuer',
+            'creator',
+        ])
+            ->where('booking_id', $booking->id)
+            ->latest('issued_at')
+            ->latest('id')
+            ->first();
+
+        if (!$invoice) {
+            return redirect()
+                ->route('bookings.show', $booking)
+                ->with('error', 'Hóa đơn cho booking này đang được chuẩn bị. Vui lòng thử lại sau.');
+        }
+
+        return view('user.pages.invoice-print', compact('booking', 'invoice'));
     }
 
     public function current()

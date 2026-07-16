@@ -402,6 +402,14 @@
 
                                                 </a>
 
+                                                @if (in_array($booking->status, ['checked_out', 'completed'], true) && $booking->invoices->isNotEmpty())
+                                                    <a href="{{ route('bookings.invoice', $booking->id) }}"
+                                                        class="btn btn-outline-success btn-sm">
+                                                        <i class="bx bx-receipt me-1"></i>
+                                                        Hóa đơn
+                                                    </a>
+                                                @endif
+
                                                 @if (in_array($booking->status, ['pending', 'confirmed']))
 
                                                     <form action="{{ route('bookings.cancel', $booking->id) }}" method="POST"

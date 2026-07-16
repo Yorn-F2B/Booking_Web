@@ -138,6 +138,7 @@
                                 @php
                                     $review = $booking->hotelReview;
                                     $status = $booking->status;
+                                    $hasInvoice = $booking->invoices->isNotEmpty();
                                 @endphp
                                 <tr>
                                     <td>
@@ -170,6 +171,11 @@
                                             <a href="{{ route('bookings.show', $booking) }}" class="btn btn-sm btn-outline-primary">
                                                 Chi tiết
                                             </a>
+                                            @if (in_array($booking->status, ['checked_out', 'completed'], true) && $hasInvoice)
+                                                <a href="{{ route('bookings.invoice', $booking) }}" class="btn btn-sm btn-outline-success">
+                                                    Hóa đơn
+                                                </a>
+                                            @endif
                                             @if ($review)
                                                 <a href="{{ route('reviews.edit', $review) }}" class="btn btn-sm btn-outline-secondary">
                                                     Sửa đánh giá

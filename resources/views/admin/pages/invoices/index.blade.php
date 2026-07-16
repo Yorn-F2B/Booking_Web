@@ -72,17 +72,17 @@
                             <tr>
                                 <td>{{ $invoice->invoice_code }}</td>
                                 <td>{{ $invoice->booking->booking_code ?? '---' }}</td>
-                                <td>{{ $invoice->customer_name }}</td>
-                                <td>{{ $invoice->room_numbers }}</td>
-                                <td>{{ \Carbon\Carbon::parse($invoice->check_in_date)->format('d/m/Y') }}</td>
-                                <td>{{ \Carbon\Carbon::parse($invoice->check_out_date)->format('d/m/Y') }}</td>
-                                <td>{{ number_format($invoice->total_amount, 0, ',', '.') }}đ</td>
+                                <td>{{ $invoice->resolved_customer_name }}</td>
+                                <td>{{ $invoice->resolved_room_numbers }}</td>
+                                <td>{{ $invoice->resolved_check_in_date ? \Carbon\Carbon::parse($invoice->resolved_check_in_date)->format('d/m/Y') : '---' }}</td>
+                                <td>{{ $invoice->resolved_check_out_date ? \Carbon\Carbon::parse($invoice->resolved_check_out_date)->format('d/m/Y') : '---' }}</td>
+                                <td>{{ number_format($invoice->resolved_final_total, 0, ',', '.') }}đ</td>
                                 <td>
                                     @php
-                                        $paymentStatusClass = match($invoice->payment_status) {
-                                            'unpaid' => 'badge-danger',
-                                            'partial' => 'badge-warning',
-                                            'paid' => 'badge-success',
+                                        $paymentStatusClass = match($invoice->effective_payment_status) {
+                                            'unpaid' => 'bg-danger',
+                                            'partial' => 'bg-warning text-dark',
+                                            'paid' => 'bg-success',
                                             default => 'badge-secondary',
                                         };
                                     @endphp

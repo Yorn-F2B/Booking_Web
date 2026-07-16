@@ -28,7 +28,7 @@ class UserSettingController extends Controller
             ]
         );
 
-        $bookings = Booking::with(['roomCategory', 'bookingRooms.room'])
+        $bookings = Booking::with(['roomCategory', 'bookingRooms.room', 'invoices'])
             ->where('customer_id', $customer->id)
             ->latest()
             ->get();

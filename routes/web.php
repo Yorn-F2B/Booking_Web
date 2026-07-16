@@ -166,6 +166,16 @@ Route::middleware('auth')->group(function () {
         '/booking-history/{booking}',
         [BookingController::class, 'show']
     )->name('bookings.show');
+
+    Route::get(
+        '/booking-history/{booking}/invoice',
+        [BookingController::class, 'showInvoice']
+    )->name('bookings.invoice');
+
+    Route::get(
+        '/booking-history/{booking}/invoice/print',
+        [BookingController::class, 'printInvoice']
+    )->name('bookings.invoice.print');
 });
 
 /*

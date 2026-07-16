@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Mail\InvoiceIssuedMail;
 use App\Models\Booking;
+use App\Models\Invoice;
 use App\Models\RoomInspection;
 use Illuminate\Support\Facades\DB;
 use App\Models\BookingRoom;
@@ -16,7 +18,10 @@ use App\Models\BookingLog;
 use App\Models\BookingPayment;
 use App\Models\PromotionRoomUpgradeOffer;
 use App\Services\PromotionService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use App\Support\Realtime;
 
 class BookingLifecycleController extends Controller
@@ -1726,8 +1731,16 @@ class BookingLifecycleController extends Controller
     {
         $this->guardCanAccessBooking($booking);
 
+        if ($booking->status === 'checked_out') {
+            return back()->with('error', 'Booking này đã được check-out trước đó.');
+        }
+
         if ($booking->status !== 'checked_in') {
             return back()->with('error', 'Chỉ có thể check-out booking đang ở.');
+        }
+
+        if ($booking->invoices()->exists()) {
+            return back()->with('error', 'Booking này đã có hóa đơn, không thể check-out lại.');
         }
 
         $data = $request->validate([
@@ -1877,18 +1890,16 @@ class BookingLifecycleController extends Controller
                     'roomCategory',
                     'roomInspections.items',
                     'serviceItems',
+                    'payments',
+                    'customer',
                 ])
                 ->firstOrFail();
 
-            $roomBaseTotal = $this->getCheckoutRoomBaseTotal($booking);
-            $serviceItemTotal = (float) BookingServiceItem::where('booking_id', $booking->id)
-                ->whereNotIn('billing_status', ['unused', 'cancelled'])
-                ->sum('total');
-            $approvedInspectionTotal = $this->getApprovedInspectionTotal($booking);
-            $finalTotal = round($roomBaseTotal + $serviceItemTotal + $approvedInspectionTotal, 0);
-
-            $paidBeforeCheckout = (float) $booking->deposit_amount;
+            $finalTotal = $booking->calculateFinalTotal();
+            $paidBeforeCheckout = $booking->calculateTotalPaid();
             $remainingTotal = max(0, $finalTotal - $paidBeforeCheckout);
+            $overpaymentAmount = max(0, $paidBeforeCheckout - $finalTotal);
+
             $paymentMethod = $data['checkout_payment_method'] ?? null;
             $checkoutPayment = null;
 
@@ -1915,7 +1926,7 @@ class BookingLifecycleController extends Controller
                     'txn_ref' => $this->generateCheckoutPaymentTxnRef($booking, $paymentMethod),
                     'amount' => $remainingTotal,
                     'status' => 'success',
-                    'payment_type' => 'full_100',
+                    'payment_type' => 'remaining',
                     'paid_at' => $actualCheckOutAt,
                     'raw_response' => [
                         'source' => 'checkout',
@@ -1925,10 +1936,6 @@ class BookingLifecycleController extends Controller
                         'note' => 'Lễ tân xác nhận khách đã thanh toán khoản còn lại khi check-out.',
                     ],
                 ]);
-
-                $paidAfterCheckout = $paidBeforeCheckout + $remainingTotal;
-            } else {
-                $paidAfterCheckout = $paidBeforeCheckout;
             }
 
             $oldNote = $booking->note ? $booking->note . "\n" : '';
@@ -1936,21 +1943,24 @@ class BookingLifecycleController extends Controller
                 ? ' Phí phát sinh: ' . implode(' ', $feeMessages)
                 : ' Không phát sinh phụ thu check-out.';
 
-            $paymentText = $remainingTotal > 0
-                ? ' Thu thêm khi check-out: '
+            if ($overpaymentAmount > 0) {
+                $paymentText = ' Khách trả thừa: ' . number_format($overpaymentAmount, 0, ',', '.') . 'đ. Vui lòng hoàn trả cho khách.';
+            } else if ($remainingTotal > 0) {
+                $paymentText = ' Thu thêm khi check-out: '
                     . number_format($remainingTotal, 0, ',', '.')
                     . 'đ bằng '
                     . $this->getCheckoutPaymentMethodLabel($paymentMethod)
                     . '. Mã giao dịch: '
                     . ($checkoutPayment->txn_ref ?? '---')
-                    . '.'
-                : ' Khách đã thanh toán đủ trước khi check-out, không cần thu thêm.';
+                    . '.';
+            } else {
+                $paymentText = ' Khách đã thanh toán đủ trước khi check-out, không cần thu thêm.';
+            }
 
             $booking->update([
                 'status' => 'checked_out',
                 'actual_check_out' => $actualCheckOutAt,
                 'payment_status' => 'paid',
-                'deposit_amount' => $paidAfterCheckout,
                 'estimated_total' => $finalTotal,
                 'note' => $oldNote
                     . $actualCheckOutAt->format('d/m/Y H:i')
@@ -1958,9 +1968,8 @@ class BookingLifecycleController extends Controller
                     . number_format($finalTotal, 0, ',', '.')
                     . 'đ. Đã thu trước check-out: '
                     . number_format($paidBeforeCheckout, 0, ',', '.')
-                    . 'đ. Còn lại khi check-out: '
-                    . number_format($remainingTotal, 0, ',', '.')
-                    . 'đ.'
+                    . 'đ. '
+                    . ($overpaymentAmount > 0 ? 'Trả thừa: ' . number_format($overpaymentAmount, 0, ',', '.') . 'đ. ' : 'Còn lại khi check-out: ' . number_format($remainingTotal, 0, ',', '.') . 'đ. ')
                     . $paymentText
                     . $feeText,
             ]);
@@ -1972,6 +1981,8 @@ class BookingLifecycleController extends Controller
                     ]);
                 }
             }
+
+            $invoice = $this->createInvoiceForBooking($booking, $actualCheckOutAt);
 
             $roomNumbers = $booking->bookingRooms
                 ->pluck('room.room_number')
@@ -1985,24 +1996,18 @@ class BookingLifecycleController extends Controller
                 . $actualCheckOutAt->format('d/m/Y H:i')
                 . '. Phòng chuyển sang cần dọn: '
                 . $roomNumbers
-                . '. Tiền phòng: '
-                . number_format($roomBaseTotal, 0, ',', '.')
-                . 'đ. Dịch vụ/phụ thu: '
-                . number_format($serviceItemTotal, 0, ',', '.')
-                . 'đ. Minibar/hư hại duyệt: '
-                . number_format($approvedInspectionTotal, 0, ',', '.')
-                . 'đ. Tổng phải thu: '
+                . '. Tổng phải thu: '
                 . number_format($finalTotal, 0, ',', '.')
                 . 'đ. Đã thu trước check-out: '
                 . number_format($paidBeforeCheckout, 0, ',', '.')
-                . 'đ. Còn lại khi check-out: '
-                . number_format($remainingTotal, 0, ',', '.')
-                . 'đ.'
+                . 'đ. '
                 . $paymentText
                 . $feeText
             );
 
             DB::commit();
+
+            $invoiceEmailStatus = $this->sendInvoiceEmailToCustomer($booking, $invoice);
 
             Realtime::booking($booking->id, 'checked_out');
 
@@ -2011,20 +2016,172 @@ class BookingLifecycleController extends Controller
                 'Check-out thành công. Tổng phải thu '
                 . number_format($finalTotal, 0, ',', '.')
                 . 'đ. '
-                . ($remainingTotal > 0
-                    ? 'Đã ghi nhận thu thêm '
-                        . number_format($remainingTotal, 0, ',', '.')
-                        . 'đ bằng '
-                        . $this->getCheckoutPaymentMethodLabel($paymentMethod)
-                        . '. '
-                    : 'Booking đã thanh toán đủ trước đó. ')
-                . 'Phòng đã chuyển sang trạng thái cần dọn.'
+                . ($overpaymentAmount > 0 
+                    ? 'Khách trả thừa ' . number_format($overpaymentAmount, 0, ',', '.') . 'đ, vui lòng hoàn trả. '
+                    : ($remainingTotal > 0
+                        ? 'Đã ghi nhận thu thêm '
+                            . number_format($remainingTotal, 0, ',', '.')
+                            . 'đ bằng '
+                            . $this->getCheckoutPaymentMethodLabel($paymentMethod)
+                            . '. '
+                        : 'Booking đã thanh toán đủ trước đó. '))
+                . 'Hóa đơn đã được tạo tự động.'
+                . match ($invoiceEmailStatus) {
+                    'sent' => ' Hóa đơn cũng đã được gửi tới email của khách.',
+                    'skipped' => ' Booking chưa có email hợp lệ để nhận hóa đơn tự động.',
+                    default => ' Không thể tự gửi email hóa đơn lúc này, vui lòng kiểm tra booking logs.',
+                }
             );
         } catch (\Throwable $e) {
             DB::rollBack();
 
             return back()->withInput()->with('error', 'Có lỗi khi check-out: ' . $e->getMessage());
         }
+    }
+
+    private function createInvoiceForBooking(Booking $booking, \Carbon\Carbon $issuedAt): Invoice
+    {
+        $roomCharge = $booking->calculateRoomCharge();
+        $serviceCharge = $booking->calculateServiceCharge();
+        $inspectionCharge = $booking->calculateApprovedInspectionCharge();
+        $discount = $booking->calculatePromotionDiscount();
+        $finalTotal = $booking->calculateFinalTotal();
+        $totalPaid = $booking->calculateTotalPaid();
+        $remainingAmount = max(0, $finalTotal - $totalPaid);
+        $overpaymentAmount = max(0, $totalPaid - $finalTotal);
+        $invoiceCode = 'INV' . $issuedAt->format('Ymd') . str_pad((string) $booking->id, 4, '0', STR_PAD_LEFT);
+
+        return Invoice::create([
+            'invoice_code' => $invoiceCode,
+            'booking_id' => $booking->id,
+            'customer_id' => $booking->customer_id,
+            'room_total' => $roomCharge,
+            'service_total' => $serviceCharge,
+            'inspection_total' => $inspectionCharge,
+            'promotion_discount' => $discount,
+            'final_total' => $finalTotal,
+            'total_paid' => $totalPaid,
+            'remaining_amount' => $remainingAmount,
+            'overpayment_amount' => $overpaymentAmount,
+            'status' => 'issued',
+            'issued_at' => $issuedAt,
+            'issued_by' => Auth::id(),
+        ]);
+    }
+
+    private function sendInvoiceEmailToCustomer(Booking $booking, Invoice $invoice): string
+    {
+        $booking->loadMissing([
+            'customer.user',
+            'bookingRooms.room',
+            'payments',
+        ]);
+
+        $invoice->loadMissing([
+            'booking',
+            'booking.customer.user',
+            'booking.bookingRooms.room',
+            'booking.payments',
+            'customer.user',
+            'issuer',
+            'creator',
+        ]);
+
+        $recipientEmail = $this->resolveInvoiceRecipientEmail($booking);
+
+        if (!$recipientEmail) {
+            $this->addBookingLog(
+                $booking,
+                'invoice_email_skipped',
+                'Không gửi được email hóa đơn tự động vì booking chưa có email khách hợp lệ.'
+            );
+
+            return 'skipped';
+        }
+
+        $pdfBinary = $this->renderInvoicePdf($booking, $invoice);
+
+        if ($pdfBinary === null) {
+            $this->addBookingLog(
+                $booking,
+                'invoice_email_failed',
+                'Không gửi được email hóa đơn tới ' . $recipientEmail . ' vì không thể tạo file PDF hóa đơn.'
+            );
+
+            return 'failed';
+        }
+
+        try {
+            $fileName = $this->makeInvoicePdfFileName($invoice);
+
+            Mail::to($recipientEmail)->send(new InvoiceIssuedMail($booking, $invoice, $pdfBinary, $fileName));
+
+            $this->addBookingLog(
+                $booking,
+                'invoice_email_sent',
+                'Đã gửi email hóa đơn ' . $invoice->invoice_code . ' tới ' . $recipientEmail . ' kèm file PDF ' . $fileName . '.'
+            );
+
+            return 'sent';
+        } catch (\Throwable $e) {
+            Log::warning('Gui email hoa don that bai', [
+                'booking_id' => $booking->id,
+                'invoice_id' => $invoice->id,
+                'recipient_email' => $recipientEmail,
+                'message' => $e->getMessage(),
+            ]);
+
+            $this->addBookingLog(
+                $booking,
+                'invoice_email_failed',
+                'Gửi email hóa đơn ' . $invoice->invoice_code . ' tới ' . $recipientEmail . ' thất bại: ' . $e->getMessage()
+            );
+
+            return 'failed';
+        }
+    }
+
+    private function renderInvoicePdf(Booking $booking, Invoice $invoice): ?string
+    {
+        try {
+            return Pdf::loadView('user.pages.invoice-print', [
+                'booking' => $booking,
+                'invoice' => $invoice,
+            ])->output();
+        } catch (\Throwable $e) {
+            Log::warning('Tao PDF hoa don that bai', [
+                'booking_id' => $booking->id,
+                'invoice_id' => $invoice->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    private function makeInvoicePdfFileName(Invoice $invoice): string
+    {
+        $invoiceCode = preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $invoice->invoice_code);
+
+        return ($invoiceCode !== '' ? $invoiceCode : 'hoa-don') . '.pdf';
+    }
+
+    private function resolveInvoiceRecipientEmail(Booking $booking): ?string
+    {
+        $emailCandidates = [
+            $booking->customer->email ?? null,
+            $booking->customer->user->email ?? null,
+        ];
+
+        foreach ($emailCandidates as $email) {
+            $email = trim((string) $email);
+
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return $email;
+            }
+        }
+
+        return null;
     }
 
     private function getCheckoutPaymentMethodLabel(?string $method): string

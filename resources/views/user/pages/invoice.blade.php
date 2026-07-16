@@ -1,6 +1,6 @@
-@extends('layouts.admin')
+@extends('layouts.user')
 
-@section('title', 'Chi tiết hóa đơn')
+@section('title', 'Hóa đơn booking')
 
 @section('content')
     @php
@@ -15,26 +15,25 @@
         $resolvedActualCheckOut = $invoice->resolved_actual_check_out;
     @endphp
 
-    <div class="admin-wrapper">
-        <main class="admin-content">
-            <p class="admin-breadcrumb mb-3">
-                <a href="{{ route('admin.dashboard') }}">Admin</a> /
-                <a href="{{ route('admin.invoices.index') }}">Hóa đơn</a> /
-                Chi tiết
-            </p>
+    <section class="page-header">
+        <div class="container">
+            <h1 class="display-6 fw-bold mb-1">Hóa đơn thanh toán</h1>
+            <p class="text-muted mb-0">Khách sạn đã phát hành hóa đơn cho booking của bạn sau khi trả phòng.</p>
+        </div>
+    </section>
 
-            <div class="admin-page-head">
-                <div>
-                    <h2>Chi tiết hóa đơn</h2>
-                    <p>Mã hóa đơn: <strong>{{ $invoice->invoice_code }}</strong></p>
-                </div>
+    <main class="py-5">
+        <div class="container">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+                <a href="{{ route('bookings.show', $booking) }}" class="btn btn-outline-secondary">
+                    <i class="bx bx-arrow-back me-1"></i>
+                    Quay lại booking
+                </a>
 
                 <div class="d-flex flex-wrap gap-2">
-                    <a href="{{ route('admin.invoices.print', $invoice) }}" class="btn btn-primary" target="_blank">
-                        <i class="bx bx-printer me-1"></i>In hóa đơn
-                    </a>
-                    <a href="{{ route('admin.invoices.index') }}" class="btn btn-outline-secondary">
-                        Quay lại
+                    <a href="{{ route('bookings.invoice.print', $booking) }}" class="btn btn-primary" target="_blank">
+                        <i class="bx bx-printer me-1"></i>
+                        In hóa đơn
                     </a>
                 </div>
             </div>
@@ -46,22 +45,16 @@
                             <h5 class="mb-3">Thông tin hóa đơn</h5>
                             <div class="row g-3">
                                 <div class="col-sm-6">
-                                    <div class="text-muted small">Ngày xuất</div>
-                                    <div class="fw-semibold">
-                                        {{ $invoice->issued_at?->format('d/m/Y H:i') ?? '---' }}
-                                    </div>
-                                </div>
-                                <div class="col-sm-6">
-                                    <div class="text-muted small">Người xuất</div>
-                                    <div class="fw-semibold">
-                                        {{ $invoice->issuer->name ?? $invoice->creator->name ?? 'Hệ thống' }}
-                                    </div>
+                                    <div class="text-muted small">Mã hóa đơn</div>
+                                    <div class="fw-semibold">{{ $invoice->invoice_code }}</div>
                                 </div>
                                 <div class="col-sm-6">
                                     <div class="text-muted small">Mã booking</div>
-                                    <div class="fw-semibold">
-                                        {{ $invoice->booking->booking_code ?? '---' }}
-                                    </div>
+                                    <div class="fw-semibold">{{ $invoice->booking->booking_code ?? $booking->booking_code }}</div>
+                                </div>
+                                <div class="col-sm-6">
+                                    <div class="text-muted small">Ngày xuất</div>
+                                    <div class="fw-semibold">{{ $invoice->issued_at?->format('d/m/Y H:i') ?? '---' }}</div>
                                 </div>
                                 <div class="col-sm-6">
                                     <div class="text-muted small">Trạng thái thanh toán</div>
@@ -73,7 +66,7 @@
                         </div>
 
                         <div class="col-lg-6">
-                            <h5 class="mb-3">Thông tin khách lưu trú</h5>
+                            <h5 class="mb-3">Thông tin lưu trú</h5>
                             <div class="row g-3">
                                 <div class="col-sm-6">
                                     <div class="text-muted small">Khách hàng</div>
@@ -201,6 +194,7 @@
                                                         Chuyển khoản
                                                         @break
                                                     @case('vnpay')
+                                                    @case('admin_vnpay')
                                                         VNPay
                                                         @break
                                                     @default
@@ -208,7 +202,7 @@
                                                 @endswitch
                                             </td>
                                             <td>{{ $payment->txn_ref ?? '---' }}</td>
-                                            <td class="text-end">{{ number_format($payment->amount, 0, ',', '.') }}đ</td>
+                                            <td class="text-end">{{ number_format((float) $payment->amount, 0, ',', '.') }}đ</td>
                                         </tr>
                                     @endforeach
                                 </tbody>
@@ -226,10 +220,6 @@
                     </div>
                 </div>
             @endif
-        </main>
-
-        <footer class="admin-footer">
-            <span>MCuong Hotel Admin</span>
-        </footer>
-    </div>
+        </div>
+    </main>
 @endsection

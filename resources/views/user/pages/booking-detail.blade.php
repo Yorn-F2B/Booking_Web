@@ -49,6 +49,43 @@
                 </div>
             @endif
 
+            @php
+                $canAccessInvoice = in_array($booking->status, ['checked_out', 'completed'], true) && !empty($latestInvoice);
+            @endphp
+
+            @if (in_array($booking->status, ['checked_out', 'completed'], true))
+                <div class="alert {{ $canAccessInvoice ? 'alert-success' : 'alert-warning' }} border-0 shadow-sm mb-4">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+                        <div>
+                            <div class="fw-bold mb-1">
+                                {{ $canAccessInvoice ? 'Hóa đơn của bạn đã sẵn sàng' : 'Booking đã trả phòng' }}
+                            </div>
+
+                            <div class="small mb-0">
+                                @if ($canAccessInvoice)
+                                    Booking này đã được xuất hóa đơn. Bạn có thể xem hoặc in hóa đơn ngay bên dưới.
+                                @else
+                                    Hệ thống đang hoàn tất hóa đơn cho booking này. Vui lòng quay lại sau ít phút.
+                                @endif
+                            </div>
+                        </div>
+
+                        @if ($canAccessInvoice)
+                            <div class="d-flex flex-wrap gap-2">
+                                <a href="{{ route('bookings.invoice', $booking) }}" class="btn btn-success btn-sm">
+                                    <i class="bx bx-receipt me-1"></i>
+                                    Nhận hóa đơn
+                                </a>
+                                <a href="{{ route('bookings.invoice.print', $booking) }}" class="btn btn-outline-success btn-sm" target="_blank">
+                                    <i class="bx bx-printer me-1"></i>
+                                    In hóa đơn
+                                </a>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            @endif
+
             @if ($booking->status == 'pending' && $booking->payment_status == 'unpaid')
                 @php
                     $deposit30Amount = round((float) $booking->estimated_total * 0.3);

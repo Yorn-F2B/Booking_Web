@@ -8,6 +8,37 @@ use Illuminate\Http\Request;
 
 class VnpayService
 {
+    public function missingConfigKeys(): array
+    {
+        $configMap = [
+            'VNPAY_TMN_CODE' => trim((string) config('vnpay.tmn_code')),
+            'VNPAY_HASH_SECRET' => trim((string) config('vnpay.hash_secret')),
+            'VNPAY_PAYMENT_URL' => trim((string) config('vnpay.payment_url')),
+        ];
+
+        return collect($configMap)
+            ->filter(fn ($value) => $value === '')
+            ->keys()
+            ->values()
+            ->all();
+    }
+
+    public function isConfigured(): bool
+    {
+        return count($this->missingConfigKeys()) === 0;
+    }
+
+    public function configurationErrorMessage(): string
+    {
+        $missingKeys = $this->missingConfigKeys();
+
+        if (count($missingKeys) === 0) {
+            return '';
+        }
+
+        return 'Thiếu cấu hình VNPay. Vui lòng kiểm tra ' . implode(', ', $missingKeys) . '.';
+    }
+
     public function expireMinutes(): int
     {
         $minutes = (int) config('vnpay.expire_minutes', 30);
@@ -50,8 +81,8 @@ class VnpayService
         $tmnCode = trim((string) config('vnpay.tmn_code'));
         $hashSecret = trim((string) config('vnpay.hash_secret'));
 
-        if (!$paymentUrl || !$tmnCode || !$hashSecret) {
-            throw new \Exception('Thiếu cấu hình VNPay. Vui lòng kiểm tra VNPAY_TMN_CODE, VNPAY_HASH_SECRET, VNPAY_PAYMENT_URL.');
+        if (!$this->isConfigured()) {
+            throw new \Exception($this->configurationErrorMessage());
         }
 
         $returnUrl = config('vnpay.return_url') ?: route('payment.vnpay.return');
