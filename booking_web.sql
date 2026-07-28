@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Máy chủ: 127.0.0.1
--- Thời gian đã tạo: Th7 26, 2026 lúc 05:01 AM
+-- Thời gian đã tạo: Th7 28, 2026 lúc 12:33 PM
 -- Phiên bản máy phục vụ: 10.4.32-MariaDB
 -- Phiên bản PHP: 8.2.12
 
@@ -45,6 +45,39 @@ INSERT INTO `amenities` (`id`, `name`, `icon`, `created_at`, `updated_at`) VALUE
 (3, 'TV', 'bx bx-tv', '2026-06-08 22:07:52', '2026-06-08 22:07:52'),
 (4, 'Bồn tắm', 'bx bx-bath', '2026-06-08 22:08:24', '2026-06-08 22:08:24'),
 (5, 'Ăn sáng', 'bx bx-bowl-hot', '2026-06-08 22:09:10', '2026-06-08 22:09:10');
+
+-- --------------------------------------------------------
+
+--
+-- Cấu trúc bảng cho bảng `banned_words`
+--
+
+CREATE TABLE `banned_words` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `word` varchar(255) NOT NULL,
+  `created_by` bigint(20) UNSIGNED DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Đang đổ dữ liệu cho bảng `banned_words`
+--
+
+INSERT INTO `banned_words` (`id`, `word`, `created_by`, `created_at`, `updated_at`) VALUES
+(1, 'địt', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(2, 'đụ', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(3, 'đéo', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(4, 'lồn', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(5, 'cặc', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(6, 'buồi', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(7, 'đĩ', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(8, 'chó chết', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(9, 'fuck', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(10, 'fucking', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(11, 'shit', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(12, 'bitch', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41'),
+(13, 'asshole', NULL, '2026-07-28 04:55:41', '2026-07-28 04:55:41');
 
 -- --------------------------------------------------------
 
@@ -144,7 +177,9 @@ INSERT INTO `bookings` (`id`, `booking_code`, `customer_id`, `customer_name_snap
 (38, 'BK20260721115507D0N', 1, 'TRỊNH NGỌC CHIEN', '0985795608', 'tc19092006@gmail.com', '038206022002', '2008-08-14', 'male', 'Thôn Vệ 3', NULL, 5, 'overnight', 'advance', 'user_online', '2026-07-24', '2026-07-27', '2026-07-24 14:00:00', '2026-07-27 12:00:00', 0, NULL, NULL, 1, 0, 0, 1, 0, 3000000.00, 0.00, 3000000.00, NULL, 900000.00, 900000.00, 0.00, NULL, 0.00, NULL, 'Hệ thống tự động hủy booking do khách không check-in trước giờ G. Giờ G: 24/07/2026 18:00. Khách không xác nhận giữ phòng sau giờ G. Thời điểm hệ thống xử lý: 26/07/2026 09:16.', NULL, NULL, 'partial', 'cancelled', '26/07/2026 09:16 - Hệ thống xác nhận hủy booking. Hủy đơn: mất toàn bộ số tiền đã thanh toán, không hoàn lại và không bảo lưu.. Tiền cọc đã thanh toán không hoàn lại và không bảo lưu.', NULL, '2026-07-21 04:55:07', '2026-07-26 02:16:05'),
 (39, 'BK202607211343459FH', 1, 'Triện Ngọc Chính Chốn Liền', '0985795608', 'tc19092006@gmail.com', '038206022002', '2008-08-14', 'male', 'Thôn Vệ 3', NULL, 4, 'overnight', 'advance', 'user_online', '2026-07-21', '2026-07-22', '2026-07-21 14:00:00', '2026-07-22 12:00:00', 0, NULL, NULL, 1, 0, 0, 1, 0, 5180000.00, 180000.00, 5000000.00, NULL, 1500000.00, 1500000.00, 0.00, NULL, 0.00, NULL, NULL, NULL, NULL, 'partial', 'cancelled', '21/07/2026 13:50 - Khách hàng xác nhận hủy booking. Hủy đơn: mất toàn bộ số tiền đã thanh toán, không hoàn lại và không bảo lưu.. Tiền cọc đã thanh toán không hoàn lại và không bảo lưu.', NULL, '2026-07-21 06:43:45', '2026-07-21 06:50:51'),
 (40, 'BK20260721141911AQB', 1, 'Trịnh Ngọc Chiến', '0985795608', 'tc19092006@gmail.com', '038206022002', '2006-09-19', 'male', 'Thôn Vệ 3', NULL, 3, 'overnight', 'advance', 'user_online', '2026-07-22', '2026-07-24', '2026-07-22 14:00:00', '2026-07-24 12:00:00', 0, NULL, NULL, 3, 0, 0, 1, 0, 3680000.00, 0.00, 3680000.00, NULL, 1080000.00, 1080000.00, 0.00, NULL, 0.00, NULL, 'Hệ thống tự động hủy booking do khách không check-in trước giờ G. Giờ G: 22/07/2026 18:00. Khách không xác nhận giữ phòng sau giờ G. Thời điểm hệ thống xử lý: 26/07/2026 09:16.', NULL, NULL, 'partial', 'cancelled', '26/07/2026 09:16 - Hệ thống xác nhận hủy booking. Hủy đơn: mất toàn bộ số tiền đã thanh toán, không hoàn lại và không bảo lưu.. Tiền cọc đã thanh toán không hoàn lại và không bảo lưu.', NULL, '2026-07-21 07:19:11', '2026-07-26 02:16:05'),
-(41, 'BK20260721142728TZA', 16, 'Dương Cường', '0353725042', 'sccuong5222@gmail.com', '036206022065', NULL, NULL, 'Huyện Yên Định', NULL, 1, 'overnight', 'advance', 'user_online', '2026-07-21', '2026-07-25', '2026-07-21 14:28:00', '2026-07-25 12:00:00', 0, '2026-07-21 14:33:52', '2026-07-21 14:43:32', 2, 0, 0, 1, 0, 4800000.00, 0.00, 4950000.00, 4950000.00, 1080000.00, 1440000.00, 0.00, NULL, 0.00, NULL, 'Khách check-in trong khoảng từ 14:00 đến giờ G 18:00. Không phụ thu đến muộn.', NULL, NULL, 'paid', 'checked_out', '21/07/2026 14:29 - Đổi ngày lưu trú từ 22/07/2026 14:00 → 25/07/2026 12:00 sang 21/07/2026 14:28 → 25/07/2026 12:00. Chênh lệch tiền phòng: 1.200.000đ.\n21/07/2026 14:33 - Check-in thực tế: 2 người lớn / 0 trẻ em / 0 em bé. Khách check-in trong khoảng từ 14:00 đến giờ G 18:00. Không phụ thu đến muộn.\n21/07/2026 14:35 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n21/07/2026 14:38 - Admin xác nhận kiểm tra phòng 101: minibar/đồ dùng +50.000đ, hư hại/mất đồ +100.000đ. Tổng cộng +150.000đ.\n21/07/2026 14:43 - Check-out thực tế. Tổng phải thu: 4.950.000đ. Đã thu trước check-out: 4.950.000đ. Còn lại khi check-out: 0đ. Khách đã thanh toán đủ trên hệ thống trước khi check-out. Không phát sinh phụ thu check-out.', NULL, '2026-07-21 07:27:28', '2026-07-21 07:43:32');
+(41, 'BK20260721142728TZA', 16, 'Dương Cường', '0353725042', 'sccuong5222@gmail.com', '036206022065', NULL, NULL, 'Huyện Yên Định', NULL, 1, 'overnight', 'advance', 'user_online', '2026-07-21', '2026-07-25', '2026-07-21 14:28:00', '2026-07-25 12:00:00', 0, '2026-07-21 14:33:52', '2026-07-21 14:43:32', 2, 0, 0, 1, 0, 4800000.00, 0.00, 4950000.00, 4950000.00, 1080000.00, 1440000.00, 0.00, NULL, 0.00, NULL, 'Khách check-in trong khoảng từ 14:00 đến giờ G 18:00. Không phụ thu đến muộn.', NULL, NULL, 'paid', 'checked_out', '21/07/2026 14:29 - Đổi ngày lưu trú từ 22/07/2026 14:00 → 25/07/2026 12:00 sang 21/07/2026 14:28 → 25/07/2026 12:00. Chênh lệch tiền phòng: 1.200.000đ.\n21/07/2026 14:33 - Check-in thực tế: 2 người lớn / 0 trẻ em / 0 em bé. Khách check-in trong khoảng từ 14:00 đến giờ G 18:00. Không phụ thu đến muộn.\n21/07/2026 14:35 - Đã yêu cầu kiểm tra phòng trước khi check-out.\n21/07/2026 14:38 - Admin xác nhận kiểm tra phòng 101: minibar/đồ dùng +50.000đ, hư hại/mất đồ +100.000đ. Tổng cộng +150.000đ.\n21/07/2026 14:43 - Check-out thực tế. Tổng phải thu: 4.950.000đ. Đã thu trước check-out: 4.950.000đ. Còn lại khi check-out: 0đ. Khách đã thanh toán đủ trên hệ thống trước khi check-out. Không phát sinh phụ thu check-out.', NULL, '2026-07-21 07:27:28', '2026-07-21 07:43:32'),
+(42, 'BK20260727192932U5G', 1, 'Trịnh Ngọc Chiến', '0985795608', 'tc19092006@gmail.com', '038206022002', '2006-09-19', 'male', 'Thôn Vệ 3', NULL, 3, 'overnight', 'advance', 'user_online', '2026-07-28', '2026-07-31', '2026-07-28 14:00:00', '2026-07-31 12:00:00', 0, NULL, NULL, 1, 0, 0, 1, 0, 5400000.00, 0.00, 5400000.00, NULL, 1620000.00, 1620000.00, 0.00, NULL, 0.00, 2.50, '[LATE_ARRIVAL_REQUEST_APPROVED] xe đến muộn', '2026-07-28 09:44:14', 4, 'partial', 'confirmed', NULL, NULL, '2026-07-27 12:29:32', '2026-07-28 09:44:14'),
+(43, 'BK28072026-001', 2, 'Đào Du', '0985795123', 'du319@gmail.com', '038245722123', '2002-09-19', 'male', 'Hậu Lộc', NULL, 3, 'overnight', 'advance', 'user_online', '2026-07-31', '2026-08-02', '2026-07-31 14:00:00', '2026-08-02 12:00:00', 0, NULL, NULL, 1, 0, 0, 1, 0, 3600000.00, 0.00, 3600000.00, NULL, 0.00, 1080000.00, 0.00, NULL, 0.00, NULL, NULL, NULL, NULL, 'unpaid', 'cancelled', '28/07/2026 12:02 - Khách hàng xác nhận hủy booking. Hủy đơn chưa thanh toán: không phát sinh tiền hoàn hoặc bảo lưu.. Tiền cọc đã thanh toán không hoàn lại và không bảo lưu.', NULL, '2026-07-28 05:02:28', '2026-07-28 05:02:41');
 
 -- --------------------------------------------------------
 
@@ -651,7 +686,11 @@ INSERT INTO `booking_logs` (`id`, `booking_id`, `user_id`, `action`, `descriptio
 (371, 41, 7, 'check_out', 'Xác nhận check-out lúc 21/07/2026 14:43. Phòng chuyển sang cần dọn: 101. Tiền phòng: 4.800.000đ. Dịch vụ/phụ thu: 0đ. Minibar/hư hại duyệt: 150.000đ. Tổng phải thu: 4.950.000đ. Đã thu trước check-out: 4.950.000đ. Còn lại khi check-out: 0đ. Khách đã thanh toán đủ trên hệ thống trước khi check-out. Không phát sinh phụ thu check-out.', '2026-07-21 07:43:32', '2026-07-21 07:43:32'),
 (372, 37, NULL, 'system_no_show_cancelled', 'Hệ thống tự động hủy booking do khách không check-in trước giờ G. Giờ G: 21/07/2026 18:00. Khách không xác nhận giữ phòng sau giờ G. Thời điểm hệ thống xử lý: 26/07/2026 09:16. Hệ thống xác nhận hủy booking. Hủy đơn: mất toàn bộ số tiền đã thanh toán, không hoàn lại và không bảo lưu.. Tiền giữ lại: 900.000đ; không hoàn lại, không bảo lưu.', '2026-07-26 02:16:05', '2026-07-26 02:16:05'),
 (373, 40, NULL, 'system_no_show_cancelled', 'Hệ thống tự động hủy booking do khách không check-in trước giờ G. Giờ G: 22/07/2026 18:00. Khách không xác nhận giữ phòng sau giờ G. Thời điểm hệ thống xử lý: 26/07/2026 09:16. Hệ thống xác nhận hủy booking. Hủy đơn: mất toàn bộ số tiền đã thanh toán, không hoàn lại và không bảo lưu.. Tiền giữ lại: 1.080.000đ; không hoàn lại, không bảo lưu.', '2026-07-26 02:16:05', '2026-07-26 02:16:05'),
-(374, 38, NULL, 'system_no_show_cancelled', 'Hệ thống tự động hủy booking do khách không check-in trước giờ G. Giờ G: 24/07/2026 18:00. Khách không xác nhận giữ phòng sau giờ G. Thời điểm hệ thống xử lý: 26/07/2026 09:16. Hệ thống xác nhận hủy booking. Hủy đơn: mất toàn bộ số tiền đã thanh toán, không hoàn lại và không bảo lưu.. Tiền giữ lại: 900.000đ; không hoàn lại, không bảo lưu.', '2026-07-26 02:16:05', '2026-07-26 02:16:05');
+(374, 38, NULL, 'system_no_show_cancelled', 'Hệ thống tự động hủy booking do khách không check-in trước giờ G. Giờ G: 24/07/2026 18:00. Khách không xác nhận giữ phòng sau giờ G. Thời điểm hệ thống xử lý: 26/07/2026 09:16. Hệ thống xác nhận hủy booking. Hủy đơn: mất toàn bộ số tiền đã thanh toán, không hoàn lại và không bảo lưu.. Tiền giữ lại: 900.000đ; không hoàn lại, không bảo lưu.', '2026-07-26 02:16:05', '2026-07-26 02:16:05'),
+(375, 42, 14, 'vnpay_payment_success', 'Thanh toán VNPay thành công: 1.620.000đ. Trạng thái thanh toán: partial. Đã tự động gán phòng/xác nhận booking nếu đơn còn chờ xử lý..', '2026-07-27 12:29:59', '2026-07-27 12:29:59'),
+(376, 42, 14, 'booking_email_sent_after_payment', 'Đã gửi email xác nhận booking sau khi thanh toán VNPay thành công đến tc19092006@gmail.com.', '2026-07-27 12:30:06', '2026-07-27 12:30:06'),
+(377, 43, 15, 'customer_cancelled', 'Khách hàng xác nhận hủy booking. Hủy đơn chưa thanh toán: không phát sinh tiền hoàn hoặc bảo lưu.. Tiền giữ lại: 0đ; không hoàn lại, không bảo lưu.', '2026-07-28 05:02:41', '2026-07-28 05:02:41'),
+(378, 42, 4, 'late_arrival_request_approved', 'Đã duyệt yêu cầu đến sau giờ G. Dự kiến đến: 28/07/2026 20:30.', '2026-07-28 09:44:14', '2026-07-28 09:44:14');
 
 -- --------------------------------------------------------
 
@@ -739,7 +778,9 @@ INSERT INTO `booking_payments` (`id`, `booking_id`, `provider`, `txn_ref`, `amou
 (58, 40, 'vnpay', 'BK20260721141911AQB20260721141911BUK1G', 1080000.00, 'success', 'deposit_30', 'NCB', '15629274', '00', '00', '2026-07-21 07:19:42', '{\"vnp_Amount\":\"108000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15629274\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Coc 30 phan tram booking BK20260721141911AQB - GD BK20260721141911AQB20260721141911BUK1G\",\"vnp_PayDate\":\"20260721141935\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15629274\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260721141911AQB20260721141911BUK1G\",\"vnp_SecureHash\":\"68887af403eaabb04f5f4b3a3038d757a0cabed88f58ad062d749c1ab5ba59ebf944852bfb6db6465cdd61e473594e59502697c693420ffd1c051171b16c4848\",\"booking_confirm_email_sent_at\":\"2026-07-21 14:19:47\",\"booking_confirm_email_to\":\"tc19092006@gmail.com\"}', '2026-07-21 07:19:11', '2026-07-21 07:19:47'),
 (59, 41, 'vnpay', 'BK20260721142728TZA20260721142728YVHJA', 1080000.00, 'success', 'deposit_30', 'NCB', '15629292', '00', '00', '2026-07-21 07:27:59', '{\"vnp_Amount\":\"108000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15629292\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Coc 30 phan tram booking BK20260721142728TZA - GD BK20260721142728TZA20260721142728YVHJA\",\"vnp_PayDate\":\"20260721142752\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15629292\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260721142728TZA20260721142728YVHJA\",\"vnp_SecureHash\":\"512edd3a83985dc29da87b1e7685950a83f9bc77722f0476e223d50ad5e0420c01896dc44aeba43e0016e88ad6a6e607d2264e67ed2fe3ec462060c8193c431d\",\"booking_confirm_email_sent_at\":\"2026-07-21 14:28:04\",\"booking_confirm_email_to\":\"sccuong5222@gmail.com\"}', '2026-07-21 07:27:28', '2026-07-21 07:28:04'),
 (60, 41, 'admin_vnpay', 'BK20260721142728TZA20260721143021A7URV', 360000.00, 'success', 'deposit_30', 'NCB', '15629299', '00', '00', '2026-07-21 07:30:54', '{\"vnp_Amount\":\"36000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15629299\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Coc 30 phan tram booking BK20260721142728TZA - GD BK20260721142728TZA20260721143021A7URV\",\"vnp_PayDate\":\"20260721143047\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15629299\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260721142728TZA20260721143021A7URV\",\"vnp_SecureHash\":\"5388d5e649ee8cfcffc038a86d2bd58299e3dc24e97a7662f6bd6e8da374105d6e3291c98dada64cba04cfc44e069de930d9be0bcaef886b8c094ae9098b40dd\",\"booking_confirm_email_sent_at\":\"2026-07-21 14:30:59\",\"booking_confirm_email_to\":\"sccuong5222@gmail.com\"}', '2026-07-21 07:30:21', '2026-07-21 07:30:59'),
-(61, 41, 'admin_vnpay', 'BK20260721142728TZA20260721143921X5ATF', 3510000.00, 'success', 'custom', 'NCB', '15629331', '00', '00', '2026-07-21 07:40:50', '{\"vnp_Amount\":\"351000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15629331\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Thanh toan con lai booking BK20260721142728TZA - GD BK20260721142728TZA20260721143921X5ATF\",\"vnp_PayDate\":\"20260721144044\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15629331\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260721142728TZA20260721143921X5ATF\",\"vnp_SecureHash\":\"d05beee066b03fcf08e203c2e5f85db9845c677eaf2ab0c3fb1a2f3ed140dd9be9c22567e48872ff6f1d92ec31bbb89a6f095e655ae14a205cf5dae0cbd6a7e3\",\"booking_confirm_email_sent_at\":\"2026-07-21 14:40:55\",\"booking_confirm_email_to\":\"sccuong5222@gmail.com\"}', '2026-07-21 07:39:21', '2026-07-21 07:40:55');
+(61, 41, 'admin_vnpay', 'BK20260721142728TZA20260721143921X5ATF', 3510000.00, 'success', 'custom', 'NCB', '15629331', '00', '00', '2026-07-21 07:40:50', '{\"vnp_Amount\":\"351000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15629331\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Thanh toan con lai booking BK20260721142728TZA - GD BK20260721142728TZA20260721143921X5ATF\",\"vnp_PayDate\":\"20260721144044\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15629331\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260721142728TZA20260721143921X5ATF\",\"vnp_SecureHash\":\"d05beee066b03fcf08e203c2e5f85db9845c677eaf2ab0c3fb1a2f3ed140dd9be9c22567e48872ff6f1d92ec31bbb89a6f095e655ae14a205cf5dae0cbd6a7e3\",\"booking_confirm_email_sent_at\":\"2026-07-21 14:40:55\",\"booking_confirm_email_to\":\"sccuong5222@gmail.com\"}', '2026-07-21 07:39:21', '2026-07-21 07:40:55'),
+(62, 42, 'vnpay', 'BK20260727192932U5G20260727192932DYR29', 1620000.00, 'success', 'deposit_30', 'NCB', '15637285', '00', '00', '2026-07-27 12:29:59', '{\"vnp_Amount\":\"162000000\",\"vnp_BankCode\":\"NCB\",\"vnp_BankTranNo\":\"VNP15637285\",\"vnp_CardType\":\"ATM\",\"vnp_OrderInfo\":\"Coc 30 phan tram booking BK20260727192932U5G - GD BK20260727192932U5G20260727192932DYR29\",\"vnp_PayDate\":\"20260727192949\",\"vnp_ResponseCode\":\"00\",\"vnp_TmnCode\":\"B9A7D6RU\",\"vnp_TransactionNo\":\"15637285\",\"vnp_TransactionStatus\":\"00\",\"vnp_TxnRef\":\"BK20260727192932U5G20260727192932DYR29\",\"vnp_SecureHash\":\"2a59413efcee927edd6872119840e691666a64c5f9066a38b9773c147c8767b92e6cac349cee9d31dd780ea30949dd3ad1cbc0263174e2d535013ae1f7435258\",\"booking_confirm_email_sent_at\":\"2026-07-27 19:30:06\",\"booking_confirm_email_to\":\"tc19092006@gmail.com\"}', '2026-07-27 12:29:32', '2026-07-27 12:30:06'),
+(63, 43, 'vnpay', 'BK2807202600120260728120228FOK1R', 1080000.00, 'failed', 'deposit_30', NULL, NULL, 'BOOKING_CANCELLED', 'BOOKING_CANCELLED', NULL, NULL, '2026-07-28 05:02:28', '2026-07-28 05:02:41');
 
 -- --------------------------------------------------------
 
@@ -952,7 +993,9 @@ INSERT INTO `booking_rooms` (`id`, `booking_id`, `room_id`, `adult_count`, `chil
 (57, 38, 15, 1, 0, 1000000.00, 0.00, NULL, '2026-07-21 04:55:07'),
 (58, 39, 9, 1, 0, 5000000.00, 0.00, NULL, '2026-07-21 06:43:45'),
 (59, 40, 8, 3, 0, 1800000.00, 0.00, NULL, '2026-07-21 07:19:11'),
-(60, 41, 1, 2, 0, 1200000.00, 0.00, NULL, '2026-07-21 07:27:28');
+(60, 41, 1, 2, 0, 1200000.00, 0.00, NULL, '2026-07-21 07:27:28'),
+(61, 42, 8, 1, 0, 1800000.00, 0.00, NULL, '2026-07-27 12:29:32'),
+(62, 43, 8, 1, 0, 1800000.00, 0.00, NULL, '2026-07-28 05:02:28');
 
 -- --------------------------------------------------------
 
@@ -1088,20 +1131,6 @@ CREATE TABLE `cache` (
   `expiration` int(11) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Đang đổ dữ liệu cho bảng `cache`
---
-
-INSERT INTO `cache` (`key`, `value`, `expiration`) VALUES
-('laravel_cache_1b6453892473a467d07372d45eb05abc2031647a', 'i:1;', 1784598342),
-('laravel_cache_1b6453892473a467d07372d45eb05abc2031647a:timer', 'i:1784598342;', 1784598342),
-('laravel_cache_5c785c036466adea360111aa28563bfd556b5fba', 'i:1;', 1784618820),
-('laravel_cache_5c785c036466adea360111aa28563bfd556b5fba:timer', 'i:1784618820;', 1784618820),
-('laravel_cache_fa35e192121eabf3dabf9f5ea6abdbcbc107ac3b', 'i:3;', 1784597445),
-('laravel_cache_fa35e192121eabf3dabf9f5ea6abdbcbc107ac3b:timer', 'i:1784597445;', 1784597445),
-('laravel_cache_vlinh319@gmail.com|127.0.0.1', 'i:2;', 1784609557),
-('laravel_cache_vlinh319@gmail.com|127.0.0.1:timer', 'i:1784609557;', 1784609557);
-
 -- --------------------------------------------------------
 
 --
@@ -1113,6 +1142,13 @@ CREATE TABLE `cache_locks` (
   `owner` varchar(255) NOT NULL,
   `expiration` int(11) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Đang đổ dữ liệu cho bảng `cache_locks`
+--
+
+INSERT INTO `cache_locks` (`key`, `owner`, `expiration`) VALUES
+('laravel_cache_framework\\schedule-bd76b00b4ec037d8ba8eedb5951b5cd86db71c99', 'C39gGGKR40unz0VT', 1785254882);
 
 -- --------------------------------------------------------
 
@@ -1220,7 +1256,7 @@ CREATE TABLE `customers` (
 --
 
 INSERT INTO `customers` (`id`, `user_id`, `first_name`, `last_name`, `phone`, `cccd`, `email`, `birthday`, `gender`, `address`, `avatar`, `note`, `status`, `created_at`, `updated_at`, `deleted_at`) VALUES
-(1, 14, 'Chiến', 'Trịnh Ngọc', '0985795608', '038206022002', 'tc19092006@gmail.com', '2006-09-19', 'male', 'Thôn Vệ 3', NULL, NULL, 'active', '2026-07-17 10:58:20', '2026-07-21 06:57:56', NULL),
+(1, 14, 'Chiến', 'Trịnh Ngọc', '0985795608', '038206022002', 'tc19092006@gmail.com', '2006-09-19', 'male', 'Thôn Vệ, Định Hưng, Yên Định, Thanh Hóa', NULL, NULL, 'active', '2026-07-17 10:58:20', '2026-07-28 05:06:01', NULL),
 (2, 15, 'Du', 'Đào', '0985795123', '038245722123', 'du319@gmail.com', '2002-09-19', 'male', 'Hậu Lộc', NULL, NULL, 'active', '2026-07-17 14:09:47', '2026-07-17 14:09:47', NULL),
 (3, NULL, 'A', 'Nguyễn Văn', '0985795628', '038206022628', 'chientr319@gmail.com', NULL, NULL, 'yên định', NULL, NULL, 'active', '2026-07-20 04:14:53', '2026-07-20 04:33:40', NULL),
 (4, NULL, 'A', 'Nguyễn Văn', '0985795611', '038206022411', 'chientr319@gmail.com', NULL, NULL, 'yên định', NULL, NULL, 'active', '2026-07-20 21:33:44', '2026-07-20 21:33:44', NULL),
@@ -1235,7 +1271,7 @@ INSERT INTO `customers` (`id`, `user_id`, `first_name`, `last_name`, `phone`, `c
 (13, 25, 'Đức Long', 'Hoàng', '0901000008', '038200000008', 'demo.user08@booking.local', '1996-03-25', 'male', 'Huyện Hà Trung, Thanh Hóa', NULL, 'Tài khoản khách hàng dùng để demo đăng nhập thường', 'active', '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
 (14, 26, 'Mai Phương', 'Đặng', '0901000009', '038200000009', 'demo.user09@booking.local', '2002-01-17', 'female', 'Huyện Nông Cống, Thanh Hóa', NULL, 'Tài khoản khách hàng dùng để demo đăng nhập thường', 'active', '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
 (15, 27, 'Tuấn Kiệt', 'Ngô', '0901000010', '038200000010', 'demo.user10@booking.local', '1994-10-30', 'male', 'Thành phố Sầm Sơn, Thanh Hóa', NULL, 'Tài khoản khách hàng dùng để demo đăng nhập thường', 'active', '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(16, 28, 'Cường', 'Dương', '0353725042', '036206022065', 'sccuong5222@gmail.com', NULL, NULL, 'Huyện Yên Định', NULL, NULL, 'active', '2026-07-21 07:27:28', '2026-07-21 07:27:28', NULL);
+(16, 28, 'Cường', 'Dương', '0353725042', '036206022066', 'sccuong5222@gmail.com', '2017-04-13', 'male', 'Huyện Yên Định', NULL, NULL, 'active', '2026-07-21 07:27:28', '2026-07-28 05:08:56', NULL);
 
 -- --------------------------------------------------------
 
@@ -1283,6 +1319,13 @@ CREATE TABLE `customer_requests` (
   `updated_at` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+--
+-- Đang đổ dữ liệu cho bảng `customer_requests`
+--
+
+INSERT INTO `customer_requests` (`id`, `booking_id`, `type`, `source`, `status`, `customer_name`, `customer_email`, `reason`, `details`, `requested_at`, `expected_arrival_at`, `requested_check_out_at`, `receptionist_note`, `admin_note`, `reviewed_by`, `reviewed_at`, `created_at`, `updated_at`) VALUES
+(1, 42, 'late_arrival', 'customer_web', 'approved', 'Trịnh Ngọc Chiến', 'tc19092006@gmail.com', 'xe đến muộn', '{\"version\":8,\"admin_acknowledged_version\":8,\"last_update_summary\":\"Kh\\u00e1ch \\u0111\\u00e3 c\\u1eadp nh\\u1eadt l\\u1ea1i gi\\u1edd d\\u1ef1 ki\\u1ebfn \\u0111\\u1ebfn v\\u00e0 n\\u1ed9i dung y\\u00eau c\\u1ea7u.\",\"last_updated_at\":\"2026-07-28 16:43:58\",\"admin_acknowledged_at\":\"2026-07-28 16:44:09\"}', '2026-07-28 09:43:58', '2026-07-28 13:30:00', NULL, NULL, NULL, 4, '2026-07-28 09:44:14', '2026-07-28 05:43:07', '2026-07-28 09:44:14');
+
 -- --------------------------------------------------------
 
 --
@@ -1299,6 +1342,15 @@ CREATE TABLE `customer_request_attachments` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Đang đổ dữ liệu cho bảng `customer_request_attachments`
+--
+
+INSERT INTO `customer_request_attachments` (`id`, `customer_request_id`, `file_path`, `original_name`, `mime_type`, `file_size`, `created_at`, `updated_at`) VALUES
+(1, 1, 'customer-requests/1/WcWbz8Dd9nMTEYcersP9bBy2RSx8q0iXjIMPtCBG.png', 'Desktop - 10.png', 'image/png', 2031860, '2026-07-28 05:43:08', '2026-07-28 05:43:08'),
+(2, 1, 'customer-requests/1/Ax063XHTW2BdNhXQh3alJTP9aFB5ddSY8rM25xoW.jpg', 'pexels-denis-linine-214373-714258.jpg', 'image/jpeg', 1036850, '2026-07-28 05:43:08', '2026-07-28 05:43:08'),
+(3, 1, 'customer-requests/1/Sn6ImKS4iX3O7p5S1Z8SDAwAsBz0ffHQFLTJXOfY.jpg', 'pexels-eberhardgross-858115.jpg', 'image/jpeg', 2314979, '2026-07-28 05:43:08', '2026-07-28 05:43:08');
 
 -- --------------------------------------------------------
 
@@ -2341,10 +2393,8 @@ CREATE TABLE `sessions` (
 --
 
 INSERT INTO `sessions` (`id`, `user_id`, `ip_address`, `user_agent`, `payload`, `last_activity`) VALUES
-('aFP0GskFGDYNw5Hfw3J8PljzcM7rfATmmqlutMEq', 6, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoiNlFqSVduUFZCVDNnaFdMUEYxT2pISFJTcVBhQm9tWUFsNFFpOXFUYyI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6NDA6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9yb29tLXJlcGFpcnMiO3M6NToicm91dGUiO3M6MjQ6ImFkbWluLnJvb20tcmVwYWlycy5pbmRleCI7fXM6NjoiX2ZsYXNoIjthOjI6e3M6Mzoib2xkIjthOjA6e31zOjM6Im5ldyI7YTowOnt9fXM6NTA6ImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjtpOjY7fQ==', 1785034544),
-('Cs8nVXx2hG7urHf0UvU7FuJotAZ1g1RSE2DovyqY', 5, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoiWkxxaG1zY0RSVWNZVDU4MDlYd1U3T3JKQ2VhbUZtU09lVzlkNldXeSI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6MzY6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9ib29raW5ncyI7czo1OiJyb3V0ZSI7czoyMDoiYWRtaW4uYm9va2luZ3MuaW5kZXgiO31zOjY6Il9mbGFzaCI7YToyOntzOjM6Im9sZCI7YTowOnt9czozOiJuZXciO2E6MDp7fX1zOjUwOiJsb2dpbl93ZWJfNTliYTM2YWRkYzJiMmY5NDAxNTgwZjAxNGM3ZjU4ZWE0ZTMwOTg5ZCI7aTo1O30=', 1785034549),
-('GymhWIZaX0Zzws48JZom9L1qLEnIN46kIneTFmLj', 4, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoiWEY1YVdWbXJRNXRMcDJSOEs0QkFXazdLWkR5VmdxMmJTenpBVU5rbCI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6Mzk6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9ib29raW5ncy80MSI7czo1OiJyb3V0ZSI7czoxOToiYWRtaW4uYm9va2luZ3Muc2hvdyI7fXM6NjoiX2ZsYXNoIjthOjI6e3M6Mzoib2xkIjthOjA6e31zOjM6Im5ldyI7YTowOnt9fXM6NTA6ImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjtpOjQ7fQ==', 1785034591),
-('ihH4j7yRfNKrdVVkOJERgYax2zK4OUf4Mvr5EMlG', 14, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoiSFllSmlpQ2ljV3FoYlhFcUJvcGpPczV5YVB3V1F6THh2U3VKSVNrVCI7czo1MDoibG9naW5fd2ViXzU5YmEzNmFkZGMyYjJmOTQwMTU4MGYwMTRjN2Y1OGVhNGUzMDk4OWQiO2k6MTQ7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6MjE6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMCI7czo1OiJyb3V0ZSI7czo0OiJob21lIjt9czo2OiJfZmxhc2giO2E6Mjp7czozOiJvbGQiO2E6MDp7fXM6MzoibmV3IjthOjA6e319fQ==', 1785034543);
+('dWQCAJS09aUPQWD7iqBwTuIJprCGRq3y7cfCLt2b', 4, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoiWTNQSTBkWUxaeWVyWmxzZVoyM1hQbXdVNVdZbkJQdzBNZlNaY3p3UCI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6NDc6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9jdXN0b21lci1yZXF1ZXN0cy8xIjtzOjU6InJvdXRlIjtzOjI4OiJhZG1pbi5jdXN0b21lci1yZXF1ZXN0cy5zaG93Ijt9czo2OiJfZmxhc2giO2E6Mjp7czozOiJvbGQiO2E6MDp7fXM6MzoibmV3IjthOjA6e319czo1MDoibG9naW5fd2ViXzU5YmEzNmFkZGMyYjJmOTQwMTU4MGYwMTRjN2Y1OGVhNGUzMDk4OWQiO2k6NDt9', 1785234167),
+('XkoM81VeRNFGGJ7U5fyqNTcXqGbXjTCdGRUh8Hhs', 14, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'YTo0OntzOjY6Il90b2tlbiI7czo0MDoiQ1NhMXhmWTU0TFJKUVZ6SEVINTVtWkZ5R2JFZHFKTkhJT2xRSU13ayI7czo1MDoibG9naW5fd2ViXzU5YmEzNmFkZGMyYjJmOTQwMTU4MGYwMTRjN2Y1OGVhNGUzMDk4OWQiO2k6MTQ7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6NTA6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9ib29raW5ncy80Mi9jdXN0b21lci1yZXF1ZXN0IjtzOjU6InJvdXRlIjtzOjMzOiJib29raW5ncy5jdXN0b21lci1yZXF1ZXN0cy5jcmVhdGUiO31zOjY6Il9mbGFzaCI7YToyOntzOjM6Im9sZCI7YTowOnt9czozOiJuZXciO2E6MDp7fX19', 1785232975);
 
 -- --------------------------------------------------------
 
@@ -2434,6 +2484,8 @@ CREATE TABLE `users` (
   `password` varchar(255) DEFAULT NULL,
   `role` enum('super_admin','manager','receptionist_lead','receptionist','housekeeping_supervisor','housekeeping','customer') NOT NULL DEFAULT 'customer',
   `status` enum('active','inactive','banned') NOT NULL DEFAULT 'active',
+  `booking_locked_until` datetime DEFAULT NULL,
+  `booking_lock_reason` varchar(500) DEFAULT NULL,
   `remember_token` varchar(100) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -2444,26 +2496,26 @@ CREATE TABLE `users` (
 -- Đang đổ dữ liệu cho bảng `users`
 --
 
-INSERT INTO `users` (`id`, `name`, `email`, `google_id`, `avatar`, `email_verified_at`, `password`, `role`, `status`, `remember_token`, `created_at`, `updated_at`, `deleted_at`) VALUES
-(4, 'Chiến Trịnh', 'chientr33@gmail.com', '101875707999826167782', 'avatars/ou5dhWm1C3m3Fqlr3J66AEUc8OTonk0yE3E8JyO6.jpg', '2026-07-14 08:23:43', '$2y$12$2yzPWmde1rX4Zb7iOBk9s.Rmzq2UyoW38cdb2/ire1ZbehL14eKWK', 'super_admin', 'active', 'VrG7K3KJwhIh9fSB6WijWyGrMl0ec6StW5G2ZOwvgRQSWgNHV6zDjN0xlxFl', '2026-06-05 06:28:47', '2026-07-14 08:23:43', NULL),
-(5, 'LT1', 'lt1@gmail.com', NULL, NULL, NULL, '$2y$12$QDau.PoEC2nLvrTkIzz5IOu40ocx9nBFT6MJ/B3REtvTSFZhYvTFa', 'receptionist', 'active', 'p8PXcPmf4jaIe0QqDzIxhBgXX4A422wX1EuKQUjzJ2XZpBhVQ1XV7vgPWBoy', '2026-06-12 02:56:26', '2026-06-13 01:49:31', NULL),
-(6, 'Buồng 1', 'bp1@gmail.com', NULL, NULL, NULL, '$2y$12$oZt9xTFvAwXhZ7SRORYFvu2vKjJRacLNHPHYas81GHldy.Q36g.7S', 'housekeeping', 'active', NULL, '2026-06-12 03:42:42', '2026-06-13 01:49:08', NULL),
-(7, 'Quản lý 1', 'ql1@gmail.com', NULL, NULL, NULL, '$2y$12$jgIUMmboUCdS3iUWvRmiJeyVm2DsiNk3QwmDF1Ri5g0HZx3TQMIA.', 'manager', 'active', NULL, '2026-06-12 03:44:16', '2026-06-12 03:46:51', NULL),
-(14, 'Trịnh Ngọc Chiến', 'tc19092006@gmail.com', '114766218040428006282', NULL, '2026-07-21 04:52:12', NULL, 'customer', 'active', 'ahkXNX06MoJDP15dwd6ZKcRpbXOdpCZWXonXXUFL8omXuo5LbK2nZKP1jFER', '2026-07-17 10:57:38', '2026-07-21 06:57:56', NULL),
-(15, 'Đào Du', 'du319@gmail.com', NULL, NULL, NULL, '$2y$12$tHTaEnAWo.28xyxkfV8qAeOODNuTIE4X4j.Q6fXP0lUTB8L.19252', 'customer', 'active', NULL, '2026-07-17 14:09:47', '2026-07-17 15:15:56', NULL),
-(16, 'Nguyễn Anh', 'nguyena1@gmail.com', NULL, NULL, NULL, '$2y$12$i6u6EtEOoFBlqGpo8dkQk.KUDcGhKRAy5WwWmk/pSzKOpUtHzmidG', 'customer', 'active', NULL, '2026-07-21 04:39:14', '2026-07-21 04:56:42', NULL),
-(17, 'chientr319@gmail.com', 'chientr319@gmail.com', '107423942214733311359', NULL, NULL, NULL, 'customer', 'active', 'i9NADNiQadhxmVBGvSgpfv1xkP21PXu4LHpGNRZuqHSDhMKMvYEM8YhnxrLo', '2026-07-21 04:40:43', '2026-07-21 04:40:43', NULL),
-(18, 'Nguyễn Minh Anh', 'demo.user01@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(19, 'Trần Quốc Bảo', 'demo.user02@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(20, 'Lê Thu Hà', 'demo.user03@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(21, 'Phạm Hoàng Nam', 'demo.user04@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(22, 'Vũ Ngọc Lan', 'demo.user05@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(23, 'Đỗ Văn Hùng', 'demo.user06@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(24, 'Bùi Khánh Linh', 'demo.user07@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(25, 'Hoàng Đức Long', 'demo.user08@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(26, 'Đặng Mai Phương', 'demo.user09@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(27, 'Ngô Tuấn Kiệt', 'demo.user10@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
-(28, 'Dương Cường', 'sccuong5222@gmail.com', '115118446122045852056', NULL, NULL, NULL, 'customer', 'active', 'I2wenIq1njnrTBXbJfhHAz255QDdJH9SCAOgJT0ftwV4PyhzBnf9v5HMWb1s', '2026-07-21 07:26:01', '2026-07-21 07:27:28', NULL);
+INSERT INTO `users` (`id`, `name`, `email`, `google_id`, `avatar`, `email_verified_at`, `password`, `role`, `status`, `booking_locked_until`, `booking_lock_reason`, `remember_token`, `created_at`, `updated_at`, `deleted_at`) VALUES
+(4, 'Chiến Trịnh', 'chientr33@gmail.com', '101875707999826167782', 'avatars/ou5dhWm1C3m3Fqlr3J66AEUc8OTonk0yE3E8JyO6.jpg', '2026-07-14 08:23:43', '$2y$12$2yzPWmde1rX4Zb7iOBk9s.Rmzq2UyoW38cdb2/ire1ZbehL14eKWK', 'super_admin', 'active', NULL, NULL, 'VrG7K3KJwhIh9fSB6WijWyGrMl0ec6StW5G2ZOwvgRQSWgNHV6zDjN0xlxFl', '2026-06-05 06:28:47', '2026-07-14 08:23:43', NULL),
+(5, 'LT1', 'lt1@gmail.com', NULL, NULL, NULL, '$2y$12$QDau.PoEC2nLvrTkIzz5IOu40ocx9nBFT6MJ/B3REtvTSFZhYvTFa', 'receptionist', 'active', NULL, NULL, 'p8PXcPmf4jaIe0QqDzIxhBgXX4A422wX1EuKQUjzJ2XZpBhVQ1XV7vgPWBoy', '2026-06-12 02:56:26', '2026-06-13 01:49:31', NULL),
+(6, 'Buồng 1', 'bp1@gmail.com', NULL, NULL, NULL, '$2y$12$oZt9xTFvAwXhZ7SRORYFvu2vKjJRacLNHPHYas81GHldy.Q36g.7S', 'housekeeping', 'active', NULL, NULL, NULL, '2026-06-12 03:42:42', '2026-06-13 01:49:08', NULL),
+(7, 'Quản lý 1', 'ql1@gmail.com', NULL, NULL, NULL, '$2y$12$jgIUMmboUCdS3iUWvRmiJeyVm2DsiNk3QwmDF1Ri5g0HZx3TQMIA.', 'manager', 'active', NULL, NULL, NULL, '2026-06-12 03:44:16', '2026-06-12 03:46:51', NULL),
+(14, 'Trịnh Ngọc Chiến', 'tc19092006@gmail.com', '114766218040428006282', NULL, '2026-07-21 04:52:12', NULL, 'customer', 'active', NULL, NULL, 'ahkXNX06MoJDP15dwd6ZKcRpbXOdpCZWXonXXUFL8omXuo5LbK2nZKP1jFER', '2026-07-17 10:57:38', '2026-07-28 04:08:34', NULL),
+(15, 'Đào Du', 'du319@gmail.com', NULL, NULL, NULL, '$2y$12$tHTaEnAWo.28xyxkfV8qAeOODNuTIE4X4j.Q6fXP0lUTB8L.19252', 'customer', 'active', '2026-08-04 12:02:41', 'Tạm khóa 7 ngày do hủy từ 3 booking trong 30 ngày.', NULL, '2026-07-17 14:09:47', '2026-07-28 05:02:41', NULL),
+(16, 'Nguyễn Anh', 'nguyena1@gmail.com', NULL, NULL, NULL, '$2y$12$i6u6EtEOoFBlqGpo8dkQk.KUDcGhKRAy5WwWmk/pSzKOpUtHzmidG', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:39:14', '2026-07-21 04:56:42', NULL),
+(17, 'chientr319@gmail.com', 'chientr319@gmail.com', '107423942214733311359', NULL, NULL, NULL, 'customer', 'active', NULL, NULL, 'i9NADNiQadhxmVBGvSgpfv1xkP21PXu4LHpGNRZuqHSDhMKMvYEM8YhnxrLo', '2026-07-21 04:40:43', '2026-07-21 04:40:43', NULL),
+(18, 'Nguyễn Minh Anh', 'demo.user01@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
+(19, 'Trần Quốc Bảo', 'demo.user02@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
+(20, 'Lê Thu Hà', 'demo.user03@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
+(21, 'Phạm Hoàng Nam', 'demo.user04@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
+(22, 'Vũ Ngọc Lan', 'demo.user05@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
+(23, 'Đỗ Văn Hùng', 'demo.user06@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
+(24, 'Bùi Khánh Linh', 'demo.user07@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
+(25, 'Hoàng Đức Long', 'demo.user08@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
+(26, 'Đặng Mai Phương', 'demo.user09@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
+(27, 'Ngô Tuấn Kiệt', 'demo.user10@booking.local', NULL, NULL, '2026-07-21 04:57:58', '$2y$12$LEK/fRTYy5tz6ok5UYQsb.kRJ6dbXMfAIVro6YIT5./IB22neWA1m', 'customer', 'active', NULL, NULL, NULL, '2026-07-21 04:57:58', '2026-07-21 04:57:58', NULL),
+(28, 'Dương Cường', 'sccuong5222@gmail.com', '115118446122045852056', NULL, NULL, NULL, 'customer', 'active', NULL, NULL, 'I2wenIq1njnrTBXbJfhHAz255QDdJH9SCAOgJT0ftwV4PyhzBnf9v5HMWb1s', '2026-07-21 07:26:01', '2026-07-28 05:08:56', NULL);
 
 --
 -- Chỉ mục cho các bảng đã đổ
@@ -2474,6 +2526,14 @@ INSERT INTO `users` (`id`, `name`, `email`, `google_id`, `avatar`, `email_verifi
 --
 ALTER TABLE `amenities`
   ADD PRIMARY KEY (`id`);
+
+--
+-- Chỉ mục cho bảng `banned_words`
+--
+ALTER TABLE `banned_words`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `banned_words_word_unique` (`word`),
+  ADD KEY `banned_words_created_by_index` (`created_by`);
 
 --
 -- Chỉ mục cho bảng `bookings`
@@ -2950,10 +3010,16 @@ ALTER TABLE `amenities`
   MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
+-- AUTO_INCREMENT cho bảng `banned_words`
+--
+ALTER TABLE `banned_words`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+
+--
 -- AUTO_INCREMENT cho bảng `bookings`
 --
 ALTER TABLE `bookings`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=42;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=44;
 
 --
 -- AUTO_INCREMENT cho bảng `booking_cancellation_requests`
@@ -2977,13 +3043,13 @@ ALTER TABLE `booking_guest_room_histories`
 -- AUTO_INCREMENT cho bảng `booking_logs`
 --
 ALTER TABLE `booking_logs`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=375;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=379;
 
 --
 -- AUTO_INCREMENT cho bảng `booking_payments`
 --
 ALTER TABLE `booking_payments`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=62;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=64;
 
 --
 -- AUTO_INCREMENT cho bảng `booking_promotions`
@@ -3007,7 +3073,7 @@ ALTER TABLE `booking_promotion_service_offers`
 -- AUTO_INCREMENT cho bảng `booking_rooms`
 --
 ALTER TABLE `booking_rooms`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=61;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=63;
 
 --
 -- AUTO_INCREMENT cho bảng `booking_room_changes`
@@ -3067,13 +3133,13 @@ ALTER TABLE `customer_credits`
 -- AUTO_INCREMENT cho bảng `customer_requests`
 --
 ALTER TABLE `customer_requests`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- AUTO_INCREMENT cho bảng `customer_request_attachments`
 --
 ALTER TABLE `customer_request_attachments`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT cho bảng `failed_jobs`
@@ -3222,6 +3288,12 @@ ALTER TABLE `users`
 --
 -- Các ràng buộc cho các bảng đã đổ
 --
+
+--
+-- Các ràng buộc cho bảng `banned_words`
+--
+ALTER TABLE `banned_words`
+  ADD CONSTRAINT `banned_words_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
 
 --
 -- Các ràng buộc cho bảng `bookings`
