@@ -1,0 +1,1043 @@
+/*
+ * Unified admin UI
+ * This file intentionally loads after every page-level <style> block.
+ */
+:root {
+    --ui-bg: #f4f6f5;
+    --ui-panel: #fff;
+    --ui-panel-subtle: #f8faf9;
+    --ui-line: #e1e7e4;
+    --ui-line-strong: #d2dbd7;
+    --ui-text: #18221f;
+    --ui-muted: #697570;
+    --ui-primary: #0a1931;
+    --ui-primary-dark: #061224;
+    --ui-primary-soft: #edf1f6;
+    --ui-blue-soft: #eef4f7;
+    --ui-warn-soft: #fff8e8;
+    --ui-danger-soft: #fff1f2;
+    --ui-radius: 12px;
+    --ui-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+    --ui-content-max: 1440px;
+}
+
+html:has(body.admin-page),
+body.admin-page {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+/* Global page rhythm */
+.admin-page *,
+.admin-page *::before,
+.admin-page *::after { box-sizing: border-box; }
+.admin-page > main {
+    min-width: 0;
+    overflow-x: clip;
+}
+.admin-page .admin-wrapper,
+.admin-page .admin-content,
+.admin-page .hotel-modern,
+.admin-page .booking-index-page,
+.admin-page .booking-detail-page,
+.admin-page .room-management,
+.admin-page .assignment-page,
+.admin-page .chat-page {
+    background: var(--ui-bg) !important;
+    color: var(--ui-text) !important;
+}
+.admin-page .admin-content {
+    width: 100% !important;
+    max-width: var(--ui-content-max) !important;
+    min-width: 0 !important;
+    margin-inline: auto !important;
+    padding: 24px 28px 38px !important;
+}
+.admin-page .admin-content > * {
+    max-width: 100%;
+    min-width: 0;
+}
+.admin-page h1,
+.admin-page h2,
+.admin-page h3,
+.admin-page h4,
+.admin-page h5,
+.admin-page h6 { color: var(--ui-text); letter-spacing: -.015em; }
+.admin-page p { line-height: 1.55; }
+.admin-page hr { border-color: var(--ui-line); opacity: 1; }
+
+/* Every content container follows the same surface rules */
+.admin-page :is(
+    .card,.card-clean,.admin-card,.settings-section,.content-card,.table-card,
+    .stats-card,.report-table,.chart-container,.booking-form-card,.booking-filter-card,
+    .booking-table-card,.booking-realtime-panel,.promotion-admin-card,.promotion-form-card,
+    .service-admin-card,.assignment-card,.assignment-hero,.rm-card,.rm-filter,
+    .rm-quickbar,.rm-timeline-wrap,.issue-card,.proposal-card,.option-row,
+    .group-card,.inspection-change-card,.inspection-stat,.chat-shell,.chat-panel,
+    .conversation-panel,.conversation-list,.message-panel,.hm-card,.hm-hero,
+    .hm-room-summary,.hm-kpi,.hm-task,.hm-timeline-item,.hm-finance,.hm-mini,
+    .reception-flow-panel,.reception-request-item,.operation-row,.soft-note
+) {
+    background: var(--ui-panel) !important;
+    border: 1px solid var(--ui-line) !important;
+    border-radius: var(--ui-radius) !important;
+    box-shadow: var(--ui-shadow) !important;
+}
+.admin-page :is(.card-header,.admin-card-header,.table-card-header,.modal-header,.offcanvas-header) {
+    background: var(--ui-panel) !important;
+    border-color: var(--ui-line) !important;
+}
+.admin-page :is(.card-footer,.modal-footer,.offcanvas-footer) {
+    background: var(--ui-panel-subtle) !important;
+    border-color: var(--ui-line) !important;
+}
+
+/* Page titles and action bars */
+.admin-page :is(.admin-page-head,.booking-page-head,.rm-head,.hm-top) {
+    margin-bottom: 18px !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+.admin-page :is(.admin-page-head,.booking-page-head,.rm-head,.hm-top) :is(h1,h2) {
+    margin: 0 !important;
+    font-size: 1.45rem !important;
+    font-weight: 700 !important;
+}
+.admin-page :is(.admin-page-head,.booking-page-head,.rm-head,.hm-top) p,
+.admin-page :is(.booking-sub-text,.promotion-muted,.service-muted,.rm-subtitle,.hm-card-sub,.assignment-card-desc) {
+    color: var(--ui-muted) !important;
+    font-size: 13px !important;
+}
+
+/* Buttons and controls */
+.admin-page :is(.btn,.hm-btn,.rm-btn,.booking-icon-btn) {
+    min-height: 38px !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    font-weight: 600 !important;
+    transition: background-color .15s ease,border-color .15s ease,color .15s ease !important;
+}
+.admin-page :is(.btn-primary,.btn-success,.btn-info,.hm-btn-main,.rm-btn-primary) {
+    color: #fff !important;
+    background: var(--ui-primary) !important;
+    border-color: var(--ui-primary) !important;
+}
+.admin-page :is(.btn-primary,.btn-success,.btn-info,.hm-btn-main,.rm-btn-primary):hover {
+    background: var(--ui-primary-dark) !important;
+    border-color: var(--ui-primary-dark) !important;
+}
+.admin-page :is(.btn-outline-primary,.btn-outline-success) {
+    color: var(--ui-primary-dark) !important;
+    border-color: #9bcfc4 !important;
+    background: #fff !important;
+}
+.admin-page :is(.btn-outline-primary,.btn-outline-success):hover {
+    color: var(--ui-primary-dark) !important;
+    background: var(--ui-primary-soft) !important;
+}
+.admin-page .btn-warning { color: #79540c !important; background: #fff9ec !important; border-color: #ead49d !important; }
+.admin-page .btn-danger { color: #a3373e !important; background: #fff !important; border-color: #e8b8bc !important; }
+.admin-page .btn-light,
+.admin-page .btn-outline-secondary { color: #53605c !important; background: #fff !important; border-color: var(--ui-line-strong) !important; }
+.admin-page :is(.form-control,.form-select,.input-group-text,.birth-date-picker .form-select,.rm-field input,.rm-field select,.rm-modal input,.rm-modal select,.rm-modal textarea) {
+    min-height: 40px !important;
+    color: var(--ui-text) !important;
+    background-color: #fff !important;
+    border-color: var(--ui-line-strong) !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+.admin-page :is(.form-control,.form-select,.rm-field input,.rm-field select,.rm-modal input,.rm-modal select,.rm-modal textarea):focus {
+    border-color: #8d99aa !important;
+    box-shadow: 0 0 0 3px rgba(10,25,49,.1) !important;
+}
+.admin-page .input-group > :not(:first-child) { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; }
+.admin-page .input-group > :not(:last-child) { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+.admin-page .form-check-input:checked { background-color: var(--ui-primary) !important; border-color: var(--ui-primary) !important; }
+.admin-page .form-label,
+.admin-page .rm-field label { color: #46534f !important; font-size: 12px !important; font-weight: 650 !important; }
+
+/* Tables and list screens */
+.admin-page .table-responsive { border-radius: 0 0 var(--ui-radius) var(--ui-radius) !important; }
+.admin-page :is(.table-responsive,.rm-timeline-wrap,.rm-timeline-scroll-top,.approval-table-wrap) {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overscroll-behavior-inline: contain;
+}
+.admin-page .table { margin: 0 !important; color: #2d3935 !important; font-size: 13px !important; }
+.admin-page .table > :not(caption) > * > * {
+    padding: .76rem .82rem !important;
+    border-color: #edf0ef !important;
+    vertical-align: middle !important;
+}
+.admin-page .table thead th,
+.admin-page :is(.booking-table-card,.report-table) th {
+    color: #66726e !important;
+    background: #f8faf9 !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-transform: none !important;
+    letter-spacing: .01em !important;
+    white-space: nowrap;
+}
+.admin-page .table tbody tr:hover > *,
+.admin-page .booking-table-card tbody tr:hover { background: #fafcfb !important; }
+.admin-page .pagination { --bs-pagination-active-bg: var(--ui-primary); --bs-pagination-active-border-color: var(--ui-primary); }
+
+/* Filters, tabs and pills */
+.admin-page :is(.booking-filter-card,.rm-filter,.promotion-admin-card) { padding: 16px !important; }
+.admin-page :is(.nav-tabs,.rm-tabs) {
+    gap: 4px !important;
+    padding: 4px !important;
+    background: #eef2f0 !important;
+    border: 0 !important;
+    border-radius: 10px !important;
+}
+.admin-page :is(.nav-tabs .nav-link,.rm-tab) {
+    min-height: 36px !important;
+    color: #65716d !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 7px !important;
+    font-weight: 600 !important;
+}
+.admin-page :is(.nav-tabs .nav-link.active,.rm-tab.active) {
+    color: var(--ui-primary-dark) !important;
+    background: #fff !important;
+    box-shadow: var(--ui-shadow) !important;
+}
+.admin-page :is(.badge,.booking-badge,.hm-badge,.promotion-code-badge,.promotion-condition-pill,.booking-type-pill,.policy-chip) {
+    border-radius: 999px !important;
+    box-shadow: none !important;
+    font-weight: 650 !important;
+}
+
+/* Dashboard: remove the colourful landing-page treatment */
+.admin-page .hotel-modern { padding: 0 !important; }
+.admin-page .hm-main-grid { gap: 16px !important; }
+.admin-page .hm-left,
+.admin-page .hm-right { gap: 16px !important; }
+.admin-page .hm-card { border-radius: var(--ui-radius) !important; }
+.admin-page .hm-card-pad { padding: 18px !important; }
+.admin-page .hm-hero {
+    padding: 20px !important;
+    color: var(--ui-text) !important;
+    background: #fff !important;
+}
+.admin-page .hm-hero :is(h2,p,.hm-eyebrow) { color: inherit !important; }
+.admin-page .hm-eyebrow { color: var(--ui-primary-dark) !important; background: var(--ui-primary-soft) !important; }
+.admin-page .hm-hero-stat {
+    padding: 12px !important;
+    color: var(--ui-text) !important;
+    background: var(--ui-panel-subtle) !important;
+    border: 1px solid var(--ui-line) !important;
+    border-radius: 9px !important;
+}
+.admin-page .hm-room-summary { padding: 16px !important; }
+.admin-page .hm-kpi-grid { gap: 12px !important; }
+.admin-page .hm-kpi {
+    padding: 16px !important;
+    background: #fff !important;
+    border-radius: 10px !important;
+}
+.admin-page .hm-kpi-icon,
+.admin-page .hm-icon { color: var(--ui-primary-dark) !important; background: var(--ui-primary-soft) !important; }
+.admin-page .hm-chart-fill,
+.admin-page .hm-progress-fill { background: var(--ui-primary) !important; }
+.admin-page .hm-floor-label { background: #26322f !important; border-radius: 9px !important; }
+.admin-page .hm-room { border-radius: 9px !important; box-shadow: none !important; }
+.admin-page .hm-room:hover { transform: none !important; box-shadow: 0 0 0 2px rgba(212,175,55,.2) !important; }
+.admin-page .hm-task,
+.admin-page .hm-timeline-item,
+.admin-page .hm-mini,
+.admin-page .hm-finance { padding: 13px !important; }
+
+/* Booking list, create/edit and workspace */
+.admin-page :is(.booking-filter-card,.booking-table-card,.booking-form-card,.card-clean) {
+    border-radius: var(--ui-radius) !important;
+    box-shadow: var(--ui-shadow) !important;
+}
+.admin-page .booking-table-card { overflow: hidden !important; }
+.admin-page .booking-code { color: var(--ui-primary-dark) !important; }
+.admin-page .booking-attention,
+.admin-page .booking-realtime-panel,
+.admin-page .compact-alert { border-radius: 10px !important; }
+.admin-page .booking-realtime-panel { background: #fff !important; }
+.admin-page .booking-realtime-item { background: var(--ui-panel-subtle) !important; border-color: var(--ui-line) !important; border-radius: 8px !important; }
+.admin-page :is(.booking-payment-confirm,.booking-total-box,.adjacent-room-box,.hourly-preview-box,.promotion-collapsible,.promotion-card,.action-summary-item,.reception-request-item) {
+    background: var(--ui-panel-subtle) !important;
+    border: 1px solid var(--ui-line) !important;
+    border-radius: 9px !important;
+    box-shadow: none !important;
+}
+.admin-page .category-stock-select:focus { border-color: #8d99aa !important; box-shadow: 0 0 0 3px rgba(10,25,49,.1) !important; }
+.admin-page .reception-flow-step { color: #5f6c67 !important; border-color: var(--ui-line) !important; border-radius: 8px !important; }
+.admin-page .reception-flow-step.is-current { color: var(--ui-primary-dark) !important; background: var(--ui-primary-soft) !important; border-color: #a7d5cc !important; }
+.admin-page .compact-toggle-bar { top: 82px !important; }
+
+/* Room management and timelines */
+.admin-page .room-management .admin-content {
+    width: 100% !important;
+    max-width: var(--ui-content-max) !important;
+    padding: 24px 28px 38px !important;
+}
+.admin-page .rm-card { border-radius: var(--ui-radius) !important; }
+.admin-page .rm-btn-primary { background: var(--ui-primary) !important; }
+.admin-page .rm-timeline-wrap { border-radius: var(--ui-radius) !important; }
+.admin-page .rm-timeline th,
+.admin-page .rm-timeline td { border-color: #edf0ef !important; }
+.admin-page .rm-timeline thead th { background: #f8faf9 !important; }
+.admin-page .rm-timeline thead th.today { color: var(--ui-primary-dark) !important; background: var(--ui-primary-soft) !important; }
+.admin-page .rm-cell:hover { background: #f4faf8 !important; }
+.admin-page .rm-modal { border-radius: var(--ui-radius) !important; box-shadow: 0 20px 60px rgba(21,31,28,.18) !important; }
+
+/* Promotions, services, assignments, inspections and incidents */
+.admin-page :is(.promotion-form-card,.promotion-admin-card,.assignment-card,.assignment-hero,.proposal-card,.issue-card,.group-card) {
+    border-radius: var(--ui-radius) !important;
+}
+.admin-page .assignment-hero { padding: 18px !important; background: #fff !important; }
+.admin-page .assignment-card:hover { transform: none !important; box-shadow: 0 0 0 2px rgba(212,175,55,.16) !important; }
+.admin-page .assignment-icon,
+.admin-page .assignment-icon.primary,
+.admin-page .assignment-icon.success { color: var(--ui-primary-dark) !important; background: var(--ui-primary-soft) !important; }
+.admin-page .assignment-stat,
+.admin-page .assignment-note,
+.admin-page .promotion-switch-item,
+.admin-page .promotion-service-offer-row,
+.admin-page .promotion-room-upgrade-row,
+.admin-page .inspection-stat,
+.admin-page .issue-promotion-row,
+.admin-page .promo-row,
+.admin-page .option-row { background: var(--ui-panel-subtle) !important; border-color: var(--ui-line) !important; border-radius: 9px !important; }
+.admin-page :is(.issue-promotion-row,.promo-row,.option-row):hover { background: #f3f8f6 !important; }
+
+/* Chat keeps functional distinction but follows the same frame */
+.admin-page .chat-page .admin-content {
+    width: 100% !important;
+    max-width: var(--ui-content-max) !important;
+    padding: 18px 22px 28px !important;
+}
+.admin-page :is(.chat-shell,.chat-layout) { border-radius: var(--ui-radius) !important; border-color: var(--ui-line) !important; box-shadow: var(--ui-shadow) !important; }
+.admin-page :is(.chat-sidebar,.chat-list,.chat-main,.chat-details) { background: #fff !important; border-color: var(--ui-line) !important; }
+.admin-page :is(.conversation-item,.chat-conversation-item) { border-radius: 8px !important; }
+.admin-page :is(.conversation-item,.chat-conversation-item):hover { background: #f5f8f7 !important; }
+.admin-page :is(.conversation-item.active,.chat-conversation-item.active) { color: var(--ui-primary-dark) !important; background: var(--ui-primary-soft) !important; }
+.admin-page .message-bubble { border-radius: 10px !important; box-shadow: none !important; }
+
+/* Modals, alerts, dropdowns, empty states */
+.admin-page .modal-content,
+.admin-page .dropdown-menu,
+.admin-page .offcanvas {
+    border: 1px solid var(--ui-line) !important;
+    border-radius: var(--ui-radius) !important;
+    box-shadow: 0 18px 50px rgba(21,31,28,.14) !important;
+}
+.admin-page .dropdown-item { border-radius: 7px; }
+.admin-page .dropdown-item:hover { background: #f3f7f5; }
+.admin-page .alert { border-radius: 9px !important; box-shadow: none !important; }
+.admin-page .alert-info { color: #315d57 !important; background: #eff8f6 !important; border-color: #c9e5df !important; }
+.admin-page .alert-warning { color: #765a20 !important; background: var(--ui-warn-soft) !important; border-color: #ead8ae !important; }
+.admin-page .alert-danger { color: #8e3940 !important; background: var(--ui-danger-soft) !important; border-color: #ebc6c9 !important; }
+.admin-page :is(.booking-empty-state,.assignment-empty,.hm-empty) { color: var(--ui-muted) !important; background: transparent !important; }
+
+/* Keep semantic status colors small and local */
+.admin-page :is(.bg-success,.text-bg-success) { background-color: #dff4ea !important; color: #17624f !important; }
+.admin-page :is(.bg-primary,.text-bg-primary,.bg-info,.text-bg-info) { background-color: #e4f1ee !important; color: #176453 !important; }
+.admin-page :is(.bg-warning,.text-bg-warning) { background-color: #fff3d5 !important; color: #79580c !important; }
+.admin-page :is(.bg-danger,.text-bg-danger) { background-color: #fde8ea !important; color: #98353d !important; }
+.admin-page :is(.bg-secondary,.text-bg-secondary,.bg-dark,.text-bg-dark) { background-color: #edf1ef !important; color: #4d5a56 !important; }
+
+@media (max-width: 991.98px) {
+    .admin-page .admin-content,
+    .admin-page .room-management .admin-content { padding: 18px 14px 28px !important; }
+    .admin-page :is(.hm-main-grid,.hm-two-grid,.booking-shell,.reception-request-hub) { grid-template-columns: 1fr !important; }
+    .admin-page .chat-page .admin-content { padding: 14px !important; }
+}
+@media (max-width: 575.98px) {
+    .admin-page :is(.admin-page-head,.booking-page-head,.rm-head,.hm-top) { align-items: stretch !important; }
+    .admin-page :is(.admin-page-head,.booking-page-head,.rm-head,.hm-top) .btn { width: 100%; }
+    .admin-page :is(.hm-kpi-grid,.hm-hero-stats,.hm-room-summary-grid,.assignment-stat-grid) { grid-template-columns: 1fr 1fr !important; }
+}
+
+@media print {
+    .admin-page .admin-content {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+}
+
+/* ============================================================
+   2026 structural redesign — MCuong navy / gold identity
+   ============================================================ */
+:root {
+    --ui-bg: #f3f5f7;
+    --ui-panel: #ffffff;
+    --ui-panel-subtle: #f7f8fa;
+    --ui-line: #e4e8ee;
+    --ui-line-strong: #d5dbe4;
+    --ui-text: #1e293b;
+    --ui-muted: #6b7688;
+    --ui-primary: #0a1931;
+    --ui-primary-dark: #061224;
+    --ui-primary-soft: #edf1f6;
+    --ui-accent: #d4af37;
+    --ui-accent-soft: #faf6e9;
+    --ui-content-max: 1480px;
+    --ui-radius: 10px;
+}
+
+body.admin-page { font-size: 13px !important; background: var(--ui-bg) !important; }
+
+/* Sidebar is now a permanently expanded, flat navigation with real section labels. */
+.admin-page .admin-sidebar {
+    width: 244px !important;
+    background: #09172c !important;
+    border-right: 0 !important;
+    box-shadow: 8px 0 28px rgba(5, 15, 31, .08) !important;
+}
+.admin-page .admin-sidebar-brand {
+    height: 68px;
+    padding: 12px 18px !important;
+    background: #071326 !important;
+    border-color: rgba(255,255,255,.08) !important;
+}
+.admin-page .admin-sidebar-brand a { color: #fff !important; }
+.admin-page .admin-sidebar-brand small { color: #9ca9bc !important; }
+.admin-page .admin-sidebar-brand .logo-mark {
+    color: #0a1931 !important;
+    background: linear-gradient(135deg,#e4c765,#b98c16) !important;
+    border-radius: 8px !important;
+}
+.admin-page .admin-nav { padding: 12px 10px 20px !important; }
+.admin-page .admin-nav > .admin-nav-link { margin-bottom: 10px !important; }
+.admin-page .admin-nav-group {
+    display: block !important;
+    margin: 13px 0 0 !important;
+    padding-top: 11px;
+    border-top: 1px solid rgba(255,255,255,.075);
+}
+.admin-page .admin-nav-group > summary {
+    pointer-events: none;
+    min-height: auto !important;
+    margin: 0 8px 6px !important;
+    padding: 0 !important;
+    color: #8593a8 !important;
+    background: transparent !important;
+    font-size: 9px !important;
+    font-weight: 750 !important;
+    letter-spacing: .11em !important;
+    text-transform: uppercase !important;
+}
+.admin-page .admin-nav-group > summary i:first-child,
+.admin-page .admin-nav-group > summary .group-chevron { display: none !important; }
+.admin-page .admin-nav-link,
+.admin-page .admin-sidebar .admin-nav-link {
+    min-height: 36px !important;
+    margin: 1px 0 !important;
+    padding: 8px 10px !important;
+    color: #bec8d7 !important;
+    border: 1px solid transparent !important;
+    border-radius: 7px !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+}
+.admin-page .admin-nav-link i {
+    width: 18px !important;
+    color: #7f8da3 !important;
+    font-size: 16px !important;
+}
+.admin-page .admin-nav-link:hover {
+    color: #fff !important;
+    background: rgba(255,255,255,.065) !important;
+}
+.admin-page .admin-nav-link.active,
+.admin-page .admin-sidebar a.active {
+    color: #fff !important;
+    background: rgba(212,175,55,.15) !important;
+    border-color: rgba(212,175,55,.24) !important;
+    box-shadow: inset 3px 0 0 var(--ui-accent) !important;
+}
+.admin-page .admin-nav-link.active i { color: #e4c765 !important; }
+.admin-page .admin-sidebar-footer {
+    color: #6f7d91 !important;
+    background: #071326;
+    border-color: rgba(255,255,255,.07) !important;
+}
+
+/* Top bar becomes a compact command bar, visually separate from page content. */
+.admin-page .admin-topbar {
+    left: 244px !important;
+    height: 68px !important;
+    padding: 0 26px !important;
+    background: #fff !important;
+    border-bottom: 1px solid var(--ui-line) !important;
+    box-shadow: 0 1px 0 rgba(10,25,49,.02) !important;
+}
+.admin-page .admin-topbar-context { flex-direction: row !important; align-items: center; gap: 8px; }
+.admin-page .admin-topbar-context span { color: #8b95a4 !important; }
+.admin-page .admin-topbar-context span::after { content: "/"; margin-left: 8px; color: #c7cdd6; }
+.admin-page .admin-topbar-context strong { color: var(--ui-text); font-size: 13px !important; }
+.admin-page .admin-topbar-avatar { width: 32px !important; height: 32px !important; }
+.admin-page .admin-topbar-user { min-width: 105px !important; }
+.admin-page .admin-logout {
+    height: 34px !important;
+    border-radius: 7px !important;
+    color: #5d6878 !important;
+    background: #f8f9fb !important;
+}
+.admin-page .admin-wrapper { margin-left: 244px !important; padding-top: 68px !important; }
+.admin-page .admin-wrapper {
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0 !important;
+}
+.admin-page .admin-wrapper > .admin-content {
+    width: min(100%, var(--ui-content-max)) !important;
+}
+.admin-page .table-responsive,
+.admin-page .rm-timeline-wrap {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+}
+
+/* Content is denser and uses sections rather than floating decorative boxes. */
+.admin-page .admin-content { padding: 20px 24px 32px !important; }
+.admin-page :is(.admin-page-head,.booking-page-head,.rm-head,.hm-top) {
+    min-height: 48px;
+    margin-bottom: 14px !important;
+}
+.admin-page :is(.admin-page-head,.booking-page-head,.rm-head,.hm-top) :is(h1,h2) {
+    font-size: 1.25rem !important;
+    line-height: 1.3 !important;
+}
+.admin-page :is(.admin-page-head,.booking-page-head,.rm-head,.hm-top) p {
+    margin-top: 2px !important;
+    font-size: 11.5px !important;
+}
+.admin-page .admin-breadcrumb { margin-bottom: 8px !important; font-size: 10.5px !important; }
+
+/* Cards lose excess height and become purposeful content sections. */
+.admin-page :is(
+    .card,.card-clean,.admin-card,.settings-section,.content-card,.table-card,.stats-card,
+    .report-table,.chart-container,.booking-form-card,.booking-filter-card,.booking-table-card,
+    .booking-realtime-panel,.promotion-admin-card,.promotion-form-card,.service-admin-card,
+    .assignment-card,.assignment-hero,.rm-card,.rm-filter,.rm-quickbar,.rm-timeline-wrap,
+    .issue-card,.proposal-card,.group-card,.inspection-change-card,.chat-shell,.hm-card,
+    .hm-hero,.hm-room-summary,.reception-flow-panel
+) {
+    border-radius: 9px !important;
+    border-color: var(--ui-line) !important;
+    box-shadow: 0 1px 2px rgba(10,25,49,.025) !important;
+}
+.admin-page :is(.card-body,.admin-card-body) { padding: 14px 16px !important; }
+.admin-page :is(.card-header,.admin-card-header,.table-card-header) { padding: 11px 16px !important; }
+.admin-page :is(.card-header,.admin-card-header,.table-card-header) h5 { font-size: 13px !important; margin: 0; }
+.admin-page .settings-section { padding: 15px !important; }
+.admin-page .row { --bs-gutter-x: 1rem; }
+.admin-page .g-4 { --bs-gutter-x: 1rem; --bs-gutter-y: 1rem; }
+.admin-page .mb-4 { margin-bottom: 1rem !important; }
+.admin-page .py-4 { padding-block: 1rem !important; }
+
+/* Index pages: filters are a compact toolbar attached to the data region. */
+.admin-page :is(.booking-filter-card,.rm-filter,.promotion-admin-card,.report-filter,.filter-card) {
+    margin-bottom: 10px !important;
+    padding: 12px 14px !important;
+    background: #fff !important;
+}
+.admin-page :is(.booking-filter-card,.rm-filter,.promotion-filter-grid,.service-filter-grid) .form-label {
+    margin-bottom: 4px !important;
+    font-size: 10px !important;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.admin-page .table-responsive { border-radius: 0 0 9px 9px !important; }
+.admin-page .table { font-size: 12px !important; }
+.admin-page .table > :not(caption) > * > * { padding: .58rem .68rem !important; }
+.admin-page .table thead th,
+.admin-page :is(.booking-table-card,.report-table) th {
+    height: 38px;
+    padding: .5rem .68rem !important;
+    color: #687385 !important;
+    background: #f6f7f9 !important;
+    font-size: 10px !important;
+}
+.admin-page .table tbody tr { transition: background .12s ease; }
+.admin-page .table tbody tr:hover > * { background: #faf8f1 !important; }
+
+/* Forms: compact sectioned layout, clear hierarchy, no coloured promo-like boxes. */
+.admin-page :is(.booking-form-card,.promotion-form-card,.settings-section) h5 {
+    margin-bottom: 12px !important;
+    padding-bottom: 9px;
+    border-bottom: 1px solid var(--ui-line);
+    font-size: 13px !important;
+}
+.admin-page :is(.form-control,.form-select,.input-group-text,.rm-field input,.rm-field select,.rm-modal input,.rm-modal select,.rm-modal textarea) {
+    min-height: 36px !important;
+    border-radius: 6px !important;
+    font-size: 12px !important;
+}
+.admin-page textarea.form-control { min-height: 76px !important; }
+.admin-page .form-label { margin-bottom: 4px !important; font-size: 11px !important; }
+.admin-page .form-text,
+.admin-page .booking-help-text,
+.admin-page .promotion-help { margin-top: 3px !important; font-size: 10.5px !important; }
+.admin-page :is(.booking-payment-confirm,.booking-total-box,.adjacent-room-box,.hourly-preview-box,
+    .promotion-collapsible,.promotion-card,.action-summary-item,.reception-request-item,
+    .promotion-switch-item,.assignment-stat,.assignment-note,.inspection-stat,.option-row) {
+    border-radius: 7px !important;
+    background: #f8f9fb !important;
+    box-shadow: none !important;
+}
+
+/* Buttons use hotel navy; gold is a small accent, never a large fill. */
+.admin-page :is(.btn,.hm-btn,.rm-btn,.booking-icon-btn) {
+    min-height: 34px !important;
+    padding: .4rem .7rem !important;
+    border-radius: 6px !important;
+    font-size: 11.5px !important;
+}
+.admin-page :is(.btn-primary,.btn-success,.btn-info,.hm-btn-main,.rm-btn-primary) {
+    color: #fff !important;
+    background: #0a1931 !important;
+    border-color: #0a1931 !important;
+}
+.admin-page :is(.btn-primary,.btn-success,.btn-info,.hm-btn-main,.rm-btn-primary):hover {
+    background: #1a3a5f !important;
+    border-color: #1a3a5f !important;
+}
+.admin-page :is(.btn-outline-primary,.btn-outline-success) {
+    color: #0a1931 !important;
+    border-color: #b9c2ce !important;
+    background: #fff !important;
+}
+.admin-page :is(.btn-outline-primary,.btn-outline-success):hover {
+    color: #0a1931 !important;
+    border-color: #d4af37 !important;
+    background: #faf6e9 !important;
+}
+.admin-page .form-check-input:checked { background-color: #0a1931 !important; border-color: #0a1931 !important; }
+
+/* Complete form system, including legacy controls without Bootstrap classes. */
+.admin-page form :is(
+    input[type="text"], input[type="email"], input[type="tel"], input[type="number"],
+    input[type="password"], input[type="search"], input[type="url"], input[type="date"],
+    input[type="time"], input[type="datetime-local"], input[type="month"], input[type="week"],
+    select, textarea
+) {
+    width: 100%;
+    max-width: 100%;
+    min-height: 38px;
+    padding: .52rem .72rem;
+    border: 1px solid #cfd8e3;
+    border-radius: 7px;
+    outline: 0;
+    background-color: #fff;
+    color: #18221f;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+
+.admin-page form select:not([multiple]) {
+    padding-right: 2.3rem;
+    background-position: right .72rem center;
+    background-size: 14px 10px;
+}
+
+.admin-page form :is(
+    input[type="text"], input[type="email"], input[type="tel"], input[type="number"],
+    input[type="password"], input[type="search"], input[type="url"], input[type="date"],
+    input[type="time"], input[type="datetime-local"], input[type="month"], input[type="week"],
+    select, textarea
+):hover:not(:disabled):not([readonly]) {
+    border-color: #aebaca;
+}
+
+.admin-page form :is(
+    input[type="text"], input[type="email"], input[type="tel"], input[type="number"],
+    input[type="password"], input[type="search"], input[type="url"], input[type="date"],
+    input[type="time"], input[type="datetime-local"], input[type="month"], input[type="week"],
+    select, textarea
+):focus {
+    border-color: #395577 !important;
+    box-shadow: 0 0 0 3px rgba(10, 25, 49, .1) !important;
+    background-color: #fff !important;
+}
+
+.admin-page form :is(input,select,textarea):disabled,
+.admin-page form :is(input,select,textarea)[readonly] {
+    cursor: not-allowed;
+    background-color: #f3f5f7 !important;
+    color: #7a8492 !important;
+    border-color: #dde3ea !important;
+    opacity: 1;
+}
+
+.admin-page form :is(input,textarea)::placeholder {
+    color: #9aa4b2;
+    opacity: 1;
+}
+
+.admin-page form textarea {
+    min-height: 86px;
+    resize: vertical;
+}
+
+.admin-page form .form-control-sm,
+.admin-page form .form-select-sm {
+    min-height: 34px !important;
+    padding-block: .38rem !important;
+    font-size: 11.5px !important;
+}
+
+.admin-page form input[type="file"].form-control {
+    min-height: 40px !important;
+    padding: 3px 4px !important;
+    color: #64748b !important;
+}
+
+.admin-page form input[type="file"]::file-selector-button {
+    height: 32px;
+    margin-right: 10px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 5px;
+    background: #edf1f6;
+    color: #0a1931;
+    font-size: 11.5px;
+    font-weight: 700;
+}
+
+.admin-page form input[type="checkbox"]:not(.form-check-input),
+.admin-page form input[type="radio"]:not(.form-check-input) {
+    width: 17px;
+    height: 17px;
+    min-height: 0;
+    padding: 0;
+    accent-color: #0a1931;
+    vertical-align: middle;
+}
+
+.admin-page .form-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+    margin: 0;
+    padding: 4px 8px 4px 6px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+}
+
+.admin-page .form-check:hover {
+    background: #f7f8fa;
+    border-color: #e5e9ef;
+}
+
+.admin-page .form-check .form-check-input {
+    float: none;
+    flex: 0 0 auto;
+    width: 17px;
+    height: 17px;
+    margin: 0;
+}
+
+.admin-page .form-check-label {
+    color: #344054;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.admin-page select[multiple],
+.admin-page .admin-multiselect {
+    min-height: 168px !important;
+    height: auto !important;
+    padding: 6px !important;
+    overflow-y: auto;
+    background-image: none !important;
+    scrollbar-width: thin;
+    scrollbar-color: #9aa6b5 #edf1f5;
+}
+
+.admin-page select[multiple] option,
+.admin-page .admin-multiselect option {
+    margin: 2px 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    color: #334155;
+    line-height: 1.35;
+    white-space: normal;
+}
+
+.admin-page select[multiple] option:checked,
+.admin-page .admin-multiselect option:checked {
+    background: linear-gradient(#e9eef6, #e9eef6);
+    color: #0a1931;
+    font-weight: 750;
+}
+
+.admin-page .invalid-feedback {
+    margin-top: 4px;
+    color: #c33d49;
+    font-size: 10.5px;
+    font-weight: 600;
+}
+
+.admin-page form :is(.is-invalid,[aria-invalid="true"]) {
+    border-color: #d96a74 !important;
+    box-shadow: 0 0 0 3px rgba(217, 106, 116, .09) !important;
+}
+
+.admin-page form.row {
+    align-items: start;
+}
+
+.admin-page form.row > [class*="col-"],
+.admin-page form.row > [class^="col-"] {
+    min-width: 0;
+}
+
+.admin-page form.row .form-label,
+.admin-page .rm-field > label,
+.admin-page .rm-modal-field > label {
+    display: block;
+    min-height: 16px;
+    margin-bottom: 5px !important;
+    color: #3e4a59 !important;
+    font-weight: 700 !important;
+}
+
+.admin-page form .form-text {
+    margin-top: 5px !important;
+    color: #7b8695 !important;
+    line-height: 1.4;
+}
+
+@media (max-width: 767.98px) {
+    .admin-page select[multiple],
+    .admin-page .admin-multiselect {
+        min-height: 190px !important;
+    }
+}
+
+/* Dashboard is rebuilt visually as an operations console, not a landing page. */
+.admin-page .hotel-modern { padding: 0 !important; }
+.admin-page .hm-main-grid { grid-template-columns: minmax(0,1fr) 330px !important; gap: 12px !important; }
+.admin-page .hm-left,
+.admin-page .hm-right { gap: 12px !important; }
+.admin-page .hm-hero {
+    padding: 16px 18px !important;
+    background: #0a1931 !important;
+    border: 0 !important;
+    color: #fff !important;
+}
+.admin-page .hm-hero h2 { color: #fff !important; font-size: 18px !important; }
+.admin-page .hm-hero p { color: #b8c3d3 !important; font-size: 11px !important; }
+.admin-page .hm-eyebrow {
+    color: #e4c765 !important;
+    background: rgba(212,175,55,.1) !important;
+    border: 1px solid rgba(212,175,55,.2);
+}
+.admin-page .hm-hero-stats { margin-top: 12px !important; gap: 8px !important; }
+.admin-page .hm-hero-stat {
+    padding: 9px 11px !important;
+    color: #fff !important;
+    background: rgba(255,255,255,.06) !important;
+    border-color: rgba(255,255,255,.1) !important;
+}
+.admin-page .hm-hero-stat span { color: #aeb9c9 !important; font-size: 9px !important; }
+.admin-page .hm-kpi-grid { gap: 8px !important; }
+.admin-page .hm-kpi { min-height: 92px; padding: 12px !important; }
+.admin-page .hm-kpi strong { font-size: 20px !important; }
+.admin-page .hm-kpi-icon,.admin-page .hm-icon {
+    width: 32px !important; height: 32px !important;
+    color: #b8860b !important; background: #faf6e9 !important;
+}
+.admin-page .hm-chart-fill,.admin-page .hm-progress-fill { background: #d4af37 !important; }
+.admin-page .hm-card-pad { padding: 14px !important; }
+.admin-page .hm-card-title { font-size: 12px !important; }
+.admin-page .hm-card-sub { font-size: 10px !important; }
+
+/* Detail/workspace pages read like a compact record, with a clear main and side rail. */
+.admin-page .booking-shell { gap: 12px !important; }
+.admin-page .booking-shell > .side-stack {
+    top: 82px !important;
+    height: max-content !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding-right: 0 !important;
+}
+.admin-page .card-clean .card-title-clean {
+    margin: -14px -16px 12px !important;
+    padding: 11px 16px !important;
+    background: #f7f8fa !important;
+    border-bottom: 1px solid var(--ui-line);
+}
+.admin-page .action-policy-grid,
+.admin-page .action-summary,
+.admin-page .reception-request-hub { gap: 8px !important; }
+.admin-page .reception-flow-step {
+    padding: 8px !important;
+    border-radius: 6px !important;
+    font-size: 10px !important;
+}
+.admin-page .reception-flow-step.is-current {
+    color: #0a1931 !important;
+    background: #faf6e9 !important;
+    border-color: #d9bd62 !important;
+}
+
+/* Room timeline and chat retain their specialist layout but share the new density. */
+.admin-page .rm-tabs { padding: 3px !important; background: #e9edf2 !important; }
+.admin-page .rm-tab { min-height: 32px !important; padding: 6px 10px !important; font-size: 10.5px !important; }
+.admin-page .rm-tab.active { color: #0a1931 !important; box-shadow: inset 0 -2px 0 #d4af37 !important; }
+.admin-page .rm-timeline th,
+.admin-page .rm-timeline td { height: 42px !important; font-size: 10.5px !important; }
+.admin-page .rm-timeline thead th.today { color: #7a5b08 !important; background: #faf6e9 !important; }
+.admin-page .chat-page .admin-content { padding: 14px 18px 22px !important; }
+.admin-page .chat-shell,
+.admin-page .chat-layout { min-height: calc(100vh - 104px) !important; }
+.admin-page :is(.conversation-item,.chat-conversation-item) { padding: 9px !important; border-radius: 6px !important; }
+.admin-page :is(.conversation-item.active,.chat-conversation-item.active) {
+    color: #0a1931 !important;
+    background: #faf6e9 !important;
+    box-shadow: inset 3px 0 0 #d4af37;
+}
+.admin-page .message-bubble { max-width: 72% !important; border-radius: 8px !important; }
+
+/* Semantic states stay readable and restrained. */
+.admin-page :is(.bg-primary,.text-bg-primary,.bg-info,.text-bg-info) { color: #18375d !important; background: #e9eff7 !important; }
+.admin-page :is(.bg-success,.text-bg-success) { color: #246047 !important; background: #e6f3ec !important; }
+.admin-page :is(.bg-warning,.text-bg-warning) { color: #74580d !important; background: #faf3d9 !important; }
+.admin-page :is(.bg-danger,.text-bg-danger) { color: #923740 !important; background: #f8e8ea !important; }
+.admin-page .pagination { --bs-pagination-active-bg:#0a1931;--bs-pagination-active-border-color:#0a1931; }
+
+@media(max-width:1199.98px) {
+    .admin-page .hm-main-grid { grid-template-columns: 1fr !important; }
+}
+@media(max-width:991.98px) {
+    .admin-page .admin-topbar { left: 0 !important; }
+    .admin-page .admin-wrapper { margin-left: 0 !important; }
+    .admin-page .admin-content { padding: 16px 13px 24px !important; }
+}
+
+/* Project owners do not need workflow narration in the interface. */
+.admin-page :is(
+    .booking-help-text,
+    .promotion-help,
+    .card-subtitle-clean,
+    .hm-card-sub,
+    .assignment-card-desc,
+    .category-stock-note
+) { display: none !important; }
+
+/* Booking workspace: the state-dependent action is the visual priority. */
+.admin-page .booking-detail-page .primary-operation-card {
+    position: relative;
+    border: 1px solid rgba(10, 25, 49, .2) !important;
+    border-top: 4px solid #d4af37 !important;
+    background: #fff !important;
+    box-shadow: 0 14px 34px rgba(10, 25, 49, .1) !important;
+}
+.admin-page .booking-detail-page .primary-operation-card > .card-title-clean {
+    margin: -1rem -1rem 1rem !important;
+    padding: 1rem 1.15rem !important;
+    color: #fff !important;
+    background: #0a1931 !important;
+    border-bottom: 0 !important;
+}
+.admin-page .booking-detail-page .primary-operation-card > .card-title-clean h5 {
+    color: #fff !important;
+    font-size: 1.15rem !important;
+}
+.admin-page .booking-detail-page .booking-secondary-actions {
+    padding-top: .85rem;
+    border-top: 1px solid #e5e9ef;
+}
+/* Checkbox collections replace hard-to-use native multi-select lists. */
+.admin-check-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    max-height: 300px;
+    padding: 10px;
+    overflow-y: auto;
+    border: 1px solid var(--admin-border, #d9e1ec);
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+.admin-check-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+    padding: 11px 12px;
+    margin: 0;
+    cursor: pointer;
+    border: 1px solid #dce3ed;
+    border-radius: 10px;
+    background: #fff;
+    transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease, opacity .16s ease;
+}
+
+.admin-check-card:hover {
+    border-color: #9cabc0;
+    box-shadow: 0 4px 12px rgba(9, 30, 66, .06);
+}
+
+.admin-check-card:has(input:checked) {
+    border-color: var(--admin-accent, #d7ab2f);
+    background: #fffaf0;
+    box-shadow: inset 3px 0 0 var(--admin-accent, #d7ab2f);
+}
+
+.admin-check-card:has(input:disabled),
+.promotion-card.is-unavailable {
+    opacity: .42;
+    cursor: not-allowed;
+    filter: grayscale(.25);
+    box-shadow: none;
+}
+
+.admin-check-card .form-check-input {
+    flex: 0 0 auto;
+    margin-top: 2px;
+}
+
+.admin-check-card__content {
+    display: grid;
+    min-width: 0;
+    line-height: 1.35;
+}
+
+.admin-check-card__content strong {
+    color: #142033;
+    font-size: .9rem;
+}
+
+.admin-check-card__content small {
+    margin-top: 3px;
+    color: #6b7890;
+    font-size: .78rem;
+}
+
+.promotion-card.is-unavailable:hover {
+    border-color: inherit;
+    transform: none;
+}
+
+@media (max-width: 767.98px) {
+    .admin-check-grid {
+        grid-template-columns: 1fr;
+        max-height: 360px;
+    }
+}
