@@ -79,16 +79,12 @@ class GoogleAuthController extends Controller
             Auth::login($user, true);
             request()->session()->regenerate();
 
-            return match ($user->role) {
-                'super_admin'             => redirect()->route('admin.dashboard'),
-                'manager',
-                'receptionist_lead',
-                'receptionist'            => redirect()->route('admin.bookings.index'),
-                'housekeeping_supervisor',
-                'housekeeping'            => redirect()->route('admin.housekeeping.index'),
-                default                   => redirect()->route('home')
-                    ->with('success', 'Đăng nhập bằng Google thành công.'),
-            };
+            if ($user->role !== 'customer') {
+                return redirect()->route('admin.dashboard');
+            }
+
+            return redirect()->route('home')
+                ->with('success', 'Đăng nhập bằng Google thành công.');
         } catch (\RuntimeException $e) {
             if ($e->getMessage() === 'GOOGLE_ACCOUNT_CONFLICT') {
                 return redirect()->route('login')

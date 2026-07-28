@@ -27,6 +27,21 @@ class BookingPayment extends Model
         'raw_response' => 'array',
     ];
 
+    protected static function booted()
+    {
+        static::saved(function (BookingPayment $payment) {
+            if ($payment->booking) {
+                $payment->booking->save();
+            }
+        });
+
+        static::deleted(function (BookingPayment $payment) {
+            if ($payment->booking) {
+                $payment->booking->save();
+            }
+        });
+    }
+
     public function booking()
     {
         return $this->belongsTo(Booking::class);

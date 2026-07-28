@@ -87,10 +87,19 @@ class Room extends Model
                         'inspection_requested',
                     ])
                     ->where('check_in_at', '<', $checkOutWithBufferAtString)
-                    ->whereRaw(
-                        'DATE_ADD(check_out_at, INTERVAL COALESCE(cleaning_buffer_minutes, 60) MINUTE) > ?',
-                        [$checkInAtString]
-                    );
+                    ->where(function ($q) use ($checkInAtString) {
+                        if (\Illuminate\Support\Facades\DB::getDriverName() === 'sqlite') {
+                            $q->whereRaw(
+                                "datetime(check_out_at, '+' || COALESCE(cleaning_buffer_minutes, 60) || ' minutes') > ?",
+                                [$checkInAtString]
+                            );
+                        } else {
+                            $q->whereRaw(
+                                'DATE_ADD(check_out_at, INTERVAL COALESCE(cleaning_buffer_minutes, 60) MINUTE) > ?',
+                                [$checkInAtString]
+                            );
+                        }
+                    });
             });
     }
 }

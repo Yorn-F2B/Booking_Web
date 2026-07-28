@@ -23,42 +23,74 @@ class VnpayController extends Controller
 {
     public function create(Request $request, Booking $booking, VnpayService $vnpayService)
     {
-        $this->ensureCustomerCanPay($booking);
-
-        if ($booking->payment_status === 'paid') {
-            return back()->with('error', 'Booking này đã thanh toán đủ.');
-        }
-
-        if (!in_array($booking->status, ['pending', 'confirmed'], true)) {
-            return back()->with('error', 'Booking này không còn ở trạng thái có thể thanh toán online.');
-        }
-
-        if (!$this->hasAvailableRoomForBooking($booking)) {
-            return back()->with('error', 'Hạng phòng này hiện đã hết phòng trống trong thời gian bạn chọn. Vui lòng hủy đơn hiện tại và chọn ngày khác hoặc hạng phòng khác.');
-        }
-
         $data = $request->validate([
             'payment_type' => 'required|in:deposit_30,full_100',
         ]);
 
-        $amount = $this->calculatePaymentAmount($booking, $data['payment_type']);
+        DB::beginTransaction();
 
-        if ($amount <= 0) {
-            return back()->with('error', 'Số tiền cần thanh toán không hợp lệ.');
+        try {
+            // Lock booking for update
+            $booking = Booking::where('id', $booking->id)->lockForUpdate()->firstOrFail();
+
+            $this->ensureCustomerCanPay($booking);
+
+            if ($booking->payment_status === 'paid') {
+                throw new \Exception('Booking này đã thanh toán đủ.');
+            }
+
+            if (!in_array($booking->status, ['pending', 'confirmed'], true)) {
+                throw new \Exception('Booking này không còn ở trạng thái có thể thanh toán online.');
+            }
+
+            if (!$this->hasAvailableRoomForBooking($booking)) {
+                throw new \Exception('Hạng phòng này hiện đã hết phòng trống trong thời gian bạn chọn. Vui lòng hủy đơn hiện tại và chọn ngày khác hoặc hạng phòng khác.');
+            }
+
+            $amount = $this->calculatePaymentAmount($booking, $data['payment_type']);
+
+            if ($amount <= 0) {
+                throw new \Exception('Số tiền cần thanh toán không hợp lệ.');
+            }
+
+            // Void all old pending VNPay payments for this booking (Task 3)
+            $oldPendingPayments = BookingPayment::where('booking_id', $booking->id)
+                ->where('provider', 'like', '%vnpay%')
+                ->where('status', 'pending')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($oldPendingPayments as $oldPayment) {
+                $oldRaw = $oldPayment->raw_response ?? [];
+                $oldRaw['closed_reason'] = 'created_new_vnpay_request';
+                $oldRaw['closed_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
+
+                $oldPayment->update([
+                    'status' => 'failed',
+                    'response_code' => 'REPLACED',
+                    'transaction_status' => 'REPLACED',
+                    'raw_response' => $oldRaw,
+                ]);
+            }
+
+            $payment = BookingPayment::create([
+                'booking_id' => $booking->id,
+                'provider' => 'vnpay',
+                'txn_ref' => $this->generateTxnRef($booking),
+                'amount' => $amount,
+                'status' => 'pending',
+                'payment_type' => $data['payment_type'],
+            ]);
+
+            DB::commit();
+
+            return redirect()->away(
+                $vnpayService->createPaymentUrl($booking, $payment, $request)
+            );
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return back()->with('error', $e->getMessage());
         }
-
-        $payment = BookingPayment::create([
-            'booking_id' => $booking->id,
-            'provider' => 'vnpay',
-            'txn_ref' => $this->generateTxnRef($booking),
-            'amount' => $amount,
-            'status' => 'pending',
-            'payment_type' => $data['payment_type'],
-        ]);
-
-        return redirect()->away(
-            $vnpayService->createPaymentUrl($booking, $payment, $request)
-        );
     }
 
     public function adminCreate(Request $request, Booking $booking, VnpayService $vnpayService)
@@ -92,8 +124,9 @@ class VnpayController extends Controller
         DB::beginTransaction();
 
         try {
+            // Lock and void all old pending VNPay payments for this booking (Task 3)
             $oldPendingPayments = BookingPayment::where('booking_id', $booking->id)
-                ->where('provider', 'admin_vnpay')
+                ->where('provider', 'like', '%vnpay%')
                 ->where('status', 'pending')
                 ->lockForUpdate()
                 ->get();
@@ -310,14 +343,34 @@ class VnpayController extends Controller
 
         $booking = $payment->booking;
 
-        if ($result === 'success') {
+        if ($result === 'success' || $result === 'success_late') {
             $emailMessage = $this->sendBookingPaymentSuccessEmail($payment);
 
             return $this->redirectAfterPaymentReturn(
                 $payment,
                 $booking,
                 'success',
-                'Thanh toán VNPay thành công. Booking đã được cập nhật thanh toán.' . ($emailMessage ? ' ' . $emailMessage : '')
+                $result === 'success_late'
+                    ? 'Thanh toán VNPay thành công nhưng nhận được sau khi booking đã quá hạn giải phóng phòng. Vui lòng liên hệ lễ tân để được hỗ trợ gán lại phòng.'
+                    : 'Thanh toán VNPay thành công. Booking đã được cập nhật thanh toán.' . ($emailMessage ? ' ' . $emailMessage : '')
+            );
+        }
+
+        if ($result === 'reconciliation_needed') {
+            return $this->redirectAfterPaymentReturn(
+                $payment,
+                $booking,
+                'error',
+                'Phát hiện giao dịch VNPay đến muộn cho link thanh toán đã vô hiệu. Số tiền ' . number_format((float) $payment->amount, 0, ',', '.') . 'đ đã được chuyển sang trạng thái chờ đối soát, không cộng tiền tự động.'
+            );
+        }
+
+        if ($result === 'already_processed') {
+            return $this->redirectAfterPaymentReturn(
+                $payment,
+                $booking,
+                'error',
+                'Giao dịch VNPay này đã hết hạn, bị thay thế hoặc đã được xử lý trước đó.'
             );
         }
 
@@ -361,8 +414,15 @@ class VnpayController extends Controller
 
         $result = $this->processPaymentResult($payment, $params);
 
-        if ($result === 'success') {
+        if ($result === 'success' || $result === 'success_late') {
             $this->sendBookingPaymentSuccessEmail($payment);
+        }
+
+        if ($result === 'reconciliation_needed' || $result === 'already_processed') {
+            return response()->json([
+                'RspCode' => '02',
+                'Message' => 'Order already confirmed or transaction voided/replaced',
+            ]);
         }
 
         return response()->json([
@@ -501,8 +561,43 @@ class VnpayController extends Controller
 
             $responseCode = $params['vnp_ResponseCode'] ?? null;
             $transactionStatus = $params['vnp_TransactionStatus'] ?? null;
-
             $isSuccess = $responseCode === '00' && $transactionStatus === '00';
+
+            // Check if payment request is not pending (cancelled, replaced, direct payment switch) (Task 3 & 4)
+            if ($payment->status !== 'pending') {
+                if ($isSuccess) {
+                    $payment->update([
+                        'status' => 'failed', // Keep failed to not sum it automatically
+                        'bank_code' => $params['vnp_BankCode'] ?? null,
+                        'transaction_no' => $params['vnp_TransactionNo'] ?? null,
+                        'response_code' => 'RECONCILIATION_NEEDED',
+                        'transaction_status' => 'RECONCILIATION_NEEDED',
+                        'paid_at' => now('Asia/Ho_Chi_Minh'),
+                        'raw_response' => array_merge($payment->raw_response ?? [], [
+                            'reconciliation_warning' => 'Giao dịch ngân hàng đến muộn cho link đã vô hiệu/hết hạn.',
+                            'vnpay_params' => $params,
+                        ]),
+                    ]);
+
+                    BookingLog::create([
+                        'booking_id' => $booking->id,
+                        'user_id' => null,
+                        'action' => 'vnpay_late_payment_reconciliation',
+                        'description' => 'Giao dịch VNPay đến muộn cho link đã vô hiệu/hết hạn. Số tiền: '
+                            . number_format((float) $payment->amount, 0, ',', '.')
+                            . 'đ. Trạng thái giao dịch chuyển sang chờ đối soát (không cộng tiền vào booking).',
+                    ]);
+
+                    $bookingId = $booking->id;
+                    DB::afterCommit(function () use ($bookingId) {
+                        Realtime::booking($bookingId, 'payment_reconciliation_needed');
+                    });
+
+                    return 'reconciliation_needed';
+                }
+
+                return 'already_processed';
+            }
 
             $payment->update([
                 'status' => $isSuccess ? 'success' : 'failed',
@@ -529,6 +624,35 @@ class VnpayController extends Controller
                 });
 
                 return 'failed';
+            }
+
+            // Payment succeeded!
+            // Check if booking was already cancelled or expired (Task 6)
+            $isClosedOrCancelled = in_array($booking->status, ['cancelled', 'canceled', 'no_show'], true);
+
+            if ($isClosedOrCancelled) {
+                $booking->status = 'pending'; // Reopen as pending
+                $booking->note = trim(
+                    ($booking->note ? $booking->note . "\n" : '')
+                    . 'CẢNH BÁO: Thanh toán VNPay thành công (' . number_format((float) $payment->amount, 0, ',', '.') . 'đ) nhưng đến sau khi booking đã hết hạn/hủy và phòng đã giải phóng. Cần lễ tân kiểm tra và xử lý thủ công.'
+                );
+                $booking->save();
+
+                BookingLog::create([
+                    'booking_id' => $booking->id,
+                    'user_id' => null,
+                    'action' => 'vnpay_late_payment_after_cancelled',
+                    'description' => 'Thanh toán VNPay thành công '
+                        . number_format((float) $payment->amount, 0, ',', '.')
+                        . 'đ nhận được sau khi booking đã hủy/quá hạn giải phóng phòng. Chuyển booking về pending cần xử lý thủ công.',
+                ]);
+
+                $bookingId = $booking->id;
+                DB::afterCommit(function () use ($bookingId) {
+                    Realtime::booking($bookingId, 'payment_success_late');
+                });
+
+                return 'success_late';
             }
 
             $payableTotal = $this->calculatePayableTotal($booking);

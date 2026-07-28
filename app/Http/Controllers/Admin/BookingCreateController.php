@@ -268,6 +268,19 @@ class BookingCreateController extends Controller
         DB::beginTransaction();
 
         try {
+            // Lock the selected rooms for update
+            $roomIds = $availableRooms->pluck('id')->toArray();
+            $lockedRooms = Room::whereIn('id', $roomIds)->lockForUpdate()->get();
+
+            // Re-verify availability inside transaction
+            $recheckAvailableCount = Room::whereIn('id', $roomIds)
+                ->availableForPeriod($checkInAt, $checkOutAt)
+                ->count();
+
+            if ($recheckAvailableCount < $roomQuantity) {
+                throw new \Exception('Một số phòng vừa được chọn đã bị đặt hoặc đang bảo trì. Vui lòng chọn lại phương án khác.');
+            }
+
             $customer = $this->createOrUpdateCustomer($data);
 
             $promotionResult = app(PromotionService::class)->validateCodes(
@@ -1390,6 +1403,26 @@ class BookingCreateController extends Controller
         DB::beginTransaction();
 
         try {
+            // Lock select rooms for update
+            $lockedRooms = Room::whereIn('id', $selectedRoomIds)->lockForUpdate()->get();
+            if ($lockedRooms->count() !== count($selectedRoomIds)) {
+                throw new \Exception('Một số phòng không tồn tại.');
+            }
+
+            // Re-verify availability inside transaction
+            $availableRoomIds = Room::whereIn('id', $selectedRoomIds)
+                ->availableForPeriod($checkInAt, $checkOutAt)
+                ->pluck('id')
+                ->toArray();
+
+            $invalidRoomIds = collect($selectedRoomIds)
+                ->map(fn($id) => (int) $id)
+                ->diff(collect($availableRoomIds)->map(fn($id) => (int) $id));
+
+            if ($invalidRoomIds->isNotEmpty()) {
+                throw new \Exception('Một số phòng trong phương án đã bị đặt hoặc đang bảo trì. Vui lòng chọn lại phương án khác.');
+            }
+
             $customer = $this->createOrUpdateCustomer([
                 'customer_name' => $request->customer_name,
                 'customer_phone' => $request->customer_phone,

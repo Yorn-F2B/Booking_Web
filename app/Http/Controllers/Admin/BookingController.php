@@ -399,14 +399,13 @@ class BookingController extends Controller
 
         $data = $request->validate([
             'status' => 'required|in:pending,confirmed,checked_in,inspection_requested,checked_out,completed',
-            'payment_status' => 'required|in:unpaid,partial,paid',
             'note' => 'nullable|string|max:1000',
         ]);
 
         $oldStatus = $booking->status;
-        $oldPaymentStatus = $booking->payment_status;
 
         $booking->update($data);
+        $booking->syncPaymentStatus();
 
         $booking->load('bookingRooms.room');
 
@@ -438,10 +437,6 @@ class BookingController extends Controller
 
         if ($oldStatus !== $booking->status) {
             $changes[] = 'trạng thái booking từ ' . $oldStatus . ' sang ' . $booking->status;
-        }
-
-        if ($oldPaymentStatus !== $booking->payment_status) {
-            $changes[] = 'thanh toán từ ' . $oldPaymentStatus . ' sang ' . $booking->payment_status;
         }
 
         if (!empty($changes)) {
@@ -704,33 +699,7 @@ class BookingController extends Controller
     {
         $this->guardCanAccessBooking($booking);
 
-        if ($booking->payment_status === 'paid') {
-            return back()->with('error', 'Booking đã thanh toán nên không thể đổi trạng thái thanh toán.');
-        }
-
-        $data = $request->validate([
-            'payment_status' => 'required|in:unpaid,partial,paid',
-        ]);
-
-        $oldPaymentStatus = $booking->payment_status;
-
-        if ($oldPaymentStatus == 'partial' && $data['payment_status'] == 'unpaid') {
-            return back()->with('error', 'Booking đã có thanh toán một phần nên không thể chuyển về chưa thanh toán.');
-        }
-
-        $booking->update([
-            'payment_status' => $data['payment_status'],
-        ]);
-
-        if ($oldPaymentStatus !== $booking->payment_status) {
-            $this->addBookingLog(
-                $booking,
-                'payment_update',
-                'Cập nhật thanh toán từ ' . $oldPaymentStatus . ' sang ' . $booking->payment_status . '.'
-            );
-        }
-
-        return back()->with('success', 'Cập nhật trạng thái thanh toán thành công.');
+        return back()->with('error', 'Trạng thái thanh toán được tính tự động từ tổng giao dịch thành công, không thể thay đổi trực tiếp.');
     }
 
     public function recordPayment(Request $request, Booking $booking)
@@ -764,6 +733,27 @@ class BookingController extends Controller
             $booking = Booking::where('id', $booking->id)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            // Void all pending VNPay payment requests for this booking (Task 4)
+            $pendingVnpayPayments = BookingPayment::where('booking_id', $booking->id)
+                ->where('provider', 'like', '%vnpay%')
+                ->where('status', 'pending')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($pendingVnpayPayments as $pendingPayment) {
+                $raw = $pendingPayment->raw_response ?? [];
+                $raw['closed_reason'] = 'replaced_by_direct_payment';
+                $raw['closed_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
+                $raw['closed_by'] = Auth::id();
+
+                $pendingPayment->update([
+                    'status' => 'failed',
+                    'response_code' => 'CANCELLED',
+                    'transaction_status' => 'CANCELLED',
+                    'raw_response' => $raw,
+                ]);
+            }
 
             $payableTotal = $this->calculateAdminPayableTotal($booking);
             $currentPaid = (float) $booking->deposit_amount;

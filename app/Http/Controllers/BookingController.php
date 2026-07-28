@@ -138,7 +138,7 @@ class BookingController extends Controller
         $services = Service::where('status', 'active')
             ->where('price', '>', 0)
             ->whereIn('type', ['service'])
-            ->orderByRaw("FIELD(service_group, 'vehicle', 'food_drink', 'transport', 'laundry', 'wellness', 'room_support', 'general', 'other')")
+            ->orderByRaw("CASE service_group WHEN 'vehicle' THEN 1 WHEN 'food_drink' THEN 2 WHEN 'transport' THEN 3 WHEN 'laundry' THEN 4 WHEN 'wellness' THEN 5 WHEN 'room_support' THEN 6 WHEN 'general' THEN 7 WHEN 'other' THEN 8 ELSE 9 END")
             ->orderBy('name')
             ->get();
 
@@ -303,6 +303,19 @@ class BookingController extends Controller
                 return null;
             }
 
+            // Lock selected rooms for update inside the transaction
+            $roomIds = collect($availableRooms)->pluck('id')->toArray();
+            $lockedRooms = Room::whereIn('id', $roomIds)->lockForUpdate()->get();
+
+            // Recheck availability inside transaction
+            $recheckAvailableCount = Room::whereIn('id', $roomIds)
+                ->availableForPeriod($checkInAt, $checkOutAt)
+                ->count();
+
+            if ($recheckAvailableCount < $requestedRoomQuantity) {
+                return null;
+            }
+
             $nightCount = $this->getNightCount(
                 $data['check_in_date'],
                 $data['check_out_date']
@@ -366,6 +379,7 @@ class BookingController extends Controller
                 'deposit_amount' => 0,
                 'payment_status' => 'unpaid',
                 'status' => 'pending',
+                'expires_at' => now()->addMinutes((int) config('vnpay.expire_minutes', 15)),
                 'note' => $data['note'] ?? null,
             ]);
 
@@ -379,6 +393,10 @@ class BookingController extends Controller
                     'check_out_at' => $checkOutAt,
                     'adult_count' => $data['adult_count'],
                     'child_count' => $data['child_count'] ?? 0,
+                    'status' => 'reserved',
+                ]);
+
+                $room->update([
                     'status' => 'reserved',
                 ]);
             }
@@ -676,8 +694,8 @@ class BookingController extends Controller
         $availableServices = Service::where('status', 'active')
             ->where('price', '>', 0)
             ->whereIn('type', ['service', 'minibar'])
-            ->orderByRaw("FIELD(service_group, 'vehicle', 'food_drink', 'transport', 'laundry', 'wellness', 'room_support', 'general', 'other')")
-            ->orderByRaw("FIELD(type, 'service', 'minibar')")
+            ->orderByRaw("CASE service_group WHEN 'vehicle' THEN 1 WHEN 'food_drink' THEN 2 WHEN 'transport' THEN 3 WHEN 'laundry' THEN 4 WHEN 'wellness' THEN 5 WHEN 'room_support' THEN 6 WHEN 'general' THEN 7 WHEN 'other' THEN 8 ELSE 9 END")
+            ->orderByRaw("CASE type WHEN 'service' THEN 1 WHEN 'minibar' THEN 2 ELSE 3 END")
             ->orderBy('name')
             ->get();
 
@@ -917,7 +935,7 @@ class BookingController extends Controller
             ])
             ->where('check_in_at', '<', $checkOutAt)
             ->where('check_out_at', '>', $checkInAt)
-            ->orderByRaw("FIELD(status, 'checked_in', 'inspection_requested', 'confirmed', 'pending')")
+            ->orderByRaw("CASE status WHEN 'checked_in' THEN 1 WHEN 'inspection_requested' THEN 2 WHEN 'confirmed' THEN 3 WHEN 'pending' THEN 4 ELSE 5 END")
             ->latest()
             ->first();
     }
@@ -931,7 +949,7 @@ class BookingController extends Controller
                 'checked_in',
                 'inspection_requested',
             ])
-            ->orderByRaw("FIELD(status, 'checked_in', 'inspection_requested', 'confirmed', 'pending')")
+            ->orderByRaw("CASE status WHEN 'checked_in' THEN 1 WHEN 'inspection_requested' THEN 2 WHEN 'confirmed' THEN 3 WHEN 'pending' THEN 4 ELSE 5 END")
             ->latest()
             ->first();
     }

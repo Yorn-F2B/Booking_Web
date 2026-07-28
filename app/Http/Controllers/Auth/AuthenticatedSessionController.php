@@ -25,13 +25,11 @@ class AuthenticatedSessionController extends Controller
         $user = Auth::user();
 
         return match ($user->role) {
-            'super_admin'            => redirect()->route('admin.dashboard'),
-            'manager'                => redirect()->route('admin.bookings.index'),
-            'receptionist_lead'      => redirect()->route('admin.bookings.index'),
-            'receptionist'           => redirect()->route('admin.bookings.index'),
-            'housekeeping_supervisor' => redirect()->route('admin.housekeeping.index'),
-            'housekeeping'           => redirect()->route('admin.housekeeping.index'),
-            default                  => redirect()->route('home'),
+            'super_admin' => redirect()->route('admin.dashboard'),
+            'manager' => redirect()->route('admin.rooms.index'),
+            'receptionist' => redirect()->route('admin.bookings.index'),
+            'housekeeping' => redirect()->route('admin.housekeeping.index'),
+            default => redirect()->route('home'),
         };
     }
 

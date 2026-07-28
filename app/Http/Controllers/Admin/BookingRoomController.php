@@ -48,21 +48,29 @@ class BookingRoomController extends Controller
             return back()->with('error', 'Không được chọn trùng phòng trong cùng một booking.');
         }
 
-        $validRoomCount = Room::whereIn('id', $selectedRoomIds)
-            ->where('room_category_id', $booking->room_category_id)
-            ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
-            ->count();
-
-        if ($validRoomCount != $booking->room_quantity) {
-            return back()->with(
-                'error',
-                'Danh sách phòng chọn không hợp lệ. Có phòng đã bị đặt trùng thời gian, đang trong thời gian dọn phòng hoặc không thuộc đúng hạng phòng.'
-            );
-        }
-
-        DB::beginTransaction();
+                DB::beginTransaction();
 
         try {
+            // Lock rooms for update
+            $rooms = Room::whereIn('id', $selectedRoomIds)
+                ->lockForUpdate()
+                ->get();
+
+            // Recheck correct room category
+            foreach ($rooms as $room) {
+                if ($room->room_category_id !== $booking->room_category_id) {
+                    throw new \Exception('Có phòng không thuộc đúng hạng phòng đã đặt.');
+                }
+            }
+
+            // Check availability inside transaction
+            $validRoomCount = Room::whereIn('id', $selectedRoomIds)
+                ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
+                ->count();
+
+            if ($validRoomCount != $booking->room_quantity) {
+                throw new \Exception('Danh sách phòng chọn không hợp lệ. Có phòng đã bị đặt trùng thời gian hoặc đang trong thời gian dọn phòng.');
+            }
             foreach ($booking->bookingRooms as $bookingRoom) {
                 if ($bookingRoom->room) {
                     $bookingRoom->room->update([
@@ -146,27 +154,33 @@ class BookingRoomController extends Controller
             return back()->with('error', 'Booking chưa có thời gian check-in/check-out nên không thể kiểm tra phòng theo thời gian.');
         }
 
-        $oldRoom = Room::findOrFail($data['old_room_id']);
-
-        $newRoom = Room::where('id', $data['new_room_id'])
-            ->where('room_category_id', $oldRoom->room_category_id)
-            ->availableForPeriod($checkInAt, $checkOutAt, $booking->id)
-            ->first();
-
-        if (!$newRoom) {
-            return back()->with(
-                'error',
-                'Không thể đổi phòng. Trong khoảng thời gian '
-                . Carbon::parse($checkInAt)->format('d/m/Y H:i')
-                . ' → '
-                . Carbon::parse($checkOutAt)->format('d/m/Y H:i')
-                . ', tất cả phòng cùng hạng đã được đặt hoặc đang sử dụng.'
-            );
-        }
-
-        DB::beginTransaction();
+                DB::beginTransaction();
 
         try {
+            // Lock old and new rooms for update
+            $rooms = Room::whereIn('id', [$data['old_room_id'], $data['new_room_id']])
+                ->lockForUpdate()
+                ->get();
+
+            $oldRoom = $rooms->firstWhere('id', $data['old_room_id']);
+            $newRoom = $rooms->firstWhere('id', $data['new_room_id']);
+
+            if (!$oldRoom || !$newRoom) {
+                throw new \Exception('Không tìm thấy phòng tương ứng.');
+            }
+
+            if ($newRoom->room_category_id !== $oldRoom->room_category_id) {
+                throw new \Exception('Phòng mới không cùng hạng với phòng cũ.');
+            }
+
+            // Check availability inside transaction
+            $isAvailable = Room::where('id', $newRoom->id)
+                ->availableForPeriod($checkInAt, $checkOutAt, $booking->id)
+                ->exists();
+
+            if (!$isAvailable) {
+                throw new \Exception('Không thể đổi phòng. Phòng mới đã bị đặt hoặc đang sử dụng trong khoảng thời gian này.');
+            }
 
             $bookingRoom->update([
                 'room_id' => $newRoom->id,

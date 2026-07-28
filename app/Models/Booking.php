@@ -9,6 +9,26 @@ class Booking extends Model
 {
     use SoftDeletes;
 
+    protected static function booted()
+    {
+        static::saving(function (Booking $booking) {
+            if ($booking->exists) {
+                $totalPaid = (float) $booking->payments()->where('status', 'success')->sum('amount');
+                $booking->deposit_amount = $totalPaid;
+
+                $payableTotal = (float) $booking->estimated_total;
+                if ($totalPaid <= 0) {
+                    $booking->payment_status = 'unpaid';
+                } elseif ($totalPaid < $payableTotal) {
+                    $booking->payment_status = 'partial';
+                } else {
+                    $booking->payment_status = 'paid';
+                }
+            }
+        });
+    }
+
+
     public const STANDARD_CHECK_OUT_TIME = '12:00:00';
     public const PRIORITY_CLEANING_START_TIME = '12:00:00';
     public const EARLY_CHECK_IN_TIME = '13:00:00';
@@ -46,6 +66,7 @@ class Booking extends Model
         'late_arrival_hours',
         'late_arrival_policy',
         'cleaning_buffer_minutes',
+        'expires_at',
     ];
 
     protected $casts = [
@@ -53,6 +74,7 @@ class Booking extends Model
         'check_out_at' => 'datetime',
         'actual_check_in' => 'datetime',
         'actual_check_out' => 'datetime',
+        'expires_at' => 'datetime',
     ];
 
     public function customer()
@@ -109,6 +131,32 @@ class Booking extends Model
     public function payments()
     {
         return $this->hasMany(BookingPayment::class);
+    }
+
+    public function calculatePaymentStatus(): string
+    {
+        $totalPaid = (float) $this->payments()->where('status', 'success')->sum('amount');
+        $payableTotal = (float) $this->estimated_total;
+
+        if ($totalPaid <= 0) {
+            return 'unpaid';
+        }
+
+        if ($totalPaid < $payableTotal) {
+            return 'partial';
+        }
+
+        return 'paid';
+    }
+
+    public function syncPaymentStatus(): bool
+    {
+        $newStatus = $this->calculatePaymentStatus();
+        if ($this->payment_status !== $newStatus) {
+            $this->payment_status = $newStatus;
+            return $this->save();
+        }
+        return false;
     }
 
     public function bookingPromotions()

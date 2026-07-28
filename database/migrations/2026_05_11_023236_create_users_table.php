@@ -25,8 +25,12 @@ return new class extends Migration {
             $table->string('password');
 
             $table->enum('role', [
-                'admin',
-                'staff',
+                'super_admin',
+                'manager',
+                'receptionist_lead',
+                'receptionist',
+                'housekeeping_supervisor',
+                'housekeeping',
                 'customer'
             ])->default('customer');
 

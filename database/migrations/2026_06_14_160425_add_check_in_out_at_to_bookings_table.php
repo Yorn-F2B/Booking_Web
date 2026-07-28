@@ -17,10 +17,17 @@ return new class extends Migration {
             }
         });
 
-        DB::table('bookings')->update([
-            'check_in_at' => DB::raw("CONCAT(check_in_date, ' 14:00:00')"),
-            'check_out_at' => DB::raw("CONCAT(check_out_date, ' 12:00:00')"),
-        ]);
+        if (DB::getDriverName() === 'sqlite') {
+            DB::table('bookings')->update([
+                'check_in_at' => DB::raw("check_in_date || ' 14:00:00'"),
+                'check_out_at' => DB::raw("check_out_date || ' 12:00:00'"),
+            ]);
+        } else {
+            DB::table('bookings')->update([
+                'check_in_at' => DB::raw("CONCAT(check_in_date, ' 14:00:00')"),
+                'check_out_at' => DB::raw("CONCAT(check_out_date, ' 12:00:00')"),
+            ]);
+        }
     }
 
     public function down(): void

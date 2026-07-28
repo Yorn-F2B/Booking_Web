@@ -11,11 +11,15 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE services MODIFY type ENUM('service','minibar','damage_fee','extra_guest_fee') NOT NULL DEFAULT 'service'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE services MODIFY type ENUM('service','minibar','damage_fee','extra_guest_fee') NOT NULL DEFAULT 'service'");
+        }
     }
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE services MODIFY type ENUM('service','minibar','damage_fee') NOT NULL DEFAULT 'service'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE services MODIFY type ENUM('service','minibar','damage_fee') NOT NULL DEFAULT 'service'");
+        }
     }
 };

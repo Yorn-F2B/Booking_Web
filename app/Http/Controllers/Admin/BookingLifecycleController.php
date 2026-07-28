@@ -265,19 +265,25 @@ class BookingLifecycleController extends Controller
             'serviceItems',
         ]);
 
-        try {
-            $analysis = $this->analyzeExtendStay($booking, $oldCheckOutAt, $newCheckOutAt);
-        } catch (\Throwable $e) {
-            return back()->with('error', 'Không thể gia hạn: ' . $e->getMessage());
-        }
-
-        if ($analysis['status'] === 'blocked') {
-            return back()->with('error', $analysis['message']);
-        }
-
         DB::beginTransaction();
 
         try {
+            // Lock current booking rooms for update
+            $currentRoomIds = $booking->bookingRooms->pluck('room_id')->filter()->values()->toArray();
+            Room::whereIn('id', $currentRoomIds)->lockForUpdate()->get();
+
+            $analysis = $this->analyzeExtendStay($booking, $oldCheckOutAt, $newCheckOutAt);
+
+            if ($analysis['status'] === 'blocked') {
+                throw new \Exception($analysis['message']);
+            }
+
+            // Lock new rooms from replacement plans for update
+            $newRoomIds = collect($analysis['replacement_plans'])->pluck('new_room.id')->filter()->values()->toArray();
+            if (!empty($newRoomIds)) {
+                Room::whereIn('id', $newRoomIds)->lockForUpdate()->get();
+            }
+
             $extraRoomTotal = $analysis['fee_amount'];
             $extendPolicyText = $analysis['policy_text'];
             $roomChangeMessages = [];
@@ -932,7 +938,7 @@ class BookingLifecycleController extends Controller
             throw new \Exception('Số phòng thêm vẫn chưa đủ sức chứa cho số khách thực tế.');
         }
 
-        $rooms = $this->findAvailableRoomsForCheckIn(
+                $rooms = $this->findAvailableRoomsForCheckIn(
             $category->id,
             $quantity,
             $booking->check_in_at,
@@ -941,8 +947,19 @@ class BookingLifecycleController extends Controller
             $booking
         );
 
-        if ($rooms->count() < $quantity) {
+        $roomIds = $rooms->pluck('id')->toArray();
+        $lockedRooms = Room::whereIn('id', $roomIds)->lockForUpdate()->get();
+
+        if ($lockedRooms->count() < $quantity) {
             throw new \Exception('Không còn đủ phòng trống thuộc hạng phòng đã chọn.');
+        }
+
+        // Recheck availability inside transaction
+        $recheckAvailableCount = Room::whereIn('id', $roomIds)
+            ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
+            ->count();
+        if ($recheckAvailableCount < $quantity) {
+            throw new \Exception('Một số phòng dự kiến thêm đã bị đặt hoặc sử dụng bởi giao dịch khác.');
         }
 
         $nightCount = $this->getNightCount($booking);
@@ -1005,7 +1022,7 @@ class BookingLifecycleController extends Controller
             throw new \Exception('Hạng phòng mới vẫn không đủ sức chứa. Vui lòng chọn hạng khác hoặc thêm phòng.');
         }
 
-        $newRooms = $this->findAvailableRoomsForCheckIn(
+                $newRooms = $this->findAvailableRoomsForCheckIn(
             $newCategory->id,
             $roomQuantity,
             $booking->check_in_at,
@@ -1014,8 +1031,19 @@ class BookingLifecycleController extends Controller
             $booking
         );
 
-        if ($newRooms->count() < $roomQuantity) {
+        $newRoomIds = $newRooms->pluck('id')->toArray();
+        $lockedNewRooms = Room::whereIn('id', $newRoomIds)->lockForUpdate()->get();
+
+        if ($lockedNewRooms->count() < $roomQuantity) {
             throw new \Exception('Không còn đủ phòng trống thuộc hạng phòng mới trong thời gian booking.');
+        }
+
+        // Recheck availability inside transaction
+        $recheckAvailableCount = Room::whereIn('id', $newRoomIds)
+            ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
+            ->count();
+        if ($recheckAvailableCount < $roomQuantity) {
+            throw new \Exception('Một số phòng thuộc hạng mới vừa được gán cho giao dịch khác. Vui lòng thử lại.');
         }
 
         $nightCount = $this->getNightCount($booking);
@@ -1108,7 +1136,7 @@ class BookingLifecycleController extends Controller
             throw new \Exception('Hạng phòng mới không hợp lệ.');
         }
 
-        $newRooms = $this->findAvailableRoomsForCheckIn(
+                $newRooms = $this->findAvailableRoomsForCheckIn(
             $newCategory->id,
             1,
             $booking->check_in_at,
@@ -1122,6 +1150,19 @@ class BookingLifecycleController extends Controller
         }
 
         $newRoom = $newRooms->first();
+        $lockedNewRoom = Room::where('id', $newRoom->id)->lockForUpdate()->first();
+
+        if (!$lockedNewRoom) {
+            throw new \Exception('Không thể khóa phòng mới.');
+        }
+
+        // Recheck availability inside transaction
+        $isAvailable = Room::where('id', $newRoom->id)
+            ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
+            ->exists();
+        if (!$isAvailable) {
+            throw new \Exception('Phòng mới vừa được đặt bởi giao dịch khác. Vui lòng thử lại.');
+        }
 
         $nightCount = $this->getNightCount($booking);
 
@@ -1416,6 +1457,9 @@ class BookingLifecycleController extends Controller
         DB::beginTransaction();
 
         try {
+            // Lock current rooms for update
+            Room::whereIn('id', $currentRoomIds)->lockForUpdate()->get();
+
             $oldNightCount = max(
                 1,
                 $oldCheckInAt->copy()->startOfDay()->diffInDays($oldCheckOutAt->copy()->startOfDay())
@@ -1436,11 +1480,6 @@ class BookingLifecycleController extends Controller
 
             $roomDelta = round(($oneNightRoomTotal * $newNightCount) - ($oneNightRoomTotal * $oldNightCount), 0);
             $usedReplacementRoomIds = [];
-            $currentRoomIds = $booking->bookingRooms
-                ->pluck('room_id')
-                ->filter()
-                ->values()
-                ->toArray();
             $roomChangeMessages = [];
 
             foreach ($booking->bookingRooms as $bookingRoom) {
@@ -1493,6 +1532,17 @@ class BookingLifecycleController extends Controller
                         . \Carbon\Carbon::parse($conflictBooking->check_out_at, 'Asia/Ho_Chi_Minh')->format('d/m/Y H:i')
                         . ', và không còn phòng trống cùng hạng để đổi.'
                     );
+                }
+
+                $lockedReplacementRoom = Room::where('id', $replacementRoom->id)->lockForUpdate()->first();
+                if (!$lockedReplacementRoom) {
+                    throw new \Exception('Không thể khóa phòng thay thế.');
+                }
+                $isAvailable = Room::where('id', $replacementRoom->id)
+                    ->availableForPeriod($newCheckInAt, $newCheckOutAt, $booking->id, $booking->cleaning_buffer_minutes ?? 60)
+                    ->exists();
+                if (!$isAvailable) {
+                    throw new \Exception('Phòng thay thế ' . $replacementRoom->room_number . ' vừa bị đặt bởi giao dịch khác.');
                 }
 
                 $oldRoomNumber = $room->room_number;

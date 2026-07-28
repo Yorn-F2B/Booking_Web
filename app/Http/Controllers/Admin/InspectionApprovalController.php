@@ -128,16 +128,15 @@ class InspectionApprovalController extends Controller
                     $noteParts[] = 'hư hại +' . number_format($approvedDamageTotal, 0, ',', '.') . 'đ';
                 }
 
-                $booking->update([
-                    'estimated_total' => (float) $booking->estimated_total + (float) $approvedTotal,
-                    'payment_status' => $booking->deposit_amount > 0 ? 'partial' : 'unpaid',
-                    'note' => $oldNote
-                        . now()->format('d/m/Y H:i')
-                        . ' - Admin duyệt kiểm tra phòng '
-                        . ($roomInspection->room->room_number ?? '')
-                        . ': ' . implode(', ', $noteParts)
-                        . '. Tổng cộng +' . number_format($approvedTotal, 0, ',', '.') . 'đ.',
-                ]);
+                $booking->estimated_total = (float) $booking->estimated_total + (float) $approvedTotal;
+                $booking->payment_status = $booking->calculatePaymentStatus();
+                $booking->note = $oldNote
+                    . now()->format('d/m/Y H:i')
+                    . ' - Admin duyệt kiểm tra phòng '
+                    . ($roomInspection->room->room_number ?? '')
+                    . ': ' . implode(', ', $noteParts)
+                    . '. Tổng cộng +' . number_format($approvedTotal, 0, ',', '.') . 'đ.';
+                $booking->save();
             }
 
             $approvedItems = $roomInspection->items
