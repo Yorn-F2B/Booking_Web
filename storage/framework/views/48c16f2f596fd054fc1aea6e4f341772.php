@@ -1,0 +1,1 @@
+<?php /**PATH C:\xampp\htdocs\Booking_Web-master\Booking_Web-master\resources\views\admin\layouts\partials\footer.blade.php ENDPATH**/ ?>
