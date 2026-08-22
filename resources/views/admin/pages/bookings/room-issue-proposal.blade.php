@@ -1,3 +1,7 @@
+@php
+    $roomIssueHoldMinutes = max(5, (int) app(\App\Services\HotelPolicyService::class)
+        ->forBooking($booking ?? null, 'room_issue.proposal_hold_minutes', 30));
+@endphp
 @extends('layouts.admin')
 
 @section('title', 'Trao đổi phương án sự cố với khách')
@@ -70,15 +74,7 @@
             </div>
         </div>
 
-        @if (session('success'))
-            <div class="alert alert-success">{{ session('success') }}</div>
-        @endif
-
-        @if (session('error'))
-            <div class="alert alert-danger">{{ session('error') }}</div>
-        @endif
-
-        <div id="roomIssueReceptionLiveUpdate" class="alert alert-primary d-none position-sticky" style="top:8px;z-index:1030;">
+<div id="roomIssueReceptionLiveUpdate" class="alert alert-primary d-none position-sticky" style="top:8px;z-index:1030;">
             <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
                 <div><strong>Quản lý vừa gửi phương án mới.</strong> Tải lại để xem phòng, mã hỗ trợ và thời hạn giữ mới nhất.</div>
                 <button type="button" class="btn btn-primary btn-sm" onclick="window.location.reload()">Tải lại phương án</button>
@@ -125,7 +121,9 @@
                                 </span>
                             </div>
 
-                            @php($supportCodes = collect($issue->promotion_codes ?? [])->filter()->values())
+                            @php
+                                $supportCodes = collect($issue->promotion_codes ?? [])->filter()->values();
+                            @endphp
                             <div class="alert {{ $supportCodes->isNotEmpty() ? 'alert-success' : 'alert-warning' }} py-2">
                                 @if ($supportCodes->isNotEmpty())
                                     <strong>Hỗ trợ khách đã được quản lý gửi:</strong> {{ $supportCodes->implode(', ') }}
@@ -220,7 +218,7 @@
                                 {{ $groupHoldExpiresAt?->timezone('Asia/Ho_Chi_Minh')->format('H:i d/m/Y') ?? '---' }}
                             </div>
                             <div class="small text-muted mt-1">
-                                Phòng thay thế đã được giữ ngay từ lúc khách báo sự cố. Mỗi lần quản lý gửi lại phương án, thời hạn giữ được làm mới thêm 30 phút.
+                                Phòng thay thế đã được giữ ngay từ lúc khách báo sự cố. Mỗi lần quản lý gửi lại phương án, thời hạn giữ được làm mới thêm {{ $roomIssueHoldMinutes }} phút.
                             </div>
                         </div>
                     @endif

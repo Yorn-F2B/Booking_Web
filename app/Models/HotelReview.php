@@ -22,6 +22,8 @@ class HotelReview extends Model
         'cleanliness_rating',
         'service_rating',
         'location_rating',
+        'staff_rating',
+        'comfort_rating',
         'value_rating',
         'title',
         'comment',
@@ -41,6 +43,8 @@ class HotelReview extends Model
         'cleanliness_rating' => 'integer',
         'service_rating' => 'integer',
         'location_rating' => 'integer',
+        'staff_rating' => 'integer',
+        'comfort_rating' => 'integer',
         'value_rating' => 'integer',
         'approved_at' => 'datetime',
         'hidden_at' => 'datetime',
@@ -80,6 +84,15 @@ class HotelReview extends Model
     public function replier()
     {
         return $this->belongsTo(User::class, 'replied_by');
+    }
+
+    /**
+     * DB cũ dùng location_rating. Từ phiên bản hiện tại cột này được giữ lại
+     * để tương thích lịch sử nhưng biểu diễn tiêu chí Chất lượng / tiện nghi phòng.
+     */
+    public function getRoomQualityRatingAttribute(): ?int
+    {
+        return $this->location_rating === null ? null : (int) $this->location_rating;
     }
 
     public function scopeApproved($query)

@@ -9,9 +9,17 @@
     $canChooseRepresentative = !$currentRepresentative || ($editingGuest && (int) $currentRepresentative->id === (int) $editingGuest->id);
     $representativeChecked = $canChooseRepresentative
         && (bool) old('is_booking_representative', $editingGuest?->is_booking_representative ?? $booking->guests->isEmpty());
+    $editingHasValidDocument = $editingGuest
+        && $editingGuest->document_type !== 'none'
+        && trim((string) $editingGuest->document_number) !== '';
+    $existingNoDocumentAck = $editingGuest
+        && !$editingHasValidDocument
+        && (bool) $editingGuest->document_exception_acknowledged;
 @endphp
 
 <div class="row g-2 staying-guest-form" data-guest-form data-editing-guest-id="{{ $editingGuest?->id }}">
+    <input type="hidden" name="no_document_acknowledged" value="{{ $existingNoDocumentAck ? 1 : 0 }}" data-no-document-ack>
+    <input type="hidden" name="no_document_reason" value="{{ $existingNoDocumentAck ? $editingGuest?->document_exception_reason : '' }}" data-no-document-reason>
     <div class="col-12">
         <div class="d-flex align-items-center gap-2 flex-wrap border rounded p-2 bg-white">
             <input type="file" id="{{ $fieldPrefix }}cccd_image" class="d-none js-cccd-image" accept="image/*"
@@ -26,7 +34,7 @@
                 data-target-address="#{{ $fieldPrefix }}address"
                 data-required-fields="cccd,full_name,birthday,gender,nationality,address">
             <label for="{{ $fieldPrefix }}cccd_image" id="{{ $fieldPrefix }}cccd_scan_button" class="btn btn-outline-primary btn-sm mb-0">
-                <i class="bx bx-image-add me-1"></i> Quét/đọc ảnh CCCD
+                <i class="bx bx-image-add me-1"></i> Quét CCCD từ ảnh
             </label>
             <span id="{{ $fieldPrefix }}cccd_scan_status" class="small text-muted"></span>
         </div>
@@ -43,7 +51,7 @@
             <option value="child" @selected($selectedType === 'child')>Trẻ em (6–17 tuổi)</option>
             <option value="infant" @selected($selectedType === 'infant')>Em bé (0–5 tuổi)</option>
         </select>
-        <div class="form-text" data-age-message></div>
+        <div class="form-text" data-age-message>Tự xác định theo ngày sinh.</div>
     </div>
     <div class="col-md-3">
         <label class="form-label small">Phòng lưu trú <span class="text-danger">*</span></label>
@@ -96,7 +104,7 @@
     </div>
     <div class="col-md-3">
         <label class="form-label small">Loại giấy tờ</label>
-        <select name="document_type" id="{{ $fieldPrefix }}document_type" class="form-select form-select-sm" data-document-type>
+        <select name="document_type" id="{{ $fieldPrefix }}document_type" class="form-select form-select-sm js-document-type" data-document-type>
             <option value="cccd" @selected(old('document_type', $editingGuest?->document_type ?? 'cccd') === 'cccd')>CCCD</option>
             <option value="passport" @selected(old('document_type', $editingGuest?->document_type) === 'passport')>Hộ chiếu</option>
             <option value="birth_certificate" @selected(old('document_type', $editingGuest?->document_type) === 'birth_certificate')>Giấy khai sinh</option>
@@ -107,7 +115,7 @@
     </div>
     <div class="col-md-3">
         <label class="form-label small">Số giấy tờ</label>
-        <input type="text" name="document_number" id="{{ $fieldPrefix }}document_number" class="form-control form-control-sm" value="{{ old('document_number', $editingGuest?->document_number ?? $editingGuest?->cccd) }}" maxlength="50">
+        <input type="text" name="document_number" id="{{ $fieldPrefix }}document_number" class="form-control form-control-sm js-document-number" value="{{ old('document_number', $editingGuest?->document_number ?? $editingGuest?->cccd) }}" maxlength="50">
     </div>
     <div class="col-md-2 d-flex align-items-end">
         @if($canChooseRepresentative)
@@ -242,22 +250,12 @@ document.addEventListener('DOMContentLoaded', () => {
         birthdayInput?.addEventListener('input', syncBirthday);
         birthdayInput?.addEventListener('project-date-change', syncBirthday);
         typeSelect?.addEventListener('change', () => {
-            const raw = birthdayInput?.value;
-            if (raw) {
-                const date = new Date(`${raw}T00:00:00`);
-                const expected = getExpectedType(date);
-                if (typeSelect.value !== expected.type) {
-                    typeSelect.setCustomValidity(`Ngày sinh tương ứng nhóm ${typeLabel(expected.type)}.`);
-                    if (ageMessage) {
-                        ageMessage.className = 'form-text text-danger';
-                        ageMessage.textContent = `Không khớp ngày sinh: ${expected.age} tuổi phải là ${typeLabel(expected.type)}.`;
-                    }
-                } else {
-                    typeSelect.setCustomValidity('');
-                }
+            // Nhóm tuổi là dữ liệu dẫn xuất; nếu nhân viên bấm nhầm, trả ngay về nhóm đúng theo ngày sinh.
+            if (birthdayInput?.value) syncBirthday();
+            else {
+                syncTypeFields();
+                syncCapacity();
             }
-            syncTypeFields();
-            syncCapacity();
         });
         roomSelect?.addEventListener('change', syncCapacity);
 

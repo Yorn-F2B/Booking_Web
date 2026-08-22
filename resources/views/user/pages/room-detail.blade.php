@@ -6,7 +6,12 @@
 
     @php
         $now = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
-        $checkInLimitToday = $now->copy()->setTime(14, 0, 0);
+        $policyService = app(\App\Services\HotelPolicyService::class);
+        $standardCheckIn = substr((string) $policyService->get('stay.standard_check_in_time', '14:00'), 0, 5);
+        $standardCheckOut = substr((string) $policyService->get('stay.standard_check_out_time', '12:00'), 0, 5);
+        $earlyFreeFrom = substr((string) $policyService->get('stay.early_checkin_free_from', '12:00'), 0, 5);
+        [$checkInHour, $checkInMinute] = array_map('intval', explode(':', $standardCheckIn));
+        $checkInLimitToday = $now->copy()->setTime($checkInHour, $checkInMinute, 0);
 
         $minOnlineCheckInDate = $now->greaterThanOrEqualTo($checkInLimitToday)
             ? $now->copy()->addDay()->toDateString()
@@ -38,19 +43,7 @@
 
                 <div class="col-lg-8">
 
-                    @if (session('success'))
-                        <div class="alert alert-success">
-                            {{ session('success') }}
-                        </div>
-                    @endif
-
-                    @if (session('error'))
-                        <div class="alert alert-danger">
-                            {{ session('error') }}
-                        </div>
-                    @endif
-
-                    @if ($errors->any())
+@if ($errors->any())
                         @if ($errors->any())
                             <div class="alert alert-danger">
                                 <div class="fw-semibold mb-1">
@@ -254,30 +247,21 @@
 
                             @if (($reviewStats->review_count ?? 0) > 0)
                                 <div class="row g-2 mb-4 small">
-                                    <div class="col-6 col-md-3">
-                                        <div class="border rounded-3 p-2 text-center">
-                                            <div class="text-muted">Vệ sinh</div>
-                                            <div class="fw-bold">{{ number_format((float) $reviewStats->cleanliness_average, 1) }}</div>
+                                    @foreach ([
+                                        ['Sạch sẽ', $reviewStats->cleanliness_average],
+                                        ['Chất lượng / tiện nghi phòng', $reviewStats->room_quality_average],
+                                        ['Nhân viên', $reviewStats->staff_average],
+                                        ['Dịch vụ', $reviewStats->service_average],
+                                        ['Thoải mái', $reviewStats->comfort_average],
+                                        ['Giá trị', $reviewStats->value_average],
+                                    ] as [$label, $value])
+                                        <div class="col-6 col-md-4">
+                                            <div class="border rounded-3 p-2 text-center h-100">
+                                                <div class="text-muted">{{ $label }}</div>
+                                                <div class="fw-bold">{{ number_format((float) $value, 1) }}</div>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div class="col-6 col-md-3">
-                                        <div class="border rounded-3 p-2 text-center">
-                                            <div class="text-muted">Dịch vụ</div>
-                                            <div class="fw-bold">{{ number_format((float) $reviewStats->service_average, 1) }}</div>
-                                        </div>
-                                    </div>
-                                    <div class="col-6 col-md-3">
-                                        <div class="border rounded-3 p-2 text-center">
-                                            <div class="text-muted">Vị trí</div>
-                                            <div class="fw-bold">{{ number_format((float) $reviewStats->location_average, 1) }}</div>
-                                        </div>
-                                    </div>
-                                    <div class="col-6 col-md-3">
-                                        <div class="border rounded-3 p-2 text-center">
-                                            <div class="text-muted">Giá trị</div>
-                                            <div class="fw-bold">{{ number_format((float) $reviewStats->value_average, 1) }}</div>
-                                        </div>
-                                    </div>
+                                    @endforeach
                                 </div>
                             @endif
 
@@ -558,12 +542,12 @@
 
                                     <li class="mb-1">
                                         <i class="bx bx-time text-success me-1"></i>
-                                        Nhận phòng linh hoạt 13:00-14:00 nếu phòng sẵn sàng
+                                        Nhận phòng linh hoạt {{ $earlyFreeFrom }}-{{ $standardCheckIn }} nếu phòng sẵn sàng
                                     </li>
 
                                     <li class="mb-1">
                                         <i class="bx bx-time-five text-success me-1"></i>
-                                        Trả phòng trước 12:00
+                                        Trả phòng theo giờ chuẩn {{ $standardCheckOut }}
                                     </li>
 
                                     <li class="mb-1">

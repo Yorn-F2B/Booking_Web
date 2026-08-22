@@ -18,14 +18,22 @@ return new class extends Migration {
             $table->unique(['booking_id', 'room_id'], 'uq_room_inspections_booking_room');
         });
 
-        Schema::table('booking_payments', function (Blueprint $table) {
-            $table->unique('txn_ref', 'uq_booking_payments_txn_ref');
-        });
+        if (Schema::hasTable('booking_payments') && Schema::hasColumn('booking_payments', 'txn_ref')) {
+            Schema::table('booking_payments', function (Blueprint $table) {
+                $table->unique('txn_ref', 'uq_booking_payments_txn_ref');
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('booking_payments', fn (Blueprint $table) => $table->dropUnique('uq_booking_payments_txn_ref'));
+        if (Schema::hasTable('booking_payments')) {
+            try {
+                Schema::table('booking_payments', fn (Blueprint $table) => $table->dropUnique('uq_booking_payments_txn_ref'));
+            } catch (\Throwable) {
+                // The table/index may not exist on older SQL-first installations.
+            }
+        }
         Schema::table('room_inspections', fn (Blueprint $table) => $table->dropUnique('uq_room_inspections_booking_room'));
         Schema::table('bookings', fn (Blueprint $table) => $table->dropIndex('idx_bookings_availability'));
     }

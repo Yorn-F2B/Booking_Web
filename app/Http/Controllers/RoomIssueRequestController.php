@@ -8,6 +8,7 @@ use App\Models\Customer;
 use App\Models\RoomIssueAttachment;
 use App\Models\RoomIssueRequest;
 use App\Services\RoomIssueProposalService;
+use App\Services\HotelPolicyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -268,6 +269,9 @@ class RoomIssueRequestController extends Controller
                 true
             );
 
+            $holdMinutes = max(5, (int) app(HotelPolicyService::class)
+                ->forBooking($lockedBooking, 'room_issue.proposal_hold_minutes', 30));
+
             $proposalSummary = collect($proposalResult['items'])
                 ->map(function (array $item) {
                     $text = 'phòng ' . ($item['current_room_number'] ?: $item['issue_id'])
@@ -287,7 +291,7 @@ class RoomIssueRequestController extends Controller
                 'action' => 'room_issue_proposal_reserved_immediately',
                 'description' => 'Hệ thống lập phương án ngay khi nhận báo cáo: '
                     . $proposalSummary
-                    . '. Các phòng thay thế được giữ 30 phút kể từ thời điểm khách báo sự cố.',
+                    . '. Các phòng thay thế được giữ ' . $holdMinutes . ' phút kể từ thời điểm khách báo sự cố.',
             ]);
         });
 

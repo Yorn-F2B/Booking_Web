@@ -21,20 +21,20 @@ use App\Services\BookingRepricingService;
 use App\Services\StayPricingPolicyService;
 use Illuminate\Support\Facades\Auth;
 use App\Support\Realtime;
+use Carbon\Carbon;
 
 class BookingLifecycleController extends Controller
 {
-    private const PRIORITY_CLEANING_START_TIME = Booking::PRIORITY_CLEANING_START_TIME;
-    private const EARLY_CHECK_IN_TIME = Booking::EARLY_CHECK_IN_TIME;
-    private const STANDARD_CHECK_IN_TIME = Booking::STANDARD_CHECK_IN_TIME;
-    private const STANDARD_CHECK_OUT_TIME = Booking::STANDARD_CHECK_OUT_TIME;
     public function checkIn(Request $request, Booking $booking)
     {
         $this->guardCanAccessBooking($booking);
 
 
         $data = $request->validate([
-            'actual_adult_count' => 'required|integer|min:1',
+            // Số khách thực tế được suy ra từ danh sách khách lưu trú đã khai báo,
+            // không tin số nhập tay trên form check-in. Giữ field nullable để tương thích
+            // với các form/tab cũ đang mở.
+            'actual_adult_count' => 'nullable|integer|min:0',
             'actual_child_count' => 'nullable|integer|min:0',
             'check_in_cccd' => ['nullable', 'string', 'max:50'],
             'cccd_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
@@ -44,7 +44,7 @@ class BookingLifecycleController extends Controller
             'scanned_address' => ['nullable', 'string', 'max:1000'],
             'guest_nationality' => ['nullable', 'string', 'max:100'],
 
-            'over_capacity_action' => 'nullable|in:extra_fee,add_room,change_category',
+            'over_capacity_action' => 'nullable|in:extra_fee',
             'actual_baby_count' => 'nullable|integer|min:0',
 
             'extra_service_ids' => 'nullable|array',
@@ -63,9 +63,6 @@ class BookingLifecycleController extends Controller
             'scanned_birthday.before_or_equal' => 'Ngày sinh không được lớn hơn ngày hiện tại.',
         ]);
 
-        $actualAdultCount = (int) $data['actual_adult_count'];
-        $actualChildCount = (int) ($data['actual_child_count'] ?? 0);
-        $actualBabyCount = (int) ($data['actual_baby_count'] ?? 0);
         $actualCheckInAt = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
 
         $booking->load([
@@ -84,17 +81,17 @@ class BookingLifecycleController extends Controller
         $declaredChildren = $booking->guests->where('guest_type', 'child')->count();
         $declaredInfants = $booking->guests->where('guest_type', 'infant')->count();
         $declaredTotal = $booking->guests->count();
-        $actualTotal = $actualAdultCount + $actualChildCount + $actualBabyCount;
 
-        if ($declaredTotal !== $actualTotal
-            || $declaredAdults !== $actualAdultCount
-            || $declaredChildren !== $actualChildCount
-            || $declaredInfants !== $actualBabyCount) {
-            return back()->withInput()->with('error',
-                'Chưa thể check-in: danh sách khai báo lưu trú phải khớp khách thực tế. '
-                . 'Đã khai ' . $declaredAdults . ' người lớn / ' . $declaredChildren . ' trẻ em / ' . $declaredInfants . ' em bé; '
-                . 'form check-in đang nhập ' . $actualAdultCount . ' / ' . $actualChildCount . ' / ' . $actualBabyCount . '.'
-            );
+        // Danh sách khách lưu trú là nguồn dữ liệu duy nhất cho số khách thực tế.
+        // Nhờ vậy thêm/xóa/sửa khách ở panel bên dưới sẽ tự phản ánh lên check-in,
+        // không còn tình trạng lễ tân phải nhập lại ba ô số lượng bằng tay.
+        $actualAdultCount = $declaredAdults;
+        $actualChildCount = $declaredChildren;
+        $actualBabyCount = $declaredInfants;
+        $actualTotal = $declaredTotal;
+
+        if ($actualAdultCount < 1) {
+            return back()->withInput()->with('error', 'Chưa thể check-in: phải có ít nhất một khách người lớn trong danh sách lưu trú.');
         }
 
         if ($booking->guests->contains(fn ($guest) => empty($guest->booking_room_id))) {
@@ -167,15 +164,15 @@ class BookingLifecycleController extends Controller
             || ($actualChildCount + $actualBabyCount) > $currentChildCapacity
             || $perRoomOverCapacity;
 
-        if ($isOverCapacity && empty($data['over_capacity_action'])) {
+        if ($isOverCapacity && ($data['over_capacity_action'] ?? null) !== 'extra_fee') {
             $detail = $perRoomCapacityIssues !== []
                 ? ' ' . implode('; ', $perRoomCapacityIssues) . '.'
                 : '';
 
-            return back()->with(
+            return back()->withInput()->with(
                 'error',
                 'Phân bổ khách hiện tại chưa hợp lệ.' . $detail
-                . ' Hãy ưu tiên chuyển khách sang phòng còn chỗ; nếu vẫn vượt thì thu phụ phí, thêm phòng hoặc đổi hạng trước khi check-in.'
+                . ' Hãy chuyển khách sang phòng còn chỗ/thêm phòng/đổi hạng trước, hoặc chọn thu phụ phí vượt sức chứa rồi mới check-in.'
             );
         }
 
@@ -331,7 +328,7 @@ class BookingLifecycleController extends Controller
             ]);
 
             $analysis = $this->analyzeExtendStay($booking, $oldCheckOutAt, $newCheckOutAt);
-            $repricingPreview = $this->previewOvernightExtensionRepricing(
+            $repricingPreview = $this->previewExtensionRepricing(
                 $booking,
                 $oldCheckOutAt,
                 $newCheckOutAt
@@ -363,6 +360,16 @@ class BookingLifecycleController extends Controller
         }
     }
 
+    public function discardExtendStayPreview(Booking $booking)
+    {
+        $this->guardCanAccessBooking($booking);
+
+        session()->forget('extend_stay_preview');
+        session()->forget('_old_input');
+
+        return redirect()->route('admin.bookings.show', $booking->id);
+    }
+
     public function extendStay(Request $request, Booking $booking)
     {
         $this->guardCanAccessBooking($booking);
@@ -372,46 +379,91 @@ class BookingLifecycleController extends Controller
         }
 
         try {
-            [$oldCheckOutAt, $newCheckOutAt] = $this->getExtendStayTimesFromRequest($request, $booking);
+            // Kiểm tra dữ liệu đầu vào trước để trả lỗi form rõ ràng. Thời gian cũ sẽ
+            // được đọc lại sau khi khóa booking nhằm tránh hai lễ tân gia hạn đồng thời.
+            [, $requestedNewCheckOutAt] = $this->getExtendStayTimesFromRequest($request, $booking);
         } catch (\Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
 
-        $booking->load([
-            'bookingRooms.room.category',
-            'roomCategory',
-            'customer',
-            'serviceItems',
-        ]);
-
-        try {
-            $analysis = $this->analyzeExtendStay($booking, $oldCheckOutAt, $newCheckOutAt);
-        } catch (\Throwable $e) {
-            return back()->with('error', 'Không thể gia hạn: ' . $e->getMessage());
-        }
-
-        if ($analysis['status'] === 'blocked') {
-            return back()->with('error', $analysis['message']);
-        }
-
-        $repricingPreview = $this->previewOvernightExtensionRepricing(
-            $booking,
-            $oldCheckOutAt,
-            $newCheckOutAt
-        );
-        $isOvernightNightExtension = $repricingPreview !== null;
-
         DB::beginTransaction();
 
         try {
-            $extraRoomTotal = $analysis['fee_amount'];
+            $booking = Booking::whereKey($booking->id)
+                ->lockForUpdate()
+                ->with([
+                    'bookingRooms.room.category',
+                    'roomCategory',
+                    'customer',
+                    'serviceItems.service',
+                    'bookingPromotions.promotion.serviceOffers.service',
+                    'bookingPromotions.promotion.roomUpgradeOffers',
+                    'bookingPromotions.serviceOffers',
+                    'bookingPromotions.roomUpgradeOffers.offer',
+                    'payments',
+                ])
+                ->firstOrFail();
+
+            if ($booking->status !== 'checked_in') {
+                throw new \Exception('Booking đã được xử lý bởi yêu cầu khác và không còn ở trạng thái đang ở.');
+            }
+
+            if (!$booking->check_out_at) {
+                throw new \Exception('Booking chưa có thời gian trả phòng hiện tại nên không thể gia hạn.');
+            }
+
+            $oldCheckOutAt = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh');
+            $newCheckOutAt = $requestedNewCheckOutAt->copy();
+
+            if ($newCheckOutAt->lessThanOrEqualTo($oldCheckOutAt)) {
+                throw new \Exception(
+                    'Thời gian trả phòng của booking vừa thay đổi. Giờ trả phòng mới phải sau '
+                    . $oldCheckOutAt->format('d/m/Y H:i') . '.'
+                );
+            }
+
+            // Khóa các dòng gán phòng hiện tại trước khi xét xung đột/phương án đổi phòng.
+            BookingRoom::where('booking_id', $booking->id)->lockForUpdate()->get();
+
+            $analysis = $this->analyzeExtendStay($booking, $oldCheckOutAt, $newCheckOutAt);
+            if ($analysis['status'] === 'blocked') {
+                throw new \Exception($analysis['message']);
+            }
+
+            // Khóa cả các phòng thay thế đã chọn rồi phân tích lại. Nếu một request khác
+            // vừa lấy phòng trong lúc chờ lock, lần phân tích thứ hai sẽ loại phòng đó.
+            $replacementIds = collect($analysis['replacement_plans'])
+                ->map(fn (array $plan) => (int) ($plan['new_room']->id ?? 0))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            if ($replacementIds !== []) {
+                Room::whereIn('id', $replacementIds)->lockForUpdate()->get();
+                $booking->load('bookingRooms.room.category');
+                $analysis = $this->analyzeExtendStay($booking, $oldCheckOutAt, $newCheckOutAt);
+                if ($analysis['status'] === 'blocked') {
+                    throw new \Exception($analysis['message']);
+                }
+            }
+
+            $repricingPreview = $this->previewExtensionRepricing($booking, $oldCheckOutAt, $newCheckOutAt);
+            $usesRepricing = $repricingPreview !== null;
+            $extraRoomTotal = (float) $analysis['fee_amount'];
             $extendPolicyText = $analysis['policy_text'];
             $roomChangeMessages = [];
 
             foreach ($analysis['replacement_plans'] as $plan) {
-                $bookingRoom = $plan['booking_room'];
-                $oldRoom = $plan['old_room'];
-                $newRoom = $plan['new_room'];
+                /** @var BookingRoom $bookingRoom */
+                $bookingRoom = BookingRoom::whereKey($plan['booking_room']->id)->lockForUpdate()->firstOrFail();
+                /** @var Room $oldRoom */
+                $oldRoom = Room::whereKey($plan['old_room']->id)->lockForUpdate()->with('category')->firstOrFail();
+                /** @var Room $newRoom */
+                $newRoom = Room::whereKey($plan['new_room']->id)->lockForUpdate()->with('category')->firstOrFail();
+
+                if ($newRoom->status !== 'available') {
+                    throw new \Exception('Phòng thay thế ' . $newRoom->room_number . ' vừa không còn sẵn sàng. Vui lòng kiểm tra lại phương án gia hạn.');
+                }
 
                 $bookingRoom->update([
                     'room_id' => $newRoom->id,
@@ -433,6 +485,8 @@ class BookingLifecycleController extends Controller
 
                 $newRoom->update([
                     'status' => 'occupied',
+                    'status_from' => now('Asia/Ho_Chi_Minh'),
+                    'status_until' => null,
                 ]);
 
                 $roomChangeMessages[] = 'Chuyển phòng '
@@ -444,9 +498,10 @@ class BookingLifecycleController extends Controller
                     . '.';
             }
 
-            // Gia hạn thêm đêm được tính lại trực tiếp vào tiền phòng và các dịch vụ
-            // theo đêm. Chỉ gia hạn theo giờ/check-out muộn mới tạo một dòng phụ thu.
-            if ($extraRoomTotal > 0 && !$isOvernightNightExtension) {
+            // Qua đêm và gói giờ đều được BookingRepricingService tính lại khi thời
+            // lượng lưu trú thay đổi. Chỉ trường hợp qua đêm nhưng kéo giờ trả trong
+            // cùng ngày mới là phụ thu check-out/gia hạn theo chính sách riêng.
+            if ($extraRoomTotal > 0 && !$usesRepricing) {
                 $extendStayService = Service::firstOrCreate(
                     [
                         'name' => 'Phụ thu gia hạn lưu trú',
@@ -474,10 +529,10 @@ class BookingLifecycleController extends Controller
                     'used_quantity' => 1,
                     'nights_snapshot' => 1,
                     'rooms_snapshot' => max(1, (int) $booking->room_quantity),
-                    'people_snapshot' => max(1, (int) $booking->adult_count + (int) $booking->child_count),
+                    'people_snapshot' => max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0)),
                     'billing_status' => 'confirmed',
                     'confirmed_by' => Auth::id(),
-                    'confirmed_at' => now(),
+                    'confirmed_at' => now('Asia/Ho_Chi_Minh'),
                     'confirm_note' => $extendPolicyText,
                     'total' => $extraRoomTotal,
                     'note' => 'Gia hạn từ ' . $oldCheckOutAt->format('d/m/Y H:i')
@@ -493,12 +548,12 @@ class BookingLifecycleController extends Controller
 
             $booking->check_out_date = $newCheckOutAt->toDateString();
             $booking->check_out_at = $newCheckOutAt;
-            if (!$isOvernightNightExtension) {
+            if (!$usesRepricing) {
                 $booking->subtotal_amount = (float) $booking->subtotal_amount + $extraRoomTotal;
                 $booking->estimated_total = (float) $booking->estimated_total + $extraRoomTotal;
             }
             $booking->note = $oldNote
-                . now()->format('d/m/Y H:i')
+                . now('Asia/Ho_Chi_Minh')->format('d/m/Y H:i')
                 . ' - Gia hạn lưu trú từ '
                 . $oldCheckOutAt->format('d/m/Y H:i')
                 . ' đến '
@@ -506,14 +561,13 @@ class BookingLifecycleController extends Controller
                 . '. '
                 . $extendPolicyText
                 . $roomChangeText
-                . ' Phụ thu: '
+                . ' Phần tiền tăng: '
                 . number_format($extraRoomTotal, 0, ',', '.')
                 . 'đ.';
-
             $booking->save();
 
             $financialText = '';
-            if ($isOvernightNightExtension && $repricingPreview) {
+            if ($usesRepricing && $repricingPreview) {
                 app(BookingRepricingService::class)->apply($booking, $repricingPreview);
                 $booking->refresh();
 
@@ -539,8 +593,6 @@ class BookingLifecycleController extends Controller
                     . ($serviceChanges !== '' ? ' Dịch vụ tính lại: ' . $serviceChanges . '.' : '')
                     . ($removedPromotions !== '' ? ' Mã bị gỡ: ' . $removedPromotions . '.' : '');
             } else {
-                // Nếu vừa tạo dòng phụ thu gia hạn, bỏ cache quan hệ để phép tính tài chính
-                // đọc đúng dịch vụ mới từ database.
                 $booking->unsetRelation('serviceItems');
                 app(BookingFinancialService::class)->refreshPaymentStatus($booking);
                 $booking->refresh();
@@ -566,7 +618,7 @@ class BookingLifecycleController extends Controller
 
             $successMessage = 'Gia hạn lưu trú thành công. '
                 . $extendPolicyText
-                . ' Phụ thu: '
+                . ' Phần tiền tăng: '
                 . number_format($extraRoomTotal, 0, ',', '.')
                 . 'đ.';
 
@@ -582,14 +634,17 @@ class BookingLifecycleController extends Controller
         }
     }
 
-    private function previewOvernightExtensionRepricing(
+    private function previewExtensionRepricing(
         Booking $booking,
         \Carbon\Carbon $oldCheckOutAt,
         \Carbon\Carbon $newCheckOutAt
     ): ?array {
+        // Booking qua đêm chỉ kéo giờ trả trong cùng ngày dùng biểu phí trả muộn
+        // riêng. Mọi trường hợp làm thay đổi số đêm hoặc thời lượng gói giờ phải
+        // tính lại toàn bộ giá phòng/dịch vụ/khuyến mãi để không cộng phí hai lần.
         if (
-            $booking->booking_type === 'hourly'
-            || $newCheckOutAt->toDateString() === $oldCheckOutAt->toDateString()
+            $booking->booking_type !== 'hourly'
+            && $newCheckOutAt->toDateString() === $oldCheckOutAt->toDateString()
         ) {
             return null;
         }
@@ -681,6 +736,9 @@ class BookingLifecycleController extends Controller
         $newCheckOutAtWithCleaning = $newCheckOutAt
             ->copy()
             ->addMinutes($booking->cleaning_buffer_minutes ?? 0);
+        // Khi phải đổi phòng để gia hạn, code thực hiện đổi ngay tại thời điểm xác
+        // nhận. Vì vậy phòng thay thế phải trống từ hiện tại, không chỉ từ giờ trả cũ.
+        $replacementNeededFrom = now('Asia/Ho_Chi_Minh');
 
         foreach ($booking->bookingRooms as $bookingRoom) {
             if (!$bookingRoom->room) {
@@ -727,7 +785,7 @@ class BookingLifecycleController extends Controller
             $replacementRoom = $this->findSameCategoryReplacementRoom(
                 $categoryId,
                 $booking->id,
-                $oldCheckOutAt,
+                $replacementNeededFrom,
                 $newCheckOutAtWithCleaning,
                 array_merge(
                     $booking->bookingRooms->pluck('room_id')->toArray(),
@@ -736,12 +794,10 @@ class BookingLifecycleController extends Controller
             );
 
             if (!$replacementRoom) {
-                $blockedMessages[] = 'Khung giờ ' . $oldCheckOutAt->format('d/m/Y H:i')
-                    . ' → ' . $newCheckOutAt->format('d/m/Y H:i')
-                    . ' của phòng ' . $roomNumber
-                    . ' đã có người đặt. Hiện tại không còn phòng trống cùng hạng '
+                $blockedMessages[] = 'Phòng ' . $roomNumber
+                    . ' bị vướng booking kế tiếp trong thời gian gia hạn. Hiện tại không còn phòng sẵn sàng cùng hạng '
                     . $categoryName
-                    . ' để đổi cho khách.';
+                    . ' để chuyển khách ngay.';
                 continue;
             }
 
@@ -777,7 +833,7 @@ class BookingLifecycleController extends Controller
             return [
                 'status' => 'need_room_change',
                 'title' => 'Có thể gia hạn nhưng phải chuyển phòng',
-                'message' => implode(' ', $conflictMessages) . ' Hệ thống tìm được phòng cùng hạng còn trống để đổi trước khi gia hạn.',
+                'message' => implode(' ', $conflictMessages) . ' Hệ thống tìm được phòng cùng hạng đang sẵn sàng để chuyển khách ngay trước khi gia hạn.',
                 'fee_amount' => $feeResult['amount'],
                 'policy_text' => $feeResult['policy_text'],
                 'replacement_plans' => $replacementPlans,
@@ -807,12 +863,7 @@ class BookingLifecycleController extends Controller
         return BookingRoom::where('room_id', $roomId)
             ->where('booking_id', '!=', $currentBookingId)
             ->whereHas('booking', function ($query) use ($from, $to) {
-                $query->whereIn('status', [
-                    'pending',
-                    'confirmed',
-                    'checked_in',
-                    'inspection_requested',
-                ])
+                $query->activeForOperations()
                     ->where('check_in_at', '<', $to)
                     ->where('check_out_at', '>', $from);
             })
@@ -833,6 +884,7 @@ class BookingLifecycleController extends Controller
         array $excludeRoomIds = []
     ) {
         return Room::where('room_category_id', $roomCategoryId)
+            ->where('status', 'available')
             ->when(count($excludeRoomIds) > 0, function ($query) use ($excludeRoomIds) {
                 $query->whereNotIn('id', $excludeRoomIds);
             })
@@ -853,38 +905,27 @@ class BookingLifecycleController extends Controller
             $oneNightTotal = (float) ($booking->roomCategory->price ?? 0) * max(1, (int) $booking->room_quantity);
         }
 
-        $extraMinutes = max(1, $oldCheckOutAt->diffInMinutes($newCheckOutAt));
-        $extraHours = round($extraMinutes / 60, 2);
-
         if ($booking->booking_type === 'hourly') {
-            $currentMinutes = max(60, \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')->diffInMinutes($oldCheckOutAt));
-            $currentHours = max(1, $currentMinutes / 60);
-
-            $confirmedServiceTotal = $booking->serviceItems->sum(function ($item) {
-                return (float) $item->total;
-            });
-
-            $currentRoomTotal = max(0, (float) $booking->estimated_total - $confirmedServiceTotal);
-
-            if ($currentRoomTotal <= 0) {
-                $currentRoomTotal = $oneNightTotal;
-            }
-
-            $hourlyRate = $currentRoomTotal / $currentHours;
-            $extraRoomTotal = round($hourlyRate * $extraHours, 0);
+            $checkInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
+            $oldMinutes = max(1, $checkInAt->diffInMinutes($oldCheckOutAt));
+            $newMinutes = max(1, $checkInAt->diffInMinutes($newCheckOutAt));
+            $pricingPolicy = app(StayPricingPolicyService::class);
+            $oldPricing = $pricingPolicy->shortStay($oneNightTotal, 1, $oldMinutes, $booking);
+            $newPricing = $pricingPolicy->shortStay($oneNightTotal, 1, $newMinutes, $booking);
+            $extraRoomTotal = max(0, round((float) $newPricing['amount'] - (float) $oldPricing['amount'], 0));
 
             return [
                 'amount' => $extraRoomTotal,
-                'policy_text' => 'Booking theo giờ, gia hạn thêm '
-                    . $extraHours
-                    . ' giờ. Đơn giá tạm tính theo giá giờ hiện tại: '
-                    . number_format($hourlyRate, 0, ',', '.')
-                    . 'đ/giờ.',
+                'policy_text' => 'Booking theo giờ, thời lượng thay đổi từ '
+                    . round($oldMinutes / 60, 2) . ' giờ lên ' . round($newMinutes / 60, 2)
+                    . ' giờ. Tiền phòng được tính lại theo chính sách gói giờ: '
+                    . number_format((float) $oldPricing['amount'], 0, ',', '.') . 'đ → '
+                    . number_format((float) $newPricing['amount'], 0, ',', '.') . 'đ.',
             ];
         }
 
         if ($oldCheckOutAt->toDateString() === $newCheckOutAt->toDateString()) {
-            $latePolicy = app(StayPricingPolicyService::class)->lateCheckOut($newCheckOutAt, $oneNightTotal);
+            $latePolicy = app(StayPricingPolicyService::class)->lateCheckOut($newCheckOutAt, $oneNightTotal, $booking);
             $extraRoomTotal = $latePolicy['amount'];
             $extendPolicyText = $latePolicy['policy_text'];
         } else {
@@ -924,7 +965,7 @@ class BookingLifecycleController extends Controller
             return back()->with('error', 'Chỉ booking đã xác nhận hoặc đang ở mới được thêm phòng.');
         }
 
-        if ($booking->roomInspections()->whereIn('status', ['pending', 'submitted'])->exists()) {
+        if ($booking->roomInspections()->whereIn('status', ['pending', 'reported'])->exists()) {
             return back()->with('error', 'Booking đã yêu cầu kiểm tra phòng, không thể thêm phòng nữa.');
         }
 
@@ -934,6 +975,7 @@ class BookingLifecycleController extends Controller
             'prefer_near_current_rooms' => 'nullable|boolean',
             'add_room_reason' => 'nullable|string|max:1000',
             'confirm_operation' => 'nullable|boolean',
+            'operation_token' => 'required_if:confirm_operation,1|nullable|string|uuid',
         ]);
 
         $booking->load('bookingRooms.room.category', 'roomCategory');
@@ -951,13 +993,21 @@ class BookingLifecycleController extends Controller
         DB::beginTransaction();
 
         try {
+            $booking = $this->lockBookingForRoomOperation($booking);
+            $operationToken = (string) $data['operation_token'];
+            if ($this->roomOperationAlreadyApplied($booking, $operationToken)) {
+                DB::commit();
+                return back()->with('info', 'Thao tác này đã được xử lý trước đó; hệ thống không thực hiện lặp lần hai.');
+            }
+            $this->assertRoomOperationPreviewToken($booking, 'add_room', $operationToken);
             $message = $this->handleAddRoomToBooking($booking, $data, null, null);
 
             $oldNote = $booking->note ? $booking->note . "\n" : '';
             $booking->note = $oldNote . now()->format('d/m/Y H:i') . ' - ' . $message;
             $booking->save();
 
-            $this->addBookingLog($booking, 'add_room_to_booking', $message);
+            $this->addBookingLog($booking, 'add_room_to_booking', $message . ' [room-op:' . $operationToken . ']');
+            session()->forget('booking_room_operation_preview');
 
             DB::commit();
 
@@ -977,7 +1027,7 @@ class BookingLifecycleController extends Controller
             return back()->with('error', 'Chỉ booking đã xác nhận hoặc đang ở mới được đổi hạng 1 phòng.');
         }
 
-        if ($booking->roomInspections()->whereIn('status', ['pending', 'submitted'])->exists()) {
+        if ($booking->roomInspections()->whereIn('status', ['pending', 'reported'])->exists()) {
             return back()->with('error', 'Booking đã yêu cầu kiểm tra phòng, không thể đổi hạng phòng nữa.');
         }
 
@@ -986,6 +1036,7 @@ class BookingLifecycleController extends Controller
             'new_room_category_id' => 'required|exists:room_categories,id',
             'change_category_reason' => 'nullable|string|max:1000',
             'confirm_operation' => 'nullable|boolean',
+            'operation_token' => 'required_if:confirm_operation,1|nullable|string|uuid',
         ]);
 
         $booking->load('bookingRooms.room.category', 'roomCategory');
@@ -1003,13 +1054,21 @@ class BookingLifecycleController extends Controller
         DB::beginTransaction();
 
         try {
+            $booking = $this->lockBookingForRoomOperation($booking);
+            $operationToken = (string) $data['operation_token'];
+            if ($this->roomOperationAlreadyApplied($booking, $operationToken)) {
+                DB::commit();
+                return back()->with('info', 'Thao tác này đã được xử lý trước đó; hệ thống không thực hiện lặp lần hai.');
+            }
+            $this->assertRoomOperationPreviewToken($booking, 'change_one_room', $operationToken);
             $message = $this->handleChangeOneRoomCategory($booking, $data);
 
             $oldNote = $booking->note ? $booking->note . "\n" : '';
             $booking->note = $oldNote . now()->format('d/m/Y H:i') . ' - ' . $message;
             $booking->save();
 
-            $this->addBookingLog($booking, 'change_one_room_category', $message);
+            $this->addBookingLog($booking, 'change_one_room_category', $message . ' [room-op:' . $operationToken . ']');
+            session()->forget('booking_room_operation_preview');
 
             DB::commit();
 
@@ -1029,7 +1088,7 @@ class BookingLifecycleController extends Controller
             return back()->with('error', 'Chỉ booking đã xác nhận hoặc đang ở mới được đổi toàn bộ hạng phòng.');
         }
 
-        if ($booking->roomInspections()->whereIn('status', ['pending', 'submitted'])->exists()) {
+        if ($booking->roomInspections()->whereIn('status', ['pending', 'reported'])->exists()) {
             return back()->with('error', 'Booking đã yêu cầu kiểm tra phòng, không thể đổi toàn bộ hạng phòng nữa.');
         }
 
@@ -1037,6 +1096,7 @@ class BookingLifecycleController extends Controller
             'new_room_category_id' => 'required|exists:room_categories,id',
             'change_category_reason' => 'nullable|string|max:1000',
             'confirm_operation' => 'nullable|boolean',
+            'operation_token' => 'required_if:confirm_operation,1|nullable|string|uuid',
         ]);
 
         $booking->load('bookingRooms.room.category', 'roomCategory');
@@ -1054,13 +1114,21 @@ class BookingLifecycleController extends Controller
         DB::beginTransaction();
 
         try {
+            $booking = $this->lockBookingForRoomOperation($booking);
+            $operationToken = (string) $data['operation_token'];
+            if ($this->roomOperationAlreadyApplied($booking, $operationToken)) {
+                DB::commit();
+                return back()->with('info', 'Thao tác này đã được xử lý trước đó; hệ thống không thực hiện lặp lần hai.');
+            }
+            $this->assertRoomOperationPreviewToken($booking, 'change_all_rooms', $operationToken);
             $message = $this->handleChangeRoomCategory($booking, $data, null, null);
 
             $oldNote = $booking->note ? $booking->note . "\n" : '';
             $booking->note = $oldNote . now()->format('d/m/Y H:i') . ' - ' . $message;
             $booking->save();
 
-            $this->addBookingLog($booking, 'change_all_room_category', $message);
+            $this->addBookingLog($booking, 'change_all_room_category', $message . ' [room-op:' . $operationToken . ']');
+            session()->forget('booking_room_operation_preview');
 
             DB::commit();
 
@@ -1070,6 +1138,60 @@ class BookingLifecycleController extends Controller
 
             return back()->with('error', 'Không thể đổi toàn bộ hạng phòng: ' . $e->getMessage());
         }
+    }
+
+    public function discardRoomOperationPreview(Booking $booking)
+    {
+        $this->guardCanAccessBooking($booking);
+
+        session()->forget('booking_room_operation_preview');
+        session()->forget('_old_input');
+
+        return redirect()->route('admin.bookings.show', $booking->id);
+    }
+
+    private function roomOperationAlreadyApplied(Booking $booking, string $operationToken): bool
+    {
+        return BookingLog::query()
+            ->where('booking_id', $booking->id)
+            ->where('description', 'like', '%[room-op:' . $operationToken . ']%')
+            ->exists();
+    }
+
+    private function assertRoomOperationPreviewToken(Booking $booking, string $operation, string $operationToken): void
+    {
+        $preview = session('booking_room_operation_preview');
+
+        if (!is_array($preview)
+            || (int) ($preview['booking_id'] ?? 0) !== (int) $booking->id
+            || (string) ($preview['operation'] ?? '') !== $operation
+            || !hash_equals((string) ($preview['token'] ?? ''), $operationToken)) {
+            throw new \RuntimeException('Bản xem trước đã hết hiệu lực hoặc đã được thay bằng thao tác khác. Hãy xem trước lại trước khi xác nhận.');
+        }
+    }
+
+    private function lockBookingForRoomOperation(Booking $booking): Booking
+    {
+        $locked = Booking::whereKey($booking->id)
+            ->lockForUpdate()
+            ->with(['bookingRooms.room.category', 'roomCategory'])
+            ->firstOrFail();
+
+        if (!in_array($locked->status, ['confirmed', 'checked_in'], true)) {
+            throw new \Exception('Booking vừa thay đổi trạng thái. Chỉ booking đã xác nhận hoặc đang ở mới được sửa phòng.');
+        }
+
+        if ($locked->roomInspections()->whereIn('status', ['pending', 'reported'])->exists()) {
+            throw new \Exception('Booking đã yêu cầu kiểm tra phòng, không thể thay đổi danh sách/hạng phòng nữa.');
+        }
+
+        if ($locked->status === 'checked_in' && $locked->check_out_at && now('Asia/Ho_Chi_Minh')->greaterThanOrEqualTo($locked->check_out_at)) {
+            throw new \Exception('Booking đã đến hoặc quá giờ trả phòng. Hãy gia hạn thời gian lưu trú trước khi thêm hoặc đổi phòng.');
+        }
+
+        BookingRoom::where('booking_id', $locked->id)->lockForUpdate()->get();
+
+        return $locked;
     }
 
     private function handleExtraGuestFees(Booking $booking, array $data)
@@ -1265,25 +1387,70 @@ class BookingLifecycleController extends Controller
                 );
             }
 
+            $newRoomPrice = (float) $category->price;
+            $historyAdjustment = 0.0;
+            $historyNote = null;
+
+            // Nếu khách đã ở rồi mới thêm phòng, phòng mới chỉ được tính từ thời
+            // điểm phát sinh. Không được reprice ngược các đêm/giờ trước đó.
+            if ($booking->status === 'checked_in' && $booking->check_in_at && $booking->check_out_at) {
+                $nowAtHotel = now('Asia/Ho_Chi_Minh');
+
+                if ($booking->booking_type === 'hourly') {
+                    $totalMinutes = max(1, Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')
+                        ->diffInMinutes(Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')));
+                    $remainingMinutes = max(1, $nowAtHotel->diffInMinutes(
+                        Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh'),
+                        false
+                    ));
+                    $remainingMinutes = max(1, min($totalMinutes, $remainingMinutes));
+                    $pricingPolicy = app(StayPricingPolicyService::class);
+                    $fullCharge = (float) $pricingPolicy->shortStay($newRoomPrice, 1, $totalMinutes, $booking)['amount'];
+                    $remainingCharge = (float) $pricingPolicy->shortStay($newRoomPrice, 1, $remainingMinutes, $booking)['amount'];
+                    $historyAdjustment = round($remainingCharge - $fullCharge, 0);
+                    $historyNote = 'Phòng phát sinh giữa ca; chỉ tính phần thời gian còn lại.';
+                } else {
+                    $checkInDay = Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')->startOfDay();
+                    $checkOutDay = Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')->startOfDay();
+                    $effectiveDay = $nowAtHotel->copy()->startOfDay()->min($checkOutDay);
+                    $elapsedNights = $effectiveDay->gt($checkInDay)
+                        ? min($nightCount, (int) $checkInDay->diffInDays($effectiveDay))
+                        : 0;
+                    $historyAdjustment = round(-$newRoomPrice * $elapsedNights, 0);
+                    if ($elapsedNights > 0) {
+                        $historyNote = 'Phòng phát sinh giữa kỳ; không tính ' . $elapsedNights . ' đêm đã qua.';
+                    }
+                }
+            }
+
+            $reason = trim((string) ($data['add_room_reason'] ?? 'Thêm phòng khi check-in do vượt sức chứa.'));
             BookingRoom::create([
                 'booking_id' => $booking->id,
                 'room_id' => $room->id,
                 'adult_count' => 0,
                 'child_count' => 0,
-                'price_at_booking' => $category->price,
-                'surcharge' => 0,
-                'surcharge_reason' => $data['add_room_reason'] ?? 'Thêm phòng khi check-in do vượt sức chứa.',
+                'price_at_booking' => $newRoomPrice,
+                'surcharge' => $historyAdjustment,
+                'surcharge_reason' => substr(trim($reason . ($historyNote ? ' | ' . $historyNote : '')), 0, 255),
                 'created_at' => now(),
             ]);
-            // Phòng đang dọn/chờ kiểm tra vẫn có thể được giữ nếu không giao lịch,
-            // nhưng phải giữ nguyên trạng thái vận hành để buồng phòng thấy việc cần làm.
             app(\App\Services\RoomPreparationService::class)
                 ->flagPriorityIfNeeded($booking, $room, 'lễ tân thêm phòng vào booking');
 
-            if (!in_array($room->status, ['cleaning', 'inspection'], true)) {
+            if ($booking->status === 'checked_in') {
+                if ($room->status !== 'available') {
+                    throw new \Exception('Phòng ' . $room->room_number . ' chưa sẵn sàng để nhận khách ngay.');
+                }
+                $room->update([
+                    'status' => 'occupied',
+                    'status_from' => now('Asia/Ho_Chi_Minh'),
+                    'status_until' => null,
+                ]);
+            } elseif (!in_array($room->status, ['cleaning', 'inspection', 'maintenance'], true)) {
                 $room->update([
                     'status' => 'reserved',
                     'status_from' => now('Asia/Ho_Chi_Minh'),
+                    'status_until' => null,
                 ]);
             }
 
@@ -1354,13 +1521,20 @@ class BookingLifecycleController extends Controller
             $oldCategory = $oldRoom->category;
             $oldPrice = (float) $bookingRoom->price_at_booking;
             $newPrice = (float) $newCategory->price;
-            $roomDifference = ($newPrice - $oldPrice) * $nightCount;
+            $changePricing = $this->calculateRoomChangePricing($booking, $bookingRoom, $newPrice);
+            $roomDifference = $changePricing['price_difference_total'];
             $difference += $roomDifference;
 
+            $reason = $data['change_category_reason'] ?? 'Lễ tân đổi toàn bộ booking sang hạng khác.';
             $bookingRoom->update([
                 'room_id' => $newRoom->id,
                 'price_at_booking' => $newPrice,
-                'surcharge_reason' => $data['change_category_reason'] ?? 'Lễ tân đổi toàn bộ booking sang hạng khác.',
+                'surcharge' => $changePricing['new_surcharge'],
+                'surcharge_reason' => $this->mergeRoomSurchargeReason(
+                    $bookingRoom->surcharge_reason,
+                    $reason,
+                    $changePricing['history_note']
+                ),
             ]);
 
             $oldRoomNextStatus = $oldRoom->status === 'maintenance'
@@ -1368,10 +1542,18 @@ class BookingLifecycleController extends Controller
                 : ($booking->status === 'checked_in' ? 'cleaning' : 'available');
             $oldRoom->update([
                 'status' => $oldRoomNextStatus,
-                'status_from' => $oldRoomNextStatus === 'maintenance' ? ($oldRoom->status_from ?: now()) : null,
+                'status_from' => $oldRoomNextStatus === 'available'
+                    ? null
+                    : ($oldRoomNextStatus === 'maintenance'
+                        ? ($oldRoom->status_from ?: now('Asia/Ho_Chi_Minh'))
+                        : now('Asia/Ho_Chi_Minh')),
                 'status_until' => null,
             ]);
-            $newRoom->update(['status' => $booking->status === 'checked_in' ? 'occupied' : 'reserved']);
+            $newRoom->update([
+                'status' => $booking->status === 'checked_in' ? 'occupied' : 'reserved',
+                'status_from' => now('Asia/Ho_Chi_Minh'),
+                'status_until' => null,
+            ]);
 
             BookingRoomChange::create([
                 'booking_id' => $booking->id,
@@ -1382,7 +1564,7 @@ class BookingLifecycleController extends Controller
                 'new_room_category_id' => $newCategory->id,
                 'old_room_price' => $oldPrice,
                 'new_room_price' => $newPrice,
-                'night_count' => $nightCount,
+                'night_count' => $changePricing['charged_nights'],
                 'price_difference_total' => $roomDifference,
                 'change_source' => 'front_desk',
                 'reason' => $data['change_category_reason'] ?? null,
@@ -1433,25 +1615,39 @@ class BookingLifecycleController extends Controller
             throw new \Exception('Không còn phòng trống thuộc hạng phòng mới trong thời gian booking.');
         }
 
-        $nightCount = $this->getNightCount($booking);
         $oldPrice = (float) $bookingRoom->price_at_booking;
         $newPrice = (float) $newCategory->price;
-        $difference = ($newPrice - $oldPrice) * $nightCount;
+        $changePricing = $this->calculateRoomChangePricing($booking, $bookingRoom, $newPrice);
+        $difference = $changePricing['price_difference_total'];
 
+        $reason = $data['change_category_reason'] ?? 'Lễ tân đổi một phòng sang hạng khác.';
         $bookingRoom->update([
             'room_id' => $newRoom->id,
             'price_at_booking' => $newPrice,
-            'surcharge_reason' => $data['change_category_reason'] ?? 'Lễ tân đổi một phòng sang hạng khác.',
+            'surcharge' => $changePricing['new_surcharge'],
+            'surcharge_reason' => $this->mergeRoomSurchargeReason(
+                $bookingRoom->surcharge_reason,
+                $reason,
+                $changePricing['history_note']
+            ),
         ]);
         $oldRoomNextStatus = $oldRoom->status === 'maintenance'
             ? 'maintenance'
             : ($booking->status === 'checked_in' ? 'cleaning' : 'available');
         $oldRoom->update([
             'status' => $oldRoomNextStatus,
-            'status_from' => $oldRoomNextStatus === 'maintenance' ? ($oldRoom->status_from ?: now()) : null,
+            'status_from' => $oldRoomNextStatus === 'available'
+                ? null
+                : ($oldRoomNextStatus === 'maintenance'
+                    ? ($oldRoom->status_from ?: now('Asia/Ho_Chi_Minh'))
+                    : now('Asia/Ho_Chi_Minh')),
             'status_until' => null,
         ]);
-        $newRoom->update(['status' => $booking->status === 'checked_in' ? 'occupied' : 'reserved']);
+        $newRoom->update([
+            'status' => $booking->status === 'checked_in' ? 'occupied' : 'reserved',
+            'status_from' => now('Asia/Ho_Chi_Minh'),
+            'status_until' => null,
+        ]);
 
         BookingRoomChange::create([
             'booking_id' => $booking->id,
@@ -1462,7 +1658,7 @@ class BookingLifecycleController extends Controller
             'new_room_category_id' => $newCategory->id,
             'old_room_price' => $oldPrice,
             'new_room_price' => $newPrice,
-            'night_count' => $nightCount,
+            'night_count' => $changePricing['charged_nights'],
             'price_difference_total' => $difference,
             'change_source' => 'front_desk',
             'reason' => $data['change_category_reason'] ?? null,
@@ -1484,6 +1680,114 @@ class BookingLifecycleController extends Controller
     }
 
 
+    /**
+     * Khi đổi hạng giữa thời gian lưu trú, chỉ phần đêm chưa sử dụng được tính
+     * theo giá phòng mới. Phần các đêm đã ở được giữ nguyên bằng một khoản điều
+     * chỉnh trên booking_rooms.surcharge, tránh việc ghi đè giá mới cho cả kỳ.
+     */
+    private function calculateRoomChangePricing(Booking $booking, BookingRoom $bookingRoom, float $newPrice): array
+    {
+        $oldPrice = (float) $bookingRoom->price_at_booking;
+        $existingSurcharge = (float) $bookingRoom->surcharge;
+
+        if ($booking->booking_type === 'hourly' && $booking->check_in_at && $booking->check_out_at) {
+            $checkInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
+            $checkOutAt = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh');
+            $totalMinutes = max(1, $checkInAt->diffInMinutes($checkOutAt));
+            $pricingPolicy = app(StayPricingPolicyService::class);
+            $oldFull = (float) $pricingPolicy->shortStay($oldPrice, 1, $totalMinutes, $booking)['amount'];
+            $newFull = (float) $pricingPolicy->shortStay($newPrice, 1, $totalMinutes, $booking)['amount'];
+
+            if ($booking->status === 'checked_in') {
+                $nowAtHotel = now('Asia/Ho_Chi_Minh');
+                $remainingMinutes = max(0, $nowAtHotel->diffInMinutes($checkOutAt, false));
+                $remainingMinutes = min($totalMinutes, $remainingMinutes);
+
+                if ($remainingMinutes > 0) {
+                    $oldRemaining = (float) $pricingPolicy->shortStay($oldPrice, 1, $remainingMinutes, $booking)['amount'];
+                    $newRemaining = (float) $pricingPolicy->shortStay($newPrice, 1, $remainingMinutes, $booking)['amount'];
+                    $priceDifferenceTotal = round($newRemaining - $oldRemaining, 0);
+                } else {
+                    $priceDifferenceTotal = 0.0;
+                }
+
+                // Sau khi price_at_booking đổi sang giá mới, currentTotal sẽ tính lại cả
+                // phiên bằng giá mới. Khoản surcharge này triệt phần lịch sử để chỉ phần
+                // thời lượng còn lại chịu giá mới.
+                $fullDifference = $newFull - $oldFull;
+                $historyAdjustment = $priceDifferenceTotal - $fullDifference;
+                $newSurcharge = round($existingSurcharge + $historyAdjustment, 0);
+
+                return [
+                    'total_nights' => 1,
+                    'elapsed_nights' => 0,
+                    'charged_nights' => $remainingMinutes > 0 ? 1 : 0,
+                    'new_surcharge' => $newSurcharge,
+                    'price_difference_total' => $priceDifferenceTotal,
+                    'history_note' => $remainingMinutes > 0
+                        ? 'Booking theo giờ: giữ nguyên phần thời lượng đã sử dụng; giá hạng mới chỉ áp dụng cho phần thời gian còn lại.'
+                        : 'Booking theo giờ đã hết thời lượng; đổi hạng không hồi tố tiền phòng đã sử dụng.',
+                ];
+            }
+
+            return [
+                'total_nights' => 1,
+                'elapsed_nights' => 0,
+                'charged_nights' => 1,
+                'new_surcharge' => $existingSurcharge,
+                'price_difference_total' => round($newFull - $oldFull, 0),
+                'history_note' => null,
+            ];
+        }
+
+        $totalNights = max(1, $this->getNightCount($booking));
+        $elapsedNights = 0;
+
+        if ($booking->status === 'checked_in' && $booking->check_in_at && $booking->check_out_at) {
+            $checkInDay = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')->startOfDay();
+            $checkOutDay = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')->startOfDay();
+            $effectiveDay = \Carbon\Carbon::now('Asia/Ho_Chi_Minh')->startOfDay();
+
+            if ($effectiveDay->gt($checkOutDay)) {
+                $effectiveDay = $checkOutDay->copy();
+            }
+
+            if ($effectiveDay->gt($checkInDay)) {
+                $elapsedNights = (int) $checkInDay->diffInDays($effectiveDay);
+                $elapsedNights = min($totalNights, max(0, $elapsedNights));
+            }
+        }
+
+        $chargedNights = max(0, $totalNights - $elapsedNights);
+        $priceDeltaPerNight = $newPrice - $oldPrice;
+        $historyAdjustment = $priceDeltaPerNight * $elapsedNights;
+        $newSurcharge = round($existingSurcharge - $historyAdjustment, 0);
+        $priceDifferenceTotal = round($priceDeltaPerNight * $chargedNights, 0);
+
+        return [
+            'total_nights' => $totalNights,
+            'elapsed_nights' => $elapsedNights,
+            'charged_nights' => $chargedNights,
+            'new_surcharge' => $newSurcharge,
+            'price_difference_total' => $priceDifferenceTotal,
+            'history_note' => $elapsedNights > 0
+                ? 'Giữ giá cũ cho ' . $elapsedNights . ' đêm đã sử dụng; giá mới chỉ áp dụng ' . $chargedNights . ' đêm còn lại.'
+                : null,
+        ];
+    }
+
+    private function mergeRoomSurchargeReason(?string $current, string $reason, ?string $historyNote): string
+    {
+        $parts = array_values(array_filter([
+            trim((string) $current),
+            trim($reason),
+            trim((string) $historyNote),
+        ], fn ($part) => $part !== ''));
+
+        return substr(implode(' | ', $parts), 0, 255);
+    }
+
+
     private function previewBookingRoomOperation(
         Booking $booking,
         string $operation,
@@ -1501,7 +1805,9 @@ class BookingLifecycleController extends Controller
             $after = $this->bookingRoomOperationSnapshot($afterBooking);
 
             $preview = [
+                'booking_id' => (int) $booking->id,
                 'operation' => $operation,
+                'token' => (string) \Illuminate\Support\Str::uuid(),
                 'title' => match ($operation) {
                     'add_room' => 'Xem trước thêm phòng',
                     'change_one_room' => 'Xem trước đổi hạng 1 phòng',
@@ -1511,7 +1817,7 @@ class BookingLifecycleController extends Controller
                 'message' => $message,
                 'action_url' => $actionUrl,
                 'payload' => collect($payload)
-                    ->except(['confirm_operation', '_token', '_method'])
+                    ->except(['confirm_operation', 'operation_token', '_token', '_method'])
                     ->all(),
                 'before' => $before,
                 'after' => $after,
@@ -1724,6 +2030,12 @@ class BookingLifecycleController extends Controller
                 $booking?->id
             );
 
+        // Booking đang ở cần phòng có thể nhận khách ngay. Không lấy phòng đang dọn,
+        // kiểm tra hoặc chỉ đang ở trạng thái giữ cho một nghiệp vụ khác.
+        if ($booking?->status === 'checked_in') {
+            $query->where('status', 'available');
+        }
+
         // availableForPeriod bỏ qua booking hiện tại để phục vụ đổi lịch/đổi phòng,
         // vì vậy khi THÊM phòng phải loại rõ các phòng đã nằm trong booking này.
         if ($booking) {
@@ -1754,6 +2066,9 @@ class BookingLifecycleController extends Controller
         }
 
         return $query
+            // Các thao tác gọi hàm này đều chạy trong transaction (kể cả preview),
+            // khóa phòng được chọn để hai lễ tân không thể lấy cùng một phòng đồng thời.
+            ->lockForUpdate()
             ->orderBy('floor_number')
             ->orderBy('room_number')
             ->take($quantity)
@@ -1833,7 +2148,7 @@ class BookingLifecycleController extends Controller
         $isRescheduledToTodayAfterCutoff = $booking->booking_type !== 'hourly'
             && $oldCheckInAt->toDateString() > $nowVn->toDateString()
             && $newCheckInAt->toDateString() === $nowVn->toDateString()
-            && $nowVn->format('H:i:s') >= Booking::LATE_ARRIVAL_HOLD_TIME;
+            && $nowVn->format('H:i:s') >= $booking->lateArrivalCutoffTime();
 
         if ($isRescheduledToTodayAfterCutoff && $newCheckInAt->lessThan($nowVn)) {
             $newCheckInAt = $nowVn->copy()->startOfMinute();
@@ -2181,7 +2496,7 @@ class BookingLifecycleController extends Controller
                     . ' Lễ tân chuyển đơn từ ngày tương lai về hôm nay lúc '
                     . $nowVn->format('d/m/Y H:i')
                     . '. Đây là khách đến sớm khác ngày, được check-in trong '
-                    . Booking::RESCHEDULED_AFTER_G_GRACE_MINUTES
+                    . $booking->rescheduledAfterCutoffGraceMinutes()
                     . ' phút kể từ lúc đổi lịch.'
                 : null;
             $booking->note = $oldNote
@@ -2468,6 +2783,8 @@ class BookingLifecycleController extends Controller
 
                 $bookingRoom->room->update([
                     'status' => 'inspection',
+                    'status_from' => now('Asia/Ho_Chi_Minh'),
+                    'status_until' => null,
                 ]);
 
                 \App\Models\RoomActionLog::create([
@@ -2489,7 +2806,6 @@ class BookingLifecycleController extends Controller
                         'damage_total' => 0,
                         'workflow_stage' => \App\Models\RoomInspection::STAGE_HOUSEKEEPING_REPORT,
                         'version' => 0,
-                        'admin_acknowledged_version' => 0,
                     ]
                 );
             }
@@ -2537,14 +2853,16 @@ class BookingLifecycleController extends Controller
 
         $nowVn = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
         $checkInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
-        $priorityStartAt = $checkInAt->copy()->setTimeFromTimeString(self::PRIORITY_CLEANING_START_TIME);
+        $priorityStartTime = (string) $booking->policyValue('stay.priority_cleaning_start_time', '12:00') . ':00';
+        $standardCheckInTime = $booking->standardCheckInTime();
+        $priorityStartAt = $checkInAt->copy()->setTimeFromTimeString($priorityStartTime);
 
         if (!$nowVn->isSameDay($checkInAt)) {
             return back()->with('error', 'Chỉ gửi yêu cầu dọn ưu tiên trong đúng ngày nhận phòng.');
         }
 
         if ($nowVn->lessThan($priorityStartAt)) {
-            return back()->with('error', 'Chỉ gửi yêu cầu dọn ưu tiên từ 12:00 ngày nhận phòng.');
+            return back()->with('error', 'Chỉ gửi yêu cầu dọn ưu tiên từ ' . $priorityStartAt->format('H:i') . ' ngày nhận phòng.');
         }
 
         $booking->load('bookingRooms.room');
@@ -2581,7 +2899,7 @@ class BookingLifecycleController extends Controller
                         . $nowVn->format('d/m/Y H:i')
                         . ' - ƯU TIÊN DỌN NHANH cho booking '
                         . $booking->booking_code
-                        . '. Khách đã đến từ 12:00–14:00, cần chuẩn bị phòng sớm nếu có thể.',
+                        . '. Khách đã đến trong khung chuẩn bị phòng sớm ' . $priorityStartAt->format('H:i') . '–' . substr($standardCheckInTime, 0, 5) . ', cần chuẩn bị phòng sớm nếu có thể.',
                 ]);
 
                 $roomMessages[] = 'Phòng '
@@ -2603,7 +2921,7 @@ class BookingLifecycleController extends Controller
             $this->addBookingLog(
                 $booking,
                 'priority_cleaning',
-                'Gửi yêu cầu buồng phòng ưu tiên dọn nhanh từ 12:00–14:00. '
+                'Gửi yêu cầu buồng phòng ưu tiên dọn nhanh từ ' . $priorityStartAt->format('H:i') . '–' . substr($standardCheckInTime, 0, 5) . '. '
                 . implode(', ', $roomMessages)
                 . '.'
             );
@@ -2650,7 +2968,7 @@ class BookingLifecycleController extends Controller
             }
 
             if ($booking->roomInspections->contains(fn ($inspection) => $inspection->status !== 'confirmed')) {
-                throw new \Exception('Chưa thể thêm phí chốt vì vẫn còn phiếu kiểm tra phòng chưa được duyệt.');
+                throw new \Exception('Chưa thể thêm phí chốt vì vẫn còn phiếu kiểm tra phòng chưa hoàn tất đối chiếu với khách.');
             }
 
             $feeName = trim((string) $data['checkout_extra_name']);
@@ -2749,7 +3067,7 @@ class BookingLifecycleController extends Controller
                 'error',
                 'Không thể check-out vì vẫn còn '
                 . $notConfirmedInspectionCount
-                . ' phiếu kiểm tra chưa được quản lý duyệt.'
+                . ' phiếu kiểm tra chưa hoàn tất đối chiếu với khách.'
             );
         }
 
@@ -2836,18 +3154,46 @@ class BookingLifecycleController extends Controller
             $paidBeforeCheckout = (float) $booking->payments()->where('status', 'success')->sum('amount');
             $remainingTotal = max(0, $finalTotal - $paidBeforeCheckout);
 
-            // Check-out tuyệt đối không tự sinh giao dịch thanh toán từ một checkbox.
-            // Lễ tân phải ghi nhận khoản thu ở khối Thanh toán trước; chỉ các giao dịch
-            // thành công đã lưu trong booking_payments mới được dùng để mở khóa check-out.
+            // Nếu vừa phát sinh phụ thu check-out muộn thì phải lưu khoản phí trước khi
+            // yêu cầu lễ tân thu nốt tiền. Không throw để rollback khoản phí vừa tạo,
+            // nếu không lần bấm check-out sau sẽ lại rơi vào đúng vòng lặp cũ.
             if ($remainingTotal > 0.01) {
-                throw new \Exception(
-                    'Booking còn '
+                $booking->forceFill([
+                    'estimated_total' => $finalTotal,
+                ])->save();
+                $financialService->refreshPaymentStatus($booking);
+
+                if ($lateCheckout['amount'] > 0) {
+                    $this->addBookingLog(
+                        $booking,
+                        'late_checkout_fee_recorded',
+                        'Đã ghi nhận phụ thu check-out muộn '
+                        . number_format($lateCheckout['amount'], 0, ',', '.')
+                        . 'đ trước khi hoàn tất thanh toán.'
+                    );
+                }
+
+                DB::commit();
+                Realtime::booking($booking->id, 'checkout_payment_required');
+
+                $prefix = $lateCheckout['amount'] > 0
+                    ? 'Đã ghi nhận phụ thu check-out muộn vào booking. '
+                    : '';
+
+                return back()->with(
+                    'error',
+                    $prefix
+                    . 'Booking còn '
                     . number_format($remainingTotal, 0, ',', '.')
                     . 'đ chưa thanh toán trên hệ thống. Vui lòng ghi nhận khoản thu ở mục Thanh toán, sau đó bấm Check-out lại.'
                 );
             }
 
-            $paidAfterCheckout = $paidBeforeCheckout;
+            // Phụ thu vừa được thêm ở trên nên lấy lại tổng dịch vụ để log không bị thiếu.
+            $booking->load('serviceItems');
+            $serviceItemTotal = (float) $booking->serviceItems
+                ->where('billing_status', 'confirmed')
+                ->sum(fn ($item) => (float) $item->total);
 
             $oldNote = $booking->note ? $booking->note . "\n" : '';
             $feeText = count($feeMessages) > 0
@@ -2875,6 +3221,8 @@ class BookingLifecycleController extends Controller
                     . $feeText,
             ]);
 
+            $priorityCleaningWindowMinutes = max(1, (int) $booking->policyValue('stay.priority_cleaning_window_minutes', 120));
+
             foreach ($booking->bookingRooms as $bookingRoom) {
                 if ($bookingRoom->room) {
                     $room = $bookingRoom->room;
@@ -2882,10 +3230,19 @@ class BookingLifecycleController extends Controller
                         ->with('booking')
                         ->where('room_id', $room->id)
                         ->where('booking_id', '!=', $booking->id)
-                        ->whereHas('booking', function ($query) use ($actualCheckOutAt) {
-                            $query->whereIn('status', ['pending', 'confirmed'])
+                        ->whereHas('booking', function ($query) use ($actualCheckOutAt, $priorityCleaningWindowMinutes) {
+                            $query->where(function ($active) {
+                                $active->where('status', 'confirmed')
+                                    ->orWhere(function ($pending) {
+                                        $pending->where('status', 'pending')
+                                            ->where(function ($validHold) {
+                                                $validHold->where('payment_expires_at', '>', now('Asia/Ho_Chi_Minh'))
+                                                    ->orWhereHas('payments', fn ($payment) => $payment->where('status', 'success'));
+                                            });
+                                    });
+                            })
                                 ->where('check_in_at', '>=', $actualCheckOutAt)
-                                ->where('check_in_at', '<=', $actualCheckOutAt->copy()->addHours(2));
+                                ->where('check_in_at', '<=', $actualCheckOutAt->copy()->addMinutes($priorityCleaningWindowMinutes));
                         })
                         ->join('bookings', 'bookings.id', '=', 'booking_rooms.booking_id')
                         ->orderBy('bookings.check_in_at')
@@ -2902,6 +3259,8 @@ class BookingLifecycleController extends Controller
 
                     $room->update([
                         'status' => 'cleaning',
+                        'status_from' => $actualCheckOutAt,
+                        'status_until' => null,
                         'note' => trim(($room->note ? $room->note . "\n" : '')
                             . $actualCheckOutAt->format('d/m/Y H:i')
                             . ' - Phòng vừa trả, cần dọn.' . $urgentText),
@@ -2956,13 +3315,7 @@ class BookingLifecycleController extends Controller
                 'Check-out thành công. Tổng phải thu '
                 . number_format($finalTotal, 0, ',', '.')
                 . 'đ. '
-                . ($remainingTotal > 0
-                    ? 'Đã ghi nhận thu thêm '
-                        . number_format($remainingTotal, 0, ',', '.')
-                        . 'đ bằng '
-                        . $this->getCheckoutPaymentMethodLabel($paymentMethod)
-                        . '. '
-                    : 'Booking đã thanh toán đủ trước đó. ')
+                . 'Booking đã thanh toán đủ trên hệ thống. '
                 . 'Phòng đã chuyển sang trạng thái cần dọn.'
             );
         } catch (\Throwable $e) {
@@ -3054,18 +3407,21 @@ class BookingLifecycleController extends Controller
             $nightPrice = (float) ($booking->roomCategory->price ?? 0);
             $quantity = max(1, (int) $booking->room_quantity);
 
-            $newTotal = $totalMinutes > 12 * 60
-                ? $pricing->longStay($checkInAt, $actualCheckOutAt, $nightPrice, $quantity)['total_amount']
-                : $pricing->shortStay($nightPrice, $quantity, $totalMinutes)['amount'];
+            $overnightThresholdHours = max(1, (int) $booking->policyValue('stay.short_stay_to_overnight_hours', 12));
+            $overnightThresholdMinutes = $overnightThresholdHours * 60;
+            $isLongStay = $totalMinutes > $overnightThresholdMinutes;
+            $newTotal = $isLongStay
+                ? $pricing->longStay($checkInAt, $actualCheckOutAt, $nightPrice, $quantity, $booking)['total_amount']
+                : $pricing->shortStay($nightPrice, $quantity, $totalMinutes, $booking)['amount'];
 
             $currentRoomTotal = max(0, $this->getCheckoutRoomBaseTotal($booking));
             $amount = max(0, round($newTotal - $currentRoomTotal, 0));
-            $policyText = $totalMinutes > 12 * 60
-                ? 'Tổng thời gian sau khi trả muộn vượt 12 giờ, hệ thống tự chuyển sang chính sách qua đêm và chỉ thu phần chênh lệch.'
+            $policyText = $isLongStay
+                ? 'Tổng thời gian sau khi trả muộn vượt ' . $overnightThresholdHours . ' giờ, hệ thống tự chuyển sang chính sách qua đêm và chỉ thu phần chênh lệch.'
                 : 'Booking theo giờ được tính lại theo tổng thời gian thực tế và chỉ thu phần chênh lệch.';
         } else {
             $extraDays = max(0, $plannedCheckOutAt->copy()->startOfDay()->diffInDays($actualCheckOutAt->copy()->startOfDay()));
-            $dayPolicy = $pricing->lateCheckOut($actualCheckOutAt, $oneNightTotal);
+            $dayPolicy = $pricing->lateCheckOut($actualCheckOutAt, $oneNightTotal, $booking);
             $amount = round(($extraDays * $oneNightTotal) + $dayPolicy['amount'], 0);
             $policyText = ($extraDays > 0 ? 'Trả sang thêm ' . $extraDays . ' ngày, tính thêm ' . $extraDays . ' đêm. ' : '')
                 . $dayPolicy['policy_text'];
@@ -3251,10 +3607,10 @@ class BookingLifecycleController extends Controller
         }
 
         $lateHours = round($checkInAt->diffInMinutes($nowVn) / 60, 2);
-        $cutoffAt = $checkInAt->copy()->setTime(18, 0, 0);
+        $cutoffAt = $checkInAt->copy()->setTimeFromTimeString($booking->lateArrivalCutoffTime());
 
         if ($nowVn->lessThanOrEqualTo($cutoffAt)) {
-            $policy = 'Khách check-in trong khoảng từ 14:00 đến giờ G 18:00. Không phụ thu đến muộn.';
+            $policy = 'Khách check-in trong khoảng từ ' . substr($booking->standardCheckInTime(), 0, 5) . ' đến giờ G ' . $cutoffAt->format('H:i') . '. Không phụ thu đến muộn.';
             $booking->late_arrival_fee = 0;
             $booking->late_arrival_policy = $policy;
             return $policy;
@@ -3306,7 +3662,7 @@ class BookingLifecycleController extends Controller
             return back()->with('error', 'Chức năng giữ phòng sau giờ G chỉ áp dụng cho booking đặt trước qua đêm thuộc diện khách đến muộn.');
         }
 
-        [$holdHour, $holdMinute] = array_map('intval', explode(':', Booking::LATE_ARRIVAL_HOLD_TIME));
+        [$holdHour, $holdMinute] = array_map('intval', explode(':', $booking->lateArrivalCutoffTime()));
         $cutoffAt = $checkInAt->copy()->setTime($holdHour, $holdMinute, 0);
         $expectedArrivalAt = \Carbon\Carbon::createFromFormat(
             'Y-m-d H:i',
@@ -3319,7 +3675,7 @@ class BookingLifecycleController extends Controller
         }
 
         if ($expectedArrivalAt->lessThanOrEqualTo($cutoffAt)) {
-            return back()->with('error', 'Giờ dự kiến đến phải sau giờ G ' . $cutoffAt->format('H:i d/m/Y') . '. Từ 14:00 đến giờ G không phát sinh phụ thu.');
+            return back()->with('error', 'Giờ dự kiến đến phải sau giờ G ' . $cutoffAt->format('H:i d/m/Y') . '. Từ ' . substr($booking->standardCheckInTime(), 0, 5) . ' đến giờ G không phát sinh phụ thu.');
         }
 
         if ($expectedArrivalAt->greaterThanOrEqualTo($checkOutAt)) {
@@ -3332,10 +3688,10 @@ class BookingLifecycleController extends Controller
             $oneNightTotal = (float) ($booking->roomCategory->price ?? 0) * max(1, (int) $booking->room_quantity);
         }
 
-        $latePolicy = app(StayPricingPolicyService::class)->lateArrival($expectedArrivalAt, $oneNightTotal, $cutoffAt);
+        $latePolicy = app(StayPricingPolicyService::class)->lateArrival($expectedArrivalAt, $oneNightTotal, $cutoffAt, $booking);
         $feeAmount = (float) $latePolicy['amount'];
         $hoursAfterCutoff = (float) $latePolicy['hours_after_cutoff'];
-        $extendedHoldAt = $expectedArrivalAt->copy()->addMinutes(30)->min($checkOutAt);
+        $extendedHoldAt = $expectedArrivalAt->copy()->addMinutes($booking->lateArrivalGraceMinutes())->min($checkOutAt);
 
         DB::transaction(function () use ($booking, $now, $expectedArrivalAt, $extendedHoldAt, $latePolicy, $feeAmount, $hoursAfterCutoff) {
             $service = Service::query()
@@ -3364,7 +3720,7 @@ class BookingLifecycleController extends Controller
                     'confirmed_at' => $now,
                     'confirm_note' => $latePolicy['policy_text'],
                     'total' => $feeAmount,
-                    'note' => 'Giờ G: ' . $booking->check_in_at->copy()->setTime(18, 0)->format('d/m/Y H:i')
+                    'note' => 'Giờ G: ' . Carbon::parse($booking->check_in_date . ' ' . $booking->lateArrivalCutoffTime(), self::TIMEZONE)->format('d/m/Y H:i')
                         . '. Khách dự kiến đến: ' . $expectedArrivalAt->format('d/m/Y H:i')
                         . '. Giữ phòng đến: ' . $extendedHoldAt->format('d/m/Y H:i') . '.',
                 ]
@@ -3420,11 +3776,11 @@ class BookingLifecycleController extends Controller
 
         $nowVn = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
         $checkInDate = \Carbon\Carbon::parse($booking->check_in_date, 'Asia/Ho_Chi_Minh');
-        $noShowStartAt = $checkInDate->copy()->setTime(14, 0, 0);
-        $noShowEndAt = $checkInDate->copy()->setTime(18, 0, 0);
+        $noShowStartAt = $checkInDate->copy()->setTimeFromTimeString($booking->standardCheckInTime());
+        $noShowEndAt = $checkInDate->copy()->setTimeFromTimeString($booking->lateArrivalCutoffTime());
 
         if ($nowVn->lt($noShowStartAt) || $nowVn->greaterThanOrEqualTo($noShowEndAt)) {
-            return back()->with('error', 'No-show chỉ được xử lý từ 14:00 đến trước 18:00 ngày nhận phòng.');
+            return back()->with('error', 'No-show chỉ được xử lý từ ' . $noShowStartAt->format('H:i') . ' đến trước ' . $noShowEndAt->format('H:i') . ' ngày nhận phòng.');
         }
 
         $holdLimitAt = $this->getLateArrivalHoldLimitAt($booking);
@@ -3541,7 +3897,7 @@ class BookingLifecycleController extends Controller
         }
 
         $plannedCheckInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
-        $standardCheckInAt = $plannedCheckInAt->copy()->setTime(14, 0, 0);
+        $standardCheckInAt = \Carbon\Carbon::parse($plannedCheckInAt->toDateString() . ' ' . $booking->standardCheckInTime(), 'Asia/Ho_Chi_Minh');
 
         if ($actualCheckInAt->toDateString() < $plannedCheckInAt->toDateString()) {
             throw new \Exception(
@@ -3642,7 +3998,7 @@ class BookingLifecycleController extends Controller
     private function calculateEarlyCheckInFee(Booking $booking, \Carbon\Carbon $actualCheckInAt): array
     {
         $plannedCheckInAt = \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
-        $standardCheckInAt = $plannedCheckInAt->copy()->setTime(14, 0, 0);
+        $standardCheckInAt = \Carbon\Carbon::parse($plannedCheckInAt->toDateString() . ' ' . $booking->standardCheckInTime(), 'Asia/Ho_Chi_Minh');
         $earlyMinutes = max(0, $actualCheckInAt->diffInMinutes($standardCheckInAt));
         $earlyHoursOnly = intdiv($earlyMinutes, 60);
         $earlyRemainMinutes = $earlyMinutes % 60;
@@ -3654,7 +4010,7 @@ class BookingLifecycleController extends Controller
             $basePrice = (float) ($booking->roomCategory->price ?? 0) * max(1, (int) $booking->room_quantity);
         }
 
-        $policy = app(StayPricingPolicyService::class)->earlyCheckIn($actualCheckInAt, $basePrice);
+        $policy = app(StayPricingPolicyService::class)->earlyCheckIn($actualCheckInAt, $basePrice, $booking);
 
         return [
             'percent' => $policy['percent'],
@@ -3685,12 +4041,7 @@ class BookingLifecycleController extends Controller
     {
         $user = Auth::user();
 
-        abort_unless($user && in_array($user->role, [
-            'super_admin',
-            'manager',
-            'receptionist_lead',
-            'receptionist',
-        ], true), 403, 'Bạn không có quyền xử lý booking này.');
+        abort_unless($booking->canBeHandledBy($user), 403, 'Booking này đang được phân cho lễ tân khác hoặc bạn không có quyền xử lý.');
     }
 
     private function addBookingLog(Booking $booking, string $action, string $description): void

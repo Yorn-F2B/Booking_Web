@@ -10,27 +10,12 @@
 
 </head>
 
-<body class="admin-page">
-    <div class="d-none" aria-hidden="true">
-        <?php if(session('success')): ?>
-            <span data-admin-flash data-type="success"><?php echo e(session('success')); ?></span>
-        <?php endif; ?>
-        <?php if(session('error')): ?>
-            <span data-admin-flash data-type="error"><?php echo e(session('error')); ?></span>
-        <?php endif; ?>
-        <?php if(session('warning')): ?>
-            <span data-admin-flash data-type="warning"><?php echo e(session('warning')); ?></span>
-        <?php endif; ?>
-        <?php if(session('info')): ?>
-            <span data-admin-flash data-type="info"><?php echo e(session('info')); ?></span>
-        <?php endif; ?>
-        <?php if($errors->any()): ?>
-            <?php $__currentLoopData = $errors->all(); $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $error): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                <span data-admin-flash data-type="error"><?php echo e($error); ?></span>
-            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-        <?php endif; ?>
-    </div>
-
+<body class="admin-page"
+    <?php if(auth()->guard()->check()): ?>
+        data-auth-user-id="<?php echo e(auth()->id()); ?>"
+        data-auth-user-role="<?php echo e(auth()->user()->role); ?>"
+    <?php endif; ?>>
+    <?php echo $__env->make('partials.flash-toasts', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
     <div class="admin-sidebar-overlay" id="adminSidebarOverlay"></div>
 
     
@@ -45,7 +30,40 @@
     <?php echo $__env->make('admin.layouts.partials.scripts', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
 
     
+    <?php echo $__env->make('partials.camera-capture', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+
+    
     <?php echo app('Illuminate\Foundation\Vite')('resources/js/app.js'); ?>
+
+    <?php if(auth()->guard()->check()): ?>
+        <?php if(in_array(auth()->user()->role, ['receptionist', 'receptionist_lead'], true)): ?>
+            <script>
+                (function () {
+                    const url = <?php echo json_encode(route('admin.chats.presence.heartbeat'), 15, 512) ?>;
+                    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+                    const heartbeat = async function () {
+                        try {
+                            await fetch(url, {
+                                method: 'POST',
+                                credentials: 'same-origin',
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    'X-CSRF-TOKEN': csrf,
+                                },
+                            });
+                        } catch (error) {
+                            console.debug('Chat heartbeat unavailable.', error);
+                        }
+                    };
+
+                    heartbeat();
+                    window.setInterval(heartbeat, 45000);
+                })();
+            </script>
+        <?php endif; ?>
+    <?php endif; ?>
 
 </body>
 

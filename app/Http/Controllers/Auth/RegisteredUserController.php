@@ -43,7 +43,7 @@ class RegisteredUserController extends Controller
             $email = mb_strtolower(trim($validated['email']));
 
             $user = User::create([
-                'name' => trim($validated['first_name'].' '.$validated['last_name']),
+                'name' => trim($validated['last_name'].' '.$validated['first_name']),
                 'email' => $email,
                 'password' => Hash::make($validated['password']),
                 'role' => 'customer',

@@ -9,7 +9,6 @@ class RoomInspection extends Model
     public const STAGE_HOUSEKEEPING_REPORT = 'housekeeping_report';
     public const STAGE_GUEST_CONSULTATION = 'guest_consultation';
     public const STAGE_HOUSEKEEPING_RECHECK = 'housekeeping_recheck';
-    public const STAGE_ADMIN_APPROVAL = 'admin_approval';
     public const STAGE_COMPLETED = 'completed';
 
     protected $fillable = [
@@ -79,11 +78,6 @@ class RoomInspection extends Model
         return $this->belongsTo(User::class, 'guest_consulted_by');
     }
 
-    public function adminAcknowledger()
-    {
-        return $this->belongsTo(User::class, 'admin_acknowledged_by');
-    }
-
     public function items()
     {
         return $this->hasMany(RoomInspectionItem::class);
@@ -94,15 +88,4 @@ class RoomInspection extends Model
         return $this->hasMany(RoomInspectionRevision::class)->orderByDesc('version')->orderByDesc('id');
     }
 
-    public function hasUnseenAdminUpdate(): bool
-    {
-        return (int) $this->admin_acknowledged_version < (int) $this->version;
-    }
-
-    public function canAdminApprove(): bool
-    {
-        return $this->status === 'reported'
-            && $this->workflow_stage === self::STAGE_ADMIN_APPROVAL
-            && !$this->hasUnseenAdminUpdate();
-    }
 }

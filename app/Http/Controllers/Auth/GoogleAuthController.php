@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
@@ -32,7 +33,8 @@ class GoogleAuthController extends Controller
 
             $user = DB::transaction(function () use ($googleId, $email): User {
                 $userByGoogleId = User::where('google_id', $googleId)->lockForUpdate()->first();
-                $userByEmail = User::where('email', $email)->lockForUpdate()->first();
+                $userByEmail = User::whereRaw('LOWER(email) = ?', [$email])->lockForUpdate()->first();
+                $customerByEmail = Customer::whereRaw('LOWER(email) = ?', [$email])->lockForUpdate()->first();
 
                 if ($userByGoogleId && $userByEmail && $userByGoogleId->id !== $userByEmail->id) {
                     throw new \RuntimeException('GOOGLE_ACCOUNT_CONFLICT');
@@ -45,30 +47,57 @@ class GoogleAuthController extends Controller
                         throw new \RuntimeException('GOOGLE_ACCOUNT_CONFLICT');
                     }
 
-                    $updates = [
-                        'google_id' => $googleId,
-                    ];
+                    if ($customerByEmail && $customerByEmail->user_id && (int) $customerByEmail->user_id !== (int) $user->id) {
+                        throw new \RuntimeException('GOOGLE_ACCOUNT_CONFLICT');
+                    }
 
+                    $updates = ['google_id' => $googleId];
                     if (empty($user->email_verified_at)) {
                         $updates['email_verified_at'] = now();
                     }
-
                     $user->forceFill($updates)->save();
+
+                    if ($user->role === 'customer') {
+                        $linkedCustomer = $user->customer()->lockForUpdate()->first();
+
+                        if (!$linkedCustomer && $customerByEmail && !$customerByEmail->user_id) {
+                            $customerByEmail->user_id = $user->id;
+                            $customerByEmail->save();
+                            $linkedCustomer = $customerByEmail;
+                        }
+
+                        if ($linkedCustomer && $linkedCustomer->status === 'blacklist' && $user->status !== 'banned') {
+                            $user->status = 'banned';
+                            $user->save();
+                        }
+                    }
 
                     return $user->refresh();
                 }
 
-                return User::create([
-                    // Google chỉ cung cấp email để tạo tài khoản.
-                    // Họ tên/CCCD/ngày sinh/giới tính/địa chỉ phải được khách quét CCCD và lưu trong hồ sơ.
-                    'name' => $email,
+                if ($customerByEmail && $customerByEmail->user_id) {
+                    throw new \RuntimeException('GOOGLE_ACCOUNT_CONFLICT');
+                }
+
+                $user = User::create([
+                    'name' => $customerByEmail?->full_name ?: $email,
                     'email' => $email,
                     'email_verified_at' => now(),
                     'google_id' => $googleId,
                     'role' => 'customer',
-                    'status' => 'active',
+                    'status' => $customerByEmail?->status === 'blacklist' ? 'banned' : 'active',
                     'password' => null,
                 ]);
+
+                // Google đã xác minh quyền sở hữu email. Nếu email này từng đặt
+                // phòng dưới dạng khách vãng lai thì liên kết lại hồ sơ cũ thay
+                // vì tạo một Customer trùng email rồi lỗi unique khi cập nhật hồ sơ.
+                if ($customerByEmail && !$customerByEmail->user_id) {
+                    $customerByEmail->user_id = $user->id;
+                    $customerByEmail->save();
+                }
+
+                return $user;
             });
 
             if (config('account_restrictions.enabled', false) && $user->booking_locked_until && now()->lt($user->booking_locked_until)) {
@@ -78,15 +107,22 @@ class GoogleAuthController extends Controller
                     ->with('locked_until', $until->toIso8601String());
             }
 
-            if ($user->status === 'inactive') {
-                return redirect()->route('login')->with('error', 'Tài khoản đang bị vô hiệu hóa.');
+            if (($user->status ?? 'active') !== 'active') {
+                return redirect()->route('login')->with('error', $user->status === 'banned'
+                    ? 'Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.'
+                    : 'Tài khoản đang bị vô hiệu hóa.');
             }
 
             Auth::login($user, true);
             request()->session()->regenerate();
 
             if ($user->role !== 'customer') {
-                return redirect()->route('admin.dashboard');
+                return match ($user->role) {
+                    'super_admin' => redirect()->route('admin.dashboard'),
+                    'manager', 'receptionist', 'receptionist_lead' => redirect()->route('admin.bookings.index'),
+                    'housekeeping', 'housekeeping_supervisor' => redirect()->route('admin.housekeeping.index'),
+                    default => redirect()->route('home'),
+                };
             }
 
             return redirect()->route('home')

@@ -27,7 +27,7 @@
     ];
 @endphp
 
-<details class="compact-panel mb-3" id="stayingGuestsPanel">
+<details class="compact-panel mb-3" id="stayingGuestsPanel" @if($errors->any()) open @endif>
     <summary>
         <span>Khai báo toàn bộ khách lưu trú</span>
         <span class="badge-clean {{ $declaredTotal >= $expectedTotal ? 'status-done' : 'status-warning' }}">
@@ -76,18 +76,20 @@
                 $childOver = max(0, $roomChildren - $childCapacity);
                 $isRoomOverCapacity = $adultOver > 0 || $childOver > 0;
             @endphp
-            <div class="border rounded mb-3 overflow-hidden {{ $isRoomOverCapacity ? 'border-danger' : '' }}">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 px-3 py-2 bg-light border-bottom">
-                    <div>
-                        <strong>Phòng {{ $bookingRoom->room?->room_number ?? '---' }}</strong>
-                        <span class="text-muted small">· {{ $roomCategory?->name ?? 'Chưa rõ hạng' }}</span>
-                    </div>
-                    <span class="badge {{ $isRoomOverCapacity ? 'text-bg-danger' : 'text-bg-light border' }}">
-                        {{ $roomGuests->count() }} khách · {{ $roomAdults }}/{{ $adultCapacity }} NL · {{ $roomChildren }}/{{ $childCapacity }} TE/EB
+            <details class="border rounded mb-3 overflow-hidden {{ $isRoomOverCapacity ? 'border-danger' : '' }}" @if($errors->any()) open @endif>
+                <summary class="px-3 py-2 bg-light" style="cursor:pointer">
+                    <span class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <span>
+                            <strong>Phòng {{ $bookingRoom->room?->room_number ?? '---' }}</strong>
+                            <span class="text-muted small">· {{ $roomCategory?->name ?? 'Chưa rõ hạng' }}</span>
+                        </span>
+                        <span class="badge {{ $isRoomOverCapacity ? 'text-bg-danger' : 'text-bg-light border' }}">
+                            {{ $roomGuests->count() }} khách · {{ $roomAdults }}/{{ $adultCapacity }} NL · {{ $roomChildren }}/{{ $childCapacity }} TE/EB
+                        </span>
                     </span>
-                </div>
+                </summary>
 
-                <div class="p-3">
+                <div class="p-3 border-top">
                     @if($isRoomOverCapacity)
                         <div class="alert alert-danger py-2 small mb-2">
                             <strong>Phòng đang vượt sức chứa:</strong>
@@ -97,6 +99,9 @@
                         </div>
                     @endif
                     @forelse ($roomGuests as $guest)
+                        @php
+                            $guestHasDocument = $guest->document_type !== 'none' && trim((string) $guest->document_number) !== '';
+                        @endphp
                         <details class="border rounded mb-2">
                             <summary class="px-3 py-2 d-flex justify-content-between align-items-center gap-2">
                                 <span>
@@ -106,7 +111,20 @@
                                         <span class="badge text-bg-primary ms-1">Đại diện đoàn</span>
                                     @endif
                                 </span>
-                                <span class="small text-muted">{{ $guest->display_document ?: ($documentTypeLabels[$guest->document_type] ?? 'Chưa có giấy tờ') }}</span>
+                                <span class="small text-muted text-end">
+                                    @if($guestHasDocument)
+                                        {{ $guest->display_document }}
+                                    @else
+                                        <span class="badge text-bg-warning">Chưa giấy tờ</span>
+                                        @if($guest->document_exception_acknowledged)
+                                            <span class="d-block mt-1 text-success">
+                                                Đã xác nhận rủi ro{{ $guest->document_exception_acknowledged_at ? ' · ' . $guest->document_exception_acknowledged_at->format('d/m H:i') : '' }}
+                                            </span>
+                                        @else
+                                            <span class="d-block mt-1 text-danger fw-semibold">Chưa có xác nhận rủi ro</span>
+                                        @endif
+                                    @endif
+                                </span>
                             </summary>
 
                             <div class="p-3 border-top">
@@ -133,11 +151,16 @@
                         <div class="text-muted small">Chưa khai khách nào cho phòng này.</div>
                     @endforelse
                 </div>
-            </div>
+            </details>
         @endforeach
 
         @if($canEditStayGuests)
-            <div class="border rounded p-3 bg-light" id="batchGuestEntry">
+            <details class="border rounded bg-light" id="batchGuestEntry" @if($errors->any()) open @endif>
+                <summary class="px-3 py-2 fw-semibold" style="cursor:pointer">
+                    Thêm khách lưu trú
+                    <span class="text-muted small ms-2">· Mở khi cần khai báo thêm</span>
+                </summary>
+                <div class="p-3 border-top">
                 <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-3">
                     <h6 class="fw-bold mb-1">Khai báo khách lưu trú</h6>
                     <div class="d-flex align-items-center gap-3 flex-wrap">
@@ -160,25 +183,187 @@
                     <div id="batchGuestRows">
                         @include('admin.pages.bookings.partials.staying-guest-batch-row', ['index' => 0])
                     </div>
-                    <button type="submit" class="btn btn-primary">Xác nhận thêm toàn bộ khách</button>
+                    <div class="d-flex gap-2 flex-wrap justify-content-between align-items-center mt-2">
+                        <button type="button" class="btn btn-outline-primary" id="addBatchGuestRowBottom">
+                            <i class="bx bx-user-plus me-1"></i> Thêm người khác
+                        </button>
+                        <button type="submit" class="btn btn-primary">Xác nhận thêm toàn bộ khách</button>
+                    </div>
                 </form>
                 <template id="batchGuestRowTemplate">
                     @include('admin.pages.bookings.partials.staying-guest-batch-row', ['index' => '__INDEX__'])
                 </template>
-            </div>
+                </div>
+            </details>
         @endif
     </div>
 </details>
 
+<div id="noDocumentRiskPanel" class="no-document-risk-backdrop d-none" role="dialog" aria-modal="true" aria-labelledby="noDocumentRiskTitle">
+    <div class="no-document-risk-card">
+        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+            <div>
+                <div class="text-uppercase small fw-bold text-warning mb-1">Cảnh báo lưu trú</div>
+                <h5 class="mb-1" id="noDocumentRiskTitle">Khách chưa xuất trình giấy tờ</h5>
+                <div class="text-muted small">Phải xác nhận trước khi đưa khách vào phòng.</div>
+            </div>
+            <button type="button" class="btn-close" data-no-document-cancel aria-label="Đóng"></button>
+        </div>
+
+        <div class="alert alert-warning py-2 small">
+            <strong>Các khách chưa có giấy tờ hợp lệ:</strong>
+            <ul class="mb-0 mt-1" id="noDocumentRiskGuestList"></ul>
+        </div>
+
+        <div class="border rounded p-3 bg-light small mb-3">
+            <strong>Nội dung phải thông báo cho khách:</strong>
+            <div class="mt-1">
+                Khách xác nhận thông tin đã khai là đúng, cam kết bổ sung giấy tờ khi được yêu cầu và chịu trách nhiệm
+                về thông tin/hậu quả phát sinh do chưa xuất trình giấy tờ. Khách sạn có quyền yêu cầu bổ sung giấy tờ,
+                từ chối tiếp nhận hoặc xử lý theo quy định lưu trú hiện hành.
+            </div>
+            <div class="mt-2 text-muted">
+                Xác nhận này là dấu vết vận hành, không thay thế nghĩa vụ tuân thủ pháp luật và khai báo lưu trú của khách sạn.
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label for="noDocumentRiskReason" class="form-label fw-semibold">Lý do chưa xuất trình giấy tờ <span class="text-danger">*</span></label>
+            <textarea id="noDocumentRiskReason" class="form-control" rows="2" maxlength="500"
+                placeholder="Ví dụ: để quên giấy tờ, thất lạc, chưa mang theo, trẻ nhỏ chưa có giấy tờ..."></textarea>
+        </div>
+
+        <div class="form-check border rounded p-3 ps-5 mb-3">
+            <input class="form-check-input" type="checkbox" id="noDocumentRiskConfirm">
+            <label class="form-check-label fw-semibold" for="noDocumentRiskConfirm">
+                Tôi xác nhận đã thông báo đầy đủ cho khách và khách đồng ý tiếp tục làm thủ tục trong tình trạng chưa xuất trình giấy tờ.
+            </label>
+        </div>
+
+        <div class="small text-danger d-none mb-2" id="noDocumentRiskError"></div>
+        <div class="d-flex justify-content-end gap-2">
+            <button type="button" class="btn btn-outline-secondary" data-no-document-cancel>Quay lại bổ sung giấy tờ</button>
+            <button type="button" class="btn btn-warning" id="noDocumentRiskAccept">Xác nhận và thêm vào phòng</button>
+        </div>
+    </div>
+</div>
 
 @once
+<style>
+.no-document-risk-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1095;
+    background: rgba(15, 23, 42, .58);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.no-document-risk-backdrop.d-none { display: none !important; }
+.no-document-risk-card {
+    width: min(680px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    background: #fff;
+    border-radius: 16px;
+    padding: 22px;
+    box-shadow: 0 24px 70px rgba(15, 23, 42, .28);
+}
+body.no-document-risk-open { overflow: hidden; }
+</style>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const storageKey = 'booking-staying-guests-scroll-{{ $booking->id }}';
     const panel = document.getElementById('stayingGuestsPanel');
+    const riskPanel = document.getElementById('noDocumentRiskPanel');
+    const riskGuestList = document.getElementById('noDocumentRiskGuestList');
+    const riskReason = document.getElementById('noDocumentRiskReason');
+    const riskConfirm = document.getElementById('noDocumentRiskConfirm');
+    const riskError = document.getElementById('noDocumentRiskError');
+    const riskAccept = document.getElementById('noDocumentRiskAccept');
+    let pendingRiskForm = null;
+    let pendingRiskRows = [];
+
+    const rowField = (row, suffix) => row?.querySelector(`[name="${suffix}"], [name$="[${suffix}]"]`);
+    const rowHasValidDocument = (row) => {
+        const type = rowField(row, 'document_type')?.value || 'none';
+        const number = rowField(row, 'document_number')?.value?.trim() || '';
+        return type !== 'none' && number !== '';
+    };
+    const formGuestRows = (form) => {
+        if (form?.id === 'batchStayingGuestsForm') return Array.from(form.querySelectorAll('.js-batch-guest-row'));
+        const row = form?.querySelector('[data-guest-form]');
+        return row ? [row] : [];
+    };
+    const rowsRequiringDocumentRisk = (form) => formGuestRows(form).filter((row) => {
+        const fullName = rowField(row, 'full_name')?.value?.trim() || '';
+        if (!fullName || rowHasValidDocument(row)) return false;
+        const acknowledged = row.querySelector('[data-no-document-ack]')?.value === '1';
+        const reason = row.querySelector('[data-no-document-reason]')?.value?.trim() || '';
+        return !acknowledged || !reason;
+    });
+    const closeRiskPanel = () => {
+        riskPanel?.classList.add('d-none');
+        document.body.classList.remove('no-document-risk-open');
+        pendingRiskForm = null;
+        pendingRiskRows = [];
+    };
+    const openRiskPanel = (form, noDocumentRows) => {
+        pendingRiskForm = form;
+        pendingRiskRows = noDocumentRows;
+        if (riskGuestList) {
+            riskGuestList.innerHTML = '';
+            noDocumentRows.forEach((row) => {
+                const name = rowField(row, 'full_name')?.value?.trim() || 'Khách chưa nhập tên';
+                const roomSelect = rowField(row, 'booking_room_id');
+                const roomLabel = roomSelect?.selectedOptions?.[0]?.textContent?.trim() || 'chưa chọn phòng';
+                const item = document.createElement('li');
+                item.textContent = `${name} · ${roomLabel}`;
+                riskGuestList.appendChild(item);
+            });
+        }
+        if (riskReason) riskReason.value = '';
+        if (riskConfirm) riskConfirm.checked = false;
+        riskError?.classList.add('d-none');
+        riskPanel?.classList.remove('d-none');
+        document.body.classList.add('no-document-risk-open');
+        riskReason?.focus();
+    };
+
+    document.querySelectorAll('[data-no-document-cancel]').forEach((button) => button.addEventListener('click', closeRiskPanel));
+    riskPanel?.addEventListener('click', (event) => { if (event.target === riskPanel) closeRiskPanel(); });
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !riskPanel?.classList.contains('d-none')) closeRiskPanel(); });
+    riskAccept?.addEventListener('click', () => {
+        const reason = riskReason?.value?.trim() || '';
+        if (!reason || !riskConfirm?.checked) {
+            if (riskError) {
+                riskError.textContent = !reason
+                    ? 'Vui lòng ghi lý do khách chưa xuất trình giấy tờ.'
+                    : 'Phải tích xác nhận đã thông báo và được khách đồng ý.';
+                riskError.classList.remove('d-none');
+            }
+            return;
+        }
+        pendingRiskRows.forEach((row) => {
+            const ack = row.querySelector('[data-no-document-ack]');
+            const reasonField = row.querySelector('[data-no-document-reason]');
+            if (ack) ack.value = '1';
+            if (reasonField) reasonField.value = reason;
+        });
+        const form = pendingRiskForm;
+        closeRiskPanel();
+        form?.requestSubmit();
+    });
 
     document.querySelectorAll('[data-staying-guest-submit]').forEach((form) => {
-        form.addEventListener('submit', () => {
+        form.addEventListener('submit', (event) => {
+            const riskRows = rowsRequiringDocumentRisk(form);
+            if (riskRows.length) {
+                event.preventDefault();
+                openRiskPanel(form, riskRows);
+                return;
+            }
             try {
                 sessionStorage.setItem(storageKey, JSON.stringify({
                     y: window.scrollY,
@@ -187,6 +372,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 }));
             } catch (error) {}
         });
+    });
+
+    document.addEventListener('input', (event) => {
+        if (!event.target.matches('.js-document-type, .js-document-number')) return;
+        const row = event.target.closest('.js-batch-guest-row, [data-guest-form]');
+        const ack = row?.querySelector('[data-no-document-ack]');
+        const reason = row?.querySelector('[data-no-document-reason]');
+        if (ack) ack.value = '0';
+        if (reason) reason.value = '';
+    });
+    document.addEventListener('change', (event) => {
+        if (!event.target.matches('.js-document-type, .js-document-number')) return;
+        const row = event.target.closest('.js-batch-guest-row, [data-guest-form]');
+        const ack = row?.querySelector('[data-no-document-ack]');
+        const reason = row?.querySelector('[data-no-document-reason]');
+        if (ack) ack.value = '0';
+        if (reason) reason.value = '';
     });
 
     try {
@@ -205,10 +407,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const rows = document.getElementById('batchGuestRows');
     const template = document.getElementById('batchGuestRowTemplate');
-    const addButton = document.getElementById('addBatchGuestRow');
+    const addButtons = [
+        document.getElementById('addBatchGuestRow'),
+        document.getElementById('addBatchGuestRowBottom')
+    ].filter(Boolean);
     const fillRepresentativeButton = document.getElementById('fillBookingRepresentativeGuest');
     const procedureGuestIsStaying = document.getElementById('procedureGuestIsStaying');
     let nextIndex = rows ? rows.querySelectorAll('.js-batch-guest-row').length : 1;
+    const serverToday = @json(now('Asia/Ho_Chi_Minh')->toDateString());
+
+    const expectedGuestTypeFromBirthday = (raw) => {
+        const match = String(raw || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        const todayMatch = String(serverToday).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match || !todayMatch) return null;
+        const [, y, m, d] = match.map(Number);
+        const [, ty, tm, td] = todayMatch.map(Number);
+        let age = ty - y;
+        if (tm < m || (tm === m && td < d)) age--;
+        if (age < 0 || age > 130) return null;
+        return { age, type: age <= 5 ? 'infant' : (age <= 17 ? 'child' : 'adult') };
+    };
+    const guestTypeLabel = (type) => ({ adult: 'Người lớn', child: 'Trẻ em', infant: 'Em bé' }[type] || type);
+    const syncBatchBirthday = (row) => {
+        if (!row) return;
+        const birthday = row.querySelector('.js-birthday-value');
+        const type = row.querySelector('.js-guest-type');
+        const message = row.querySelector('.js-age-message');
+        const expected = expectedGuestTypeFromBirthday(birthday?.value);
+        if (!expected) {
+            if (message) {
+                message.className = 'form-text js-age-message text-muted';
+                message.textContent = birthday?.value ? 'Ngày sinh không hợp lệ.' : 'Tự xác định theo ngày sinh.';
+            }
+            return;
+        }
+        if (type) type.value = expected.type;
+        if (message) {
+            message.className = 'form-text js-age-message text-success';
+            message.textContent = `${expected.age} tuổi · ${guestTypeLabel(expected.type)}.`;
+        }
+        syncBatchGuardians();
+    };
 
     const renumber = () => rows?.querySelectorAll('.js-batch-number').forEach((el, i) => el.textContent = String(i + 1));
     const syncBatchGuardians = () => {
@@ -250,10 +489,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const addedRow = rows.lastElementChild;
         const birthdayInput = addedRow?.querySelector('.js-birthday-value');
         if (birthdayInput && window.initializeProjectDatePicker) window.initializeProjectDatePicker(birthdayInput);
+        syncBatchBirthday(addedRow);
         syncBatchGuardians();
         return addedRow;
     };
-    addButton?.addEventListener('click', addRow);
+    addButtons.forEach((button) => button.addEventListener('click', () => {
+        const row = addRow();
+        row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
     rows?.addEventListener('click', (event) => {
         const remove = event.target.closest('.js-remove-batch-guest');
         if (!remove) return;
@@ -265,12 +508,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     rows?.addEventListener('change', (event) => {
         const changedRow = event.target.closest('.js-batch-guest-row');
-        if (event.target.matches('[name$="[guest_type]"]')) syncBatchGuardians();
+        if (event.target.matches('.js-birthday-value, .js-guest-type')) syncBatchBirthday(changedRow);
         if (!event.target.classList.contains('js-representative-checkbox') || !event.target.checked) return;
         rows.querySelectorAll('.js-representative-checkbox').forEach((box) => { if (box !== event.target) box.checked = false; });
     });
     rows?.addEventListener('input', (event) => {
+        const changedRow = event.target.closest('.js-batch-guest-row');
+        if (event.target.matches('.js-birthday-value')) syncBatchBirthday(changedRow);
         if (event.target.matches('[name$="[full_name]"]')) syncBatchGuardians();
+    });
+    rows?.addEventListener('project-date-change', (event) => {
+        if (event.target.matches('.js-birthday-value')) syncBatchBirthday(event.target.closest('.js-batch-guest-row'));
     });
     syncBatchGuardians();
     procedureGuestIsStaying?.addEventListener('change', () => {
@@ -299,6 +547,7 @@ document.addEventListener('DOMContentLoaded', () => {
         set('guest_type', 'adult', true);
         set('document_number', @json($booking->booked_customer_cccd));
         set('address', @json($booking->booked_customer_address));
+        syncBatchBirthday(row);
         const representative = row.querySelector('.js-representative-checkbox');
         if (representative) {
             representative.checked = true;
@@ -307,7 +556,10 @@ document.addEventListener('DOMContentLoaded', () => {
         syncBatchGuardians();
         row.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
-    rows?.querySelectorAll('.js-birthday-value').forEach((input) => window.initializeProjectDatePicker?.(input));
+    rows?.querySelectorAll('.js-birthday-value').forEach((input) => {
+        window.initializeProjectDatePicker?.(input);
+        syncBatchBirthday(input.closest('.js-batch-guest-row'));
+    });
 });
 </script>
 @endonce

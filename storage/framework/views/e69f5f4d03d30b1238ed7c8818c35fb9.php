@@ -17,6 +17,7 @@
 </head>
 
 <body>
+    <?php echo $__env->make('partials.flash-toasts', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
     
     <?php echo $__env->make('user.partials.header', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
 
@@ -33,6 +34,9 @@
 
     
     <?php echo $__env->make('user.partials.chat-box', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+
+    
+    <?php echo $__env->make('partials.camera-capture', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
 
     
     <?php echo app('Illuminate\Foundation\Vite')('resources/js/app.js'); ?>

@@ -110,7 +110,13 @@ return [
 
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', 'Example'),
+        'name' => (function (): string {
+            $name = trim((string) env('MAIL_FROM_NAME', ''));
+
+            return $name !== '' && !in_array(strtolower($name), ['laravel', 'booking web', 'example'], true)
+                ? $name
+                : config('app.name', 'MCuong Hotel');
+        })(),
     ],
 
 ];

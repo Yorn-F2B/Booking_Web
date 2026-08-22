@@ -1,4 +1,4 @@
-﻿@extends('layouts.admin')
+@extends('layouts.admin')
 
 @section('title', 'Danh sách đặt phòng')
 
@@ -450,7 +450,7 @@
             <div class="booking-page-head">
                 <div>
                     <h2>Danh sách đặt phòng</h2>
-                    <p>Đơn cần xử lý, khách đang lưu trú và đơn sắp đến/trả phòng được ưu tiên lên trên; đơn đã xong nằm cuối danh sách.</p>
+                    <p>Mặc định sắp theo thay đổi mới nhất để booking vừa tạo, vừa thanh toán hoặc vừa tự hủy luôn hiện ngay.</p>
                 </div>
 
                 <a href="{{ route('admin.bookings.create') }}" class="btn btn-gold">
@@ -459,19 +459,7 @@
                 </a>
             </div>
 
-            @if (session('success'))
-                <div class="alert alert-success">
-                    {{ session('success') }}
-                </div>
-            @endif
-
-            @if (session('error'))
-                <div class="alert alert-danger">
-                    {{ session('error') }}
-                </div>
-            @endif
-
-            @if ($errors->any())
+@if ($errors->any())
                 <div class="alert alert-danger">
                     <strong>Không thể lọc danh sách:</strong>
                     <ul class="mb-0 mt-2">
@@ -515,6 +503,15 @@
                             </select>
                         </div>
 
+                        <div class="col-xl-2 col-lg-2 col-md-3">
+                            <label class="form-label">Sắp xếp</label>
+                            <select name="sort" class="form-select">
+                                <option value="updated" @selected(request('sort', 'updated') === 'updated')>Mới cập nhật</option>
+                                <option value="created" @selected(request('sort') === 'created')>Mới tạo</option>
+                                <option value="operations" @selected(request('sort') === 'operations')>Ưu tiên vận hành</option>
+                            </select>
+                        </div>
+
                         {{-- Khoảng ngày lưu trú --}}
                         <div class="col-xl-2 col-lg-5 col-md-6">
                             <div class="d-flex align-items-end gap-1">
@@ -554,7 +551,7 @@
 
                         <div class="col-12 d-flex justify-content-between align-items-center gap-2 flex-wrap mt-3">
                             <div class="booking-muted-line">
-                                @if (request()->hasAny(['keyword', 'status', 'payment_status', 'date_from', 'date_to', 'time_from', 'time_to', 'filter_date']))
+                                @if (request()->hasAny(['keyword', 'status', 'payment_status', 'sort', 'date_from', 'date_to', 'time_from', 'time_to', 'filter_date']))
                                     Đang lọc danh sách. Bấm "Xem tất cả" để reset.
                                 @else
                                     Có thể tìm theo mã booking, tên khách hoặc số điện thoại.
@@ -729,6 +726,12 @@
                                         $priority = ['class' => 'is-active', 'icon' => 'bx-hotel', 'text' => 'Khách đang lưu trú'];
                                     } elseif (in_array($booking->status, ['pending', 'confirmed'], true)) {
                                         $priority = ['class' => '', 'icon' => 'bx-time-five', 'text' => 'Chưa nhận phòng'];
+                                    } elseif (in_array($booking->status, ['cancelled', 'canceled'], true) && !empty($booking->auto_cancelled_by_payment_expiry)) {
+                                        $priority = [
+                                            'class' => 'is-urgent',
+                                            'icon' => 'bx-timer',
+                                            'text' => 'Tự hủy: hết hạn thanh toán',
+                                        ];
                                     } elseif (in_array($booking->status, ['checked_out', 'completed', 'cancelled', 'canceled'], true)) {
                                         $priority = ['class' => 'is-done', 'icon' => 'bx-check-double', 'text' => 'Đã xử lý xong'];
                                     }

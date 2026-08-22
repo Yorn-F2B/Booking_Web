@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Events\AppRealtimeUpdated;
 use App\Events\BookingRealtimeUpdated;
 use App\Events\ChatMessageRealtimeSent;
 use App\Events\InspectionRealtimeUpdated;
@@ -16,6 +17,9 @@ use Throwable;
 
 class Realtime
 {
+    /** @var array<string, true> */
+    private static array $broadcastedThisRequest = [];
+
     public static function booking(Booking|int|null $booking, string $action = 'updated', bool $broadcastRooms = true): void
     {
         if (!$booking) {
@@ -44,6 +48,10 @@ class Realtime
             'roomInspections.items',
         ]);
 
+        self::safeDispatch(new AppRealtimeUpdated('booking', $action, null), 'booking_signal', [
+            'booking_id' => $booking->id,
+            'action' => $action,
+        ]);
         self::safeDispatch(new BookingRealtimeUpdated($booking, $action), 'booking', [
             'booking_id' => $booking->id,
             'action' => $action,
@@ -84,6 +92,10 @@ class Realtime
 
         self::safeLoad($room, ['category', 'roomCategory']);
 
+        self::safeDispatch(new AppRealtimeUpdated('room', $action, null), 'room_signal', [
+            'room_id' => $room->id,
+            'action' => $action,
+        ]);
         self::safeDispatch(new RoomRealtimeUpdated($room, $action), 'room', [
             'room_id' => $room->id,
             'action' => $action,
@@ -116,6 +128,10 @@ class Realtime
             return;
         }
 
+        if (!self::claimOnce('inspection', $inspection->id)) {
+            return;
+        }
+
         try {
             $inspection->refresh();
         } catch (Throwable) {
@@ -131,17 +147,20 @@ class Realtime
             'items',
         ]);
 
+        self::safeDispatch(new AppRealtimeUpdated('room_inspection', $action, null), 'inspection_signal', [
+            'inspection_id' => $inspection->id,
+            'action' => $action,
+        ]);
         self::safeDispatch(new InspectionRealtimeUpdated($inspection, $action), 'inspection', [
             'inspection_id' => $inspection->id,
             'action' => $action,
         ]);
 
+        // Booking detail của lễ tân/khách cần biết phiếu kiểm phòng vừa đổi.
+        // Room model không thay đổi trong các bước đối chiếu/recheck nên không broadcast
+        // room lặp lại ở đây; RoomObserver sẽ tự phát khi trạng thái phòng thật sự đổi.
         if ($inspection->relationLoaded('booking') && $inspection->booking) {
             self::booking($inspection->booking, $action, false);
-        }
-
-        if ($inspection->relationLoaded('room') && $inspection->room) {
-            self::room($inspection->room, $action);
         }
     }
 
@@ -171,10 +190,27 @@ class Realtime
             'sender',
         ]);
 
-        self::safeDispatch(new ChatMessageRealtimeSent($message, $action), 'chat', [
+        self::safeDispatch(new ChatMessageRealtimeSent($message), 'chat', [
             'message_id' => $message->id,
             'action' => $action,
         ]);
+    }
+
+    private static function claimOnce(string $resource, int|string|null $id): bool
+    {
+        if ($id === null || $id === '') {
+            return true;
+        }
+
+        $key = $resource . ':' . (string) $id;
+
+        if (isset(self::$broadcastedThisRequest[$key])) {
+            return false;
+        }
+
+        self::$broadcastedThisRequest[$key] = true;
+
+        return true;
     }
 
     private static function safeDispatch(object $event, string $channel, array $context = []): void

@@ -1,5 +1,5 @@
     @php
-        $isReceptionDesk = false; // Admin và lễ tân dùng chung một giao diện booking.
+        $isReceptionDesk = in_array(auth()->user()?->role, ['receptionist', 'receptionist_lead'], true);
 
         $bookingStatusLabels = [
             'pending' => 'Chờ xác nhận',
@@ -48,6 +48,34 @@
 
         $bookingStatusClass = $bookingStatusClasses[$booking->status] ?? 'status-muted';
         $paymentStatusClass = $paymentStatusClasses[$booking->payment_status] ?? 'status-muted';
+
+        $hotelPolicy = app(\App\Services\HotelPolicyService::class);
+        $bookingPolicy = fn (string $key, mixed $fallback = null) => $hotelPolicy->forBooking($booking, $key, $fallback);
+        $policyTime = fn (string $key, string $fallback) => substr((string) $bookingPolicy($key, $fallback), 0, 5);
+        $formatPercent = fn ($value) => rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
+
+        $standardCheckInTimePolicy = $policyTime('stay.standard_check_in_time', '14:00');
+        $standardCheckOutTimePolicy = $policyTime('stay.standard_check_out_time', '12:00');
+        $priorityCleaningTimePolicy = $policyTime('stay.priority_cleaning_start_time', '12:00');
+        $earlyTier1TimePolicy = $policyTime('stay.early_checkin_tier1_end', '06:00');
+        $earlyTier2TimePolicy = $policyTime('stay.early_checkin_tier2_end', '09:00');
+        $earlyFreeFromTimePolicy = $policyTime('stay.early_checkin_free_from', '12:00');
+        $directCancelCutoffTimePolicy = $policyTime('booking.direct_cancel_cutoff_time', '14:00');
+        $lateArrivalCutoffTimePolicy = $policyTime('stay.late_arrival_cutoff_time', '18:00');
+        $lateArrivalTier1EndPolicy = $policyTime('stay.late_arrival_tier1_end', '21:00');
+        $lateArrivalPercent1Policy = (float) $bookingPolicy('stay.late_arrival_percent_1', 20);
+        $lateArrivalPercent2Policy = (float) $bookingPolicy('stay.late_arrival_percent_2', 50);
+        $lateArrivalNextDayPercentPolicy = (float) $bookingPolicy('stay.late_arrival_percent_next_day', 100);
+        $lateArrivalGraceMinutesPolicy = max(0, (int) $bookingPolicy('stay.late_arrival_grace_minutes', 30));
+        $shortStayOvernightHoursPolicy = max(1, (int) $bookingPolicy('stay.short_stay_to_overnight_hours', 12));
+        $depositPercentPolicy = (float) $bookingPolicy('payment.deposit_percent', 30);
+        $depositPercentLabel = $formatPercent($depositPercentPolicy) . '%';
+
+        $setPolicyTime = function (\Carbon\Carbon $date, string $time): \Carbon\Carbon {
+            [$hour, $minute] = array_map('intval', explode(':', $time));
+            return $date->copy()->setTime($hour, $minute, 0);
+        };
+
         $customerName = $booking->booked_customer_name !== ''
             ? $booking->booked_customer_name
             : 'Chưa có tên';
@@ -61,13 +89,10 @@
             ? \Carbon\Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')
             : null;
         $priorityCleaningStartAt = $bookingCheckInAtForFlow
-            ? $bookingCheckInAtForFlow->copy()->setTime(12, 0, 0)
-            : null;
-        $earlyCheckInStartAt = $bookingCheckInAtForFlow
-            ? $bookingCheckInAtForFlow->copy()->setTime(13, 0, 0)
+            ? $setPolicyTime($bookingCheckInAtForFlow, $priorityCleaningTimePolicy)
             : null;
         $standardCheckInAt = $bookingCheckInAtForFlow
-            ? $bookingCheckInAtForFlow->copy()->setTime(14, 0, 0)
+            ? $setPolicyTime($bookingCheckInAtForFlow, $standardCheckInTimePolicy)
             : null;
         $roomsNeedPreparation = $assignedRooms->filter(function ($room) {
             return in_array($room->status ?? null, ['inspection', 'cleaning']);
@@ -115,7 +140,7 @@
             : $nowVnForCheckInFlow->copy()->addDay()->toDateString();
         $stayDateChangeCheckOutTimeDefault = $booking->check_out_at
             ? \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')->format('H:i')
-            : '12:00';
+            : $standardCheckOutTimePolicy;
 
         $stayDateCategoryOptions = session('stay_date_category_options');
         $stayDateRepricePreview = session('stay_date_reprice_preview');
@@ -163,24 +188,11 @@
                     * max(1, (int) $booking->room_quantity);
             }
 
-            $earlyCheckInMinutesOfDay = ((int) $nowVnForCheckInFlow->format('H')) * 60
-                + ((int) $nowVnForCheckInFlow->format('i'));
-
-            if ($earlyCheckInMinutesOfDay < 360) {
-                $earlyCheckInPercent = 100;
-                $earlyCheckInPolicyText = 'Nhận phòng sớm cùng ngày trước 06:00: phụ thu 100% giá một đêm.';
-            } elseif ($earlyCheckInMinutesOfDay < 540) {
-                $earlyCheckInPercent = 50;
-                $earlyCheckInPolicyText = 'Nhận phòng sớm cùng ngày từ 06:00 đến trước 09:00: phụ thu 50% giá một đêm.';
-            } elseif ($earlyCheckInMinutesOfDay < 720) {
-                $earlyCheckInPercent = 20;
-                $earlyCheckInPolicyText = 'Nhận phòng sớm cùng ngày từ 09:00 đến trước 12:00: phụ thu 20% giá một đêm.';
-            } else {
-                $earlyCheckInPercent = 0;
-                $earlyCheckInPolicyText = 'Nhận phòng sớm cùng ngày từ 12:00 đến trước 14:00: miễn phí nếu phòng đã sẵn sàng.';
-            }
-
-            $earlyCheckInFeePreview = round(($earlyCheckInBasePrice * $earlyCheckInPercent) / 100, 0);
+            $earlyPolicyPreview = app(\App\Services\StayPricingPolicyService::class)
+                ->earlyCheckIn($nowVnForCheckInFlow, $earlyCheckInBasePrice, $booking);
+            $earlyCheckInPercent = (float) ($earlyPolicyPreview['percent'] ?? 0);
+            $earlyCheckInPolicyText = (string) ($earlyPolicyPreview['policy_text'] ?? '');
+            $earlyCheckInFeePreview = (float) ($earlyPolicyPreview['amount'] ?? 0);
             $earlyCheckInFinalTotalPreview = (float) $booking->estimated_total + $earlyCheckInFeePreview;
         }
 
@@ -206,7 +218,7 @@
         $hourlyCleaningUntil = null;
         if ($booking->booking_type == 'hourly' && $booking->check_out_at) {
             $hourlyCleaningUntil = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')
-                ->addMinutes($booking->cleaning_buffer_minutes ?? 60);
+                ->addMinutes($booking->cleaning_buffer_minutes ?? (int) $bookingPolicy('booking.cleaning_buffer_minutes', 0));
         }
 
         $existingCheckoutLateFeeTotal = $booking->serviceItems
@@ -251,23 +263,25 @@
                     $nightPriceForCheckout = (float) ($booking->roomCategory->price ?? 0);
                     $quantityForCheckout = max(1, (int) $booking->room_quantity);
 
-                    $newPricingForCheckout = $totalMinutesForCheckout > 12 * 60
+                    $newPricingForCheckout = $totalMinutesForCheckout > $shortStayOvernightHoursPolicy * 60
                         ? $pricingPolicyForCheckout->longStay(
                             $checkInAtForCheckout,
                             $nowVnForCheckout,
                             $nightPriceForCheckout,
-                            $quantityForCheckout
+                            $quantityForCheckout,
+                            $booking
                         )
                         : $pricingPolicyForCheckout->shortStay(
                             $nightPriceForCheckout,
                             $quantityForCheckout,
-                            $totalMinutesForCheckout
+                            $totalMinutesForCheckout,
+                            $booking
                         );
 
                     $newRoomTotalForCheckout = (float) ($newPricingForCheckout['total_amount'] ?? $newPricingForCheckout['amount'] ?? 0);
                     $checkoutLateBasePrice = max(0, (float) $roomTotal);
                     $checkoutLateFeePreview = max(0, round($newRoomTotalForCheckout - $checkoutLateBasePrice, 0));
-                    $checkoutLatePolicyText = $totalMinutesForCheckout > 12 * 60
+                    $checkoutLatePolicyText = $totalMinutesForCheckout > $shortStayOvernightHoursPolicy * 60
                         ? 'Áp dụng chính sách qua đêm, chỉ thu phần chênh lệch.'
                         : 'Booking theo giờ được tính lại theo tổng thời gian ở thực tế và chỉ thu phần chênh lệch.';
                     $checkoutLateFormulaText = number_format($newRoomTotalForCheckout, 0, ',', '.')
@@ -292,7 +306,8 @@
                     );
                     $checkoutDayPolicy = $pricingPolicyForCheckout->lateCheckOut(
                         $nowVnForCheckout,
-                        $checkoutLateBasePrice
+                        $checkoutLateBasePrice,
+                        $booking
                     );
                     $checkoutLatePercent = (float) $checkoutDayPolicy['percent'];
                     $checkoutLateFeePreview = round(
@@ -349,7 +364,7 @@
         $finalTotal = max(0, $roomTotal + $serviceItemTotal + $approvedInspectionTotal + $checkoutLateFeePreview - $promotionDiscountTotal);
 
         // Lịch sử chuyển tiền giữ nguyên; chỉ phân bổ lại theo tổng booking và
-        // mức cọc 30% hiện hành sau khi đổi ngày/hạng.
+        // mức cọc theo policy snapshot của booking sau khi đổi ngày/hạng.
         $successfulPayments = $booking->payments
             ->where('status', 'success')
             ->sortBy(function ($payment) {
@@ -502,8 +517,8 @@
             && $lateShowNoShowLimitAt
             && $lateShowNowVn->greaterThanOrEqualTo($lateShowNoShowLimitAt);
         $lateFlowDate = $lateShowCheckInAt?->copy()->startOfDay();
-        $noShowStartAt = $lateFlowDate?->copy()->setTime(14, 0, 0);
-        $noShowEndAt = $lateFlowDate?->copy()->setTime(18, 0, 0);
+        $noShowStartAt = $lateFlowDate ? $setPolicyTime($lateFlowDate, $directCancelCutoffTimePolicy) : null;
+        $noShowEndAt = $lateFlowDate ? $setPolicyTime($lateFlowDate, $lateArrivalCutoffTimePolicy) : null;
         $canNoShowNow = $usesLateArrivalNoShowPolicy
             && $booking->status == 'confirmed'
             && !$booking->actual_check_in
@@ -1234,6 +1249,11 @@
         .reception-compact .secondary-booking-card { display:none; }
         .reception-compact.show-secondary .secondary-booking-card { display:block; }
         .reception-compact .customer-request-card { border-left-width:4px !important; }
+        .reception-compact .booking-shell { grid-template-columns:minmax(0,1fr) 310px; align-items:start; }
+        .reception-compact .operation-row .text-muted.small { line-height:1.35; }
+        .reception-compact .side-stack { align-self:start; }
+        .reception-compact:not(.show-secondary) .side-stack .secondary-booking-card { display:none; }
+        .reception-compact .primary-operation-card { border-top:3px solid #2563eb; }
         .compact-toggle-bar { position:sticky; top:72px; z-index:20; display:flex; justify-content:flex-end; margin-bottom:12px; pointer-events:none; }
         .compact-toggle-bar button { pointer-events:auto; box-shadow:0 8px 24px rgba(15,23,42,.12); }
         @media(max-width:991px){ .reception-flow-steps{grid-template-columns:repeat(2,minmax(0,1fr));}.reception-request-hub{grid-template-columns:1fr;} }
@@ -1261,16 +1281,10 @@
                 </div>
             </div>
 
-            @if (session('success'))
-                <div class="alert alert-success">{{ session('success') }}</div>
-            @endif
-
-            @if (session('error'))
-                <div class="alert alert-danger">{{ session('error') }}</div>
-            @endif
-
-            @if ($errors->any())
-                @php($uniqueFormErrors = collect($errors->all())->filter()->unique()->values())
+@if ($errors->any())
+                @php
+                    $uniqueFormErrors = collect($errors->all())->filter()->unique()->values();
+                @endphp
                 <div class="alert alert-danger">
                     <strong>Vui lòng kiểm tra lại:</strong>
                     <ul class="mb-0 mt-2">
@@ -1442,12 +1456,12 @@
                             <div class="modal-body p-4">
                                 <div class="row g-3 mb-3">
                                     <div class="col-md-4"><div class="soft-note h-100"><span class="small text-muted d-block">Trạng thái</span><strong>{{ $issueStatusLabels[$issueDisplayStatus] ?? $issueDisplayStatus }}</strong></div></div>
-                                    <div class="col-md-4"><div class="soft-note h-100"><span class="small text-muted d-block">Phương án</span><strong>{{ $issueResolutionLabels[$latestRoomIssueRequest->resolution_type] ?? 'Chưa duyệt' }}</strong></div></div>
+                                    <div class="col-md-4"><div class="soft-note h-100"><span class="small text-muted d-block">Phương án</span><strong>{{ $issueResolutionLabels[$latestRoomIssueRequest->resolution_type] ?? 'Chưa có phương án' }}</strong></div></div>
                                     <div class="col-md-4"><div class="soft-note h-100"><span class="small text-muted d-block">Phòng mới</span><strong>{{ $latestRoomIssueRequest->approvedRoom?->room_number ?? 'Không có' }}</strong></div></div>
                                 </div>
                                 <div class="soft-note mb-3"><span class="small text-muted d-block mb-1">Khách báo</span><strong>{{ $latestRoomIssueRequest->issue_description }}</strong></div>
                                 @if($latestRoomIssueRequest->admin_note)
-                                    <div class="soft-note mb-3"><span class="small text-muted d-block mb-1">Phản hồi của quản lý</span>{{ $latestRoomIssueRequest->admin_note }}</div>
+                                    <div class="soft-note mb-3"><span class="small text-muted d-block mb-1">Phản hồi xử lý sự cố</span>{{ $latestRoomIssueRequest->admin_note }}</div>
                                 @endif
                                 @if($issueRepairCompleted)
                                     <div class="alert alert-success mb-0"><strong>Đã sửa xong</strong>@if($latestRoomIssueRequest->repair_completed_at) · {{ $latestRoomIssueRequest->repair_completed_at->timezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') }}@endif @if($latestRoomIssueRequest->repair_note)<div class="mt-1">{{ $latestRoomIssueRequest->repair_note }}</div>@endif</div>
@@ -1457,7 +1471,7 @@
                             </div>
                             <div class="modal-footer border-0 pt-0 px-4 pb-4">
                                 @if (in_array(auth()->user()->role ?? null, ['super_admin', 'manager'], true))
-                                    <a href="{{ route('admin.room-issues.show', $latestRoomIssueRequest) }}" class="btn btn-outline-secondary">Mở trang quản lý duyệt</a>
+                                    <a href="{{ route('admin.room-issues.show', $latestRoomIssueRequest) }}" class="btn btn-outline-secondary">Mở trang xử lý sự cố</a>
                                 @endif
                                 <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Đóng</button>
                             </div>
@@ -1524,7 +1538,13 @@
                         <div class="modal-header">
                             <div>
                                 <h5 class="modal-title fw-bold">Điều chỉnh phòng</h5>
-                                <div class="small text-muted">Thêm phòng, đổi một phòng hoặc đổi hạng toàn bộ booking.</div>
+                                <div class="small text-muted">
+                                    @if ($booking->bookingRooms->count() <= 1)
+                                        Thêm phòng, đổi phòng hoặc đổi hạng phòng hiện tại.
+                                    @else
+                                        Thêm phòng, đổi một phòng hoặc đổi hạng nhiều phòng/toàn bộ booking.
+                                    @endif
+                                </div>
                             </div>
                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                         </div>
@@ -1546,22 +1566,34 @@
                             <div class="list-group list-group-flush">
                                 <div class="list-group-item px-0">
                                     <strong>Đến sau giờ G</strong>
-                                    <div class="small text-muted mb-2">Khách online gửi trên website; khách không đăng nhập nhận biểu mẫu qua email. Quản lý duyệt cuối.</div>
                                     @php
-                                        $hasPendingLateArrivalRequest = $booking->customerRequests()
-                                            ->where('type', 'late_arrival')
-                                            ->where('status', 'pending')
-                                            ->exists();
+                                        $canOfferLateArrivalRequest = in_array($booking->status, ['pending', 'confirmed'], true)
+                                            && empty($booking->actual_check_in);
+                                        $hasPendingLateArrivalRequest = $canOfferLateArrivalRequest
+                                            ? $booking->customerRequests()
+                                                ->where('type', 'late_arrival')
+                                                ->where('status', 'pending')
+                                                ->exists()
+                                            : false;
                                     @endphp
-                                    @if (filled($booking->booked_customer_email))
-                                        <form method="POST" action="{{ route('admin.bookings.send-customer-request-form', $booking) }}" class="d-flex gap-2 flex-wrap">
-                                            @csrf
-                                            <input type="hidden" name="type" value="late_arrival">
-                                            <input type="email" name="email" class="form-control" value="{{ $booking->booked_customer_email }}" style="max-width:360px" required @disabled($hasPendingLateArrivalRequest)>
-                                            <button class="btn btn-outline-warning" type="submit" @disabled($hasPendingLateArrivalRequest)>Gửi form đến muộn</button>
-                                        </form>
-                                        @if($hasPendingLateArrivalRequest)
-                                            <div class="small text-warning mt-2">Khách đã gửi yêu cầu và đang chờ xử lý. Xử lý xong mới được gửi form mới.</div>
+                                    @if (!$canOfferLateArrivalRequest)
+                                        <div class="small text-success mt-1">
+                                            <i class="bx bx-check-circle me-1"></i>Khách đã đến/đã nhận phòng nên không còn áp dụng biểu mẫu đến muộn.
+                                        </div>
+                                    @else
+                                        <div class="small text-muted mb-2">Khách online gửi trên website; khách không đăng nhập nhận biểu mẫu qua email. Quản lý duyệt cuối.</div>
+                                        @if (filled($booking->booked_customer_email))
+                                            <form method="POST" action="{{ route('admin.bookings.send-customer-request-form', $booking) }}" class="d-flex gap-2 flex-wrap">
+                                                @csrf
+                                                <input type="hidden" name="type" value="late_arrival">
+                                                <input type="email" name="email" class="form-control" value="{{ $booking->booked_customer_email }}" style="max-width:360px" required @disabled($hasPendingLateArrivalRequest)>
+                                                <button class="btn btn-outline-warning" type="submit" @disabled($hasPendingLateArrivalRequest)>Gửi form đến muộn</button>
+                                            </form>
+                                            @if($hasPendingLateArrivalRequest)
+                                                <div class="small text-warning mt-2">Khách đã gửi yêu cầu và đang chờ xử lý. Xử lý xong mới được gửi form mới.</div>
+                                            @endif
+                                        @else
+                                            <div class="small text-muted">Booking chưa có email để gửi biểu mẫu.</div>
                                         @endif
                                     @endif
                                 </div>
@@ -1634,7 +1666,7 @@
                     <section class="card-clean primary-operation-card">
                         <div class="card-title-clean">
                             <div>
-                                <h5>Thao tác chính</h5>
+                                <h5>{{ $isReceptionDesk ? 'Việc cần làm' : 'Thao tác chính' }}</h5>
                             </div>
                             <span class="badge-clean {{ $bookingStatusClass }}">
                                 {{ $bookingStatusLabels[$booking->status] ?? $booking->status }}
@@ -1667,7 +1699,7 @@
                                             @method('PATCH')
 
                                             <div class="soft-note">
-                                                <div class="fw-bold mb-1">Khách đến sớm trong khung 12:00–14:00</div>
+                                                <div class="fw-bold mb-1">Khách đến sớm trong khung {{ $earlyFreeFromTimePolicy }}–{{ $standardCheckInTimePolicy }}</div>
                                                 {{ $priorityCleaningRoomText }}. Có thể gửi yêu cầu ưu tiên dọn nhanh để khách được
                                                 nhận phòng sớm khi phòng sẵn sàng.
                                                 <button type="submit" class="btn btn-outline-warning btn-sm w-100 mt-2">
@@ -2108,9 +2140,9 @@
                                             })
                                             ->values();
 
-                                        $initialActualAdults = (int) old('actual_adult_count', $booking->adult_count);
-                                        $initialActualChildren = (int) old('actual_child_count', $booking->child_count);
-                                        $initialActualBabies = (int) old('actual_baby_count', 0);
+                                        $initialActualAdults = (int) $booking->guests->where('guest_type', 'adult')->count();
+                                        $initialActualChildren = (int) $booking->guests->where('guest_type', 'child')->count();
+                                        $initialActualBabies = (int) $booking->guests->where('guest_type', 'infant')->count();
                                         $initialAggregateOverCapacity = $initialActualAdults > $currentAdultCapacity
                                             || ($initialActualChildren + $initialActualBabies) > $currentChildCapacity;
                                         $initialAnyOverCapacity = $initialAggregateOverCapacity || $perRoomOverCapacityForCheckIn;
@@ -2160,9 +2192,8 @@
                                         <div class="border rounded p-3 mb-3 bg-light">
                                             <div class="fw-semibold mb-2">Thông tin người làm thủ tục nhận phòng</div>
                                             <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-                                                <button type="button" id="checkInCccdImageButton" class="btn btn-outline-primary btn-sm"
-                                                    onclick="document.getElementById('checkInCccdImage').click()">
-                                                    <i class="bx bx-image-add me-1"></i> Đọc từ ảnh CCCD
+                                                <button type="button" id="checkInCccdImageButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('checkInCccdImage').click()">
+                                                    <i class="bx bx-image-add me-1"></i> Quét CCCD từ ảnh
                                                 </button>
                                             </div>
                                             <input type="file" name="cccd_image" id="checkInCccdImage" class="d-none js-cccd-image"
@@ -2214,25 +2245,28 @@
                                         </div>
 
                                         <div class="row g-2 mb-3">
+                                            <div class="col-12">
+                                                <div class="soft-note mb-0">
+                                                    <strong>Số khách thực tế được lấy tự động từ danh sách khách lưu trú bên dưới.</strong>
+                                                    Thêm, sửa hoặc xóa khách xong trang sẽ tự cập nhật; lễ tân không cần nhập lại số lượng.
+                                                </div>
+                                            </div>
                                             <div class="col-md-4">
-                                                <label class="form-label small">Người lớn thực tế</label>
+                                                <label class="form-label small">Người lớn đã khai</label>
                                                 <input type="number" name="actual_adult_count" id="actualAdultCount"
-                                                    class="form-control"
-                                                    value="{{ old('actual_adult_count', $booking->adult_count) }}" min="1"
-                                                    required>
+                                                    class="form-control bg-light" value="{{ $checkInDeclaredAdults }}" readonly>
                                             </div>
 
                                             <div class="col-md-4">
-                                                <label class="form-label small">Trẻ em thực tế</label>
+                                                <label class="form-label small">Trẻ em đã khai</label>
                                                 <input type="number" name="actual_child_count" id="actualChildCount"
-                                                    class="form-control"
-                                                    value="{{ old('actual_child_count', $booking->child_count) }}" min="0">
+                                                    class="form-control bg-light" value="{{ $checkInDeclaredChildren }}" readonly>
                                             </div>
 
                                             <div class="col-md-4">
-                                                <label class="form-label small">Em bé phát sinh</label>
+                                                <label class="form-label small">Em bé đã khai</label>
                                                 <input type="number" name="actual_baby_count" id="actualBabyCount"
-                                                    class="form-control" value="{{ old('actual_baby_count', 0) }}" min="0">
+                                                    class="form-control bg-light" value="{{ $checkInDeclaredInfants }}" readonly>
                                             </div>
                                         </div>
 
@@ -2500,7 +2534,7 @@
                                             <div class="small text-muted mb-3">
                                                 @if ($isRescheduledAfterCutoff)
                                                     Hạn check-in sau khi đổi lịch: <strong>{{ $lateShowNoShowLimitAt?->format('H:i d/m/Y') }}</strong>.
-                                                    Đơn này được chuyển từ ngày tương lai về hôm nay nên không bị coi là đến muộn tại mốc 18:00 cũ.
+                                                    Đơn này được chuyển từ ngày tương lai về hôm nay nên không bị coi là đến muộn tại mốc giờ G cũ.
                                                 @else
                                                     Giờ G: <strong>{{ $lateShowNoShowLimitAt?->format('H:i d/m/Y') }}</strong>.
                                                 @endif
@@ -2520,7 +2554,12 @@
                                                     <form action="{{ route('admin.bookings.confirm-late-arrival', $booking->id) }}" method="POST"
                                                         class="flex-fill border rounded-3 p-3 bg-white" id="lateArrivalForm"
                                                         data-one-night-total="{{ $lateArrivalOneNightTotal }}"
-                                                        data-cutoff-at="{{ $lateShowCheckInAt?->copy()->setTime(18, 0)->format('Y-m-d H:i') }}"
+                                                        data-cutoff-at="{{ $lateShowCheckInAt ? $setPolicyTime($lateShowCheckInAt, $lateArrivalCutoffTimePolicy)->format('Y-m-d H:i') : '' }}"
+                                                        data-tier1-end="{{ $lateArrivalTier1EndPolicy }}"
+                                                        data-percent-1="{{ $lateArrivalPercent1Policy }}"
+                                                        data-percent-2="{{ $lateArrivalPercent2Policy }}"
+                                                        data-percent-next-day="{{ $lateArrivalNextDayPercentPolicy }}"
+                                                        data-grace-minutes="{{ $lateArrivalGraceMinutesPolicy }}"
                                                         data-check-out-at="{{ $lateShowCheckOutAt?->format('Y-m-d H:i') }}">
                                                         @csrf
                                                         @method('PATCH')
@@ -2536,7 +2575,7 @@
                                                             <div class="col-md-5">
                                                                 <label class="form-label small text-muted mb-1">Giờ dự kiến đến</label>
                                                                 <input type="text" name="expected_arrival_time" id="expectedArrivalTime" class="form-control" required
-                                                                    value="{{ old('expected_arrival_time', '18:30') }}"
+                                                                    value="{{ old('expected_arrival_time', \Carbon\Carbon::createFromFormat('H:i', $lateArrivalCutoffTimePolicy)->addMinutes($lateArrivalGraceMinutesPolicy)->format('H:i')) }}"
                                                                     placeholder="Ví dụ: 18:30" inputmode="numeric" autocomplete="off">
                                                             </div>
                                                         </div>
@@ -2575,7 +2614,7 @@
                                                             <div class="modal-body">
                                                                 <div class="alert alert-warning small mb-3">
                                                                     <div class="fw-bold mb-1">Lý do phát sinh</div>
-                                                                    Khách dự kiến đến sau giờ G 18:00 và yêu cầu khách sạn tiếp tục giữ phòng.
+                                                                    Khách dự kiến đến sau giờ G {{ $lateArrivalCutoffTimePolicy }} và yêu cầu khách sạn tiếp tục giữ phòng.
                                                                 </div>
                                                                 <div class="info-list">
                                                                     <div class="info-line">
@@ -2644,7 +2683,7 @@
                                         );
                                         $previewTimeValue = old(
                                             'new_check_out_time',
-                                            $extendPreview['new_check_out_time'] ?? ($lateShowCheckOutAt ? $lateShowCheckOutAt->format('H:i') : '12:00')
+                                            $extendPreview['new_check_out_time'] ?? ($lateShowCheckOutAt ? $lateShowCheckOutAt->format('H:i') : $standardCheckOutTimePolicy)
                                         );
                                     @endphp
 
@@ -2676,7 +2715,7 @@
                                                 <label class="form-label">Giờ trả phòng mới</label>
                                                 <input type="text" name="new_check_out_time" id="extendCheckOutTime"
                                                     class="form-control" value="{{ $previewTimeValue }}"
-                                                    placeholder="Ví dụ: 14:00" required>
+                                                    placeholder="Ví dụ: {{ $standardCheckInTimePolicy }}" required>
                                             </div>
                                         </div>
 
@@ -2825,21 +2864,29 @@
                                                 </div>
                                             @endif
 
-                                            @if (($extendPreview['status'] ?? '') !== 'blocked')
-                                                <form action="{{ route('admin.bookings.extend-stay', $booking->id) }}" method="POST"
-                                                    class="mt-3"
-                                                    onsubmit="return confirm('Xác nhận gia hạn theo kết quả kiểm tra này?')">
+                                            <div class="d-flex gap-2 flex-wrap mt-3">
+                                                <form action="{{ route('admin.bookings.extend-stay.discard-preview', $booking->id) }}" method="POST" class="flex-fill">
                                                     @csrf
-                                                    @method('PATCH')
-                                                    <input type="hidden" name="new_check_out_date"
-                                                        value="{{ $extendPreview['new_check_out_date'] }}">
-                                                    <input type="hidden" name="new_check_out_time"
-                                                        value="{{ $extendPreview['new_check_out_time'] }}">
-                                                    <button type="submit" class="btn btn-success w-100">
-                                                        Xác nhận gia hạn
+                                                    <button type="submit" class="btn btn-outline-secondary w-100">
+                                                        <i class="bx bx-x me-1"></i>Đóng bản xem trước
                                                     </button>
                                                 </form>
-                                            @endif
+                                                @if (($extendPreview['status'] ?? '') !== 'blocked')
+                                                    <form action="{{ route('admin.bookings.extend-stay', $booking->id) }}" method="POST"
+                                                        class="flex-fill"
+                                                        onsubmit="return confirm('Xác nhận gia hạn theo kết quả kiểm tra này?')">
+                                                        @csrf
+                                                        @method('PATCH')
+                                                        <input type="hidden" name="new_check_out_date"
+                                                            value="{{ $extendPreview['new_check_out_date'] }}">
+                                                        <input type="hidden" name="new_check_out_time"
+                                                            value="{{ $extendPreview['new_check_out_time'] }}">
+                                                        <button type="submit" class="btn btn-success w-100">
+                                                            Xác nhận gia hạn
+                                                        </button>
+                                                    </form>
+                                                @endif
+                                            </div>
                                         </div>
                                     @endif
                                 </div>
@@ -2938,7 +2985,7 @@
                                                         </tr>
                                                     @endif
                                                     <tr>
-                                                        <td>Mức cọc 30% hiện tại</td>
+                                                        <td>Mức cọc {{ $depositPercentLabel }} hiện tại</td>
                                                         <td class="text-end fw-bold">
                                                             {{ number_format($adminPaymentDepositTarget, 0, ',', '.') }}đ
                                                         </td>
@@ -3730,8 +3777,11 @@
 
                                         <form method="POST" action="{{ $roomOperationPreview['action_url'] }}" onsubmit="return confirm('Xác nhận lưu thay đổi phòng và cập nhật toàn bộ tiền/mã/dịch vụ?')">
                                             @csrf
-                                            @method('PATCH')
+                                            @if (($roomOperationPreview['http_method'] ?? 'PATCH') !== 'POST')
+                                                @method($roomOperationPreview['http_method'] ?? 'PATCH')
+                                            @endif
                                             <input type="hidden" name="confirm_operation" value="1">
+                                            <input type="hidden" name="operation_token" value="{{ $roomOperationPreview['token'] ?? '' }}">
                                             @foreach (($roomOperationPreview['payload'] ?? []) as $key => $value)
                                                 @if (is_bool($value))
                                                     <input type="hidden" name="{{ $key }}" value="{{ $value ? 1 : 0 }}">
@@ -3741,8 +3791,11 @@
                                             @endforeach
                                             <div class="d-flex gap-2 flex-wrap">
                                                 <button type="submit" class="btn btn-primary">Xác nhận cập nhật</button>
-                                                <a href="{{ route('admin.bookings.show', $booking->id) }}" class="btn btn-outline-secondary">Hủy bản xem trước</a>
                                             </div>
+                                        </form>
+                                        <form method="POST" action="{{ route('admin.bookings.room-operation.discard-preview', $booking) }}" class="mt-2">
+                                            @csrf
+                                            <button type="submit" class="btn btn-outline-secondary">Đóng / hủy bản xem trước</button>
                                         </form>
                                     </div>
                                 @endif
@@ -3796,7 +3849,7 @@
                                         @csrf
                                         @method('PATCH')
 
-                                        <h6>Đổi 1 phòng</h6>
+                                        <h6>{{ $booking->bookingRooms->count() <= 1 ? 'Đổi hạng phòng' : 'Đổi 1 phòng' }}</h6>
 
                                         <div class="mb-3">
                                             <label class="form-label small">Phòng cần đổi</label>
@@ -3835,6 +3888,7 @@
                                         <button type="submit" class="btn btn-outline-warning w-100">Xem trước đổi 1 phòng</button>
                                     </form>
 
+                                    @if ($booking->bookingRooms->count() >= 2)
                                     <form action="{{ route('admin.bookings.change-all-room-category', $booking->id) }}"
                                         method="POST" class="mini-form-box">
                                         @csrf
@@ -3863,6 +3917,7 @@
 
                                         <button type="submit" class="btn btn-outline-danger w-100">Xem trước đổi toàn bộ</button>
                                     </form>
+                                    @endif
                                 </div>
                             </div>
                         </details>
@@ -3929,8 +3984,13 @@
                                                 <select name="old_room_new_status" class="form-select" required>
                                                     <option value="maintenance">Bảo trì</option>
                                                     <option value="cleaning">Cần dọn</option>
-                                                    <option value="available">Trống</option>
+                                                    @if ($booking->status !== 'checked_in')
+                                                        <option value="available">Trống</option>
+                                                    @endif
                                                 </select>
+                                                @if ($booking->status === 'checked_in')
+                                                    <div class="form-text">Khách đã ở phòng này nên phòng cũ phải được dọn hoặc bảo trì trước khi mở bán lại.</div>
+                                                @endif
                                             </div>
 
                                             <div class="col-md-6">
@@ -3946,9 +4006,8 @@
                                             </div>
                                         @endif
 
-                                        <button type="submit" class="btn btn-warning w-100 mt-3"
-                                            onclick="return confirm('Xác nhận đổi phòng cho đơn này?')">
-                                            Đổi phòng
+                                        <button type="submit" class="btn btn-outline-warning w-100 mt-3">
+                                            Xem trước đổi phòng
                                         </button>
                                     </form>
                                 </div>
@@ -3957,97 +4016,92 @@
                     </section>
 
                     <section class="card-clean">
-                        <div class="card-title-clean">
-                            <div>
-                                <h5>Dịch vụ / phụ thu</h5>
-                            </div>
-                        </div>
+                        <details class="compact-panel booking-service-overview" @if($errors->has('services.*')) open @endif>
+                            <summary>
+                                <span>Dịch vụ / phụ thu</span>
+                                <span class="d-flex align-items-center gap-2 flex-wrap ms-auto">
+                                    <span class="badge-clean status-muted">{{ $booking->serviceItems->count() }} khoản</span>
+                                    <span class="badge-clean {{ $serviceItemTotal > 0 ? 'status-warning' : 'status-muted' }}">{{ number_format((float) $serviceItemTotal, 0, ',', '.') }}đ</span>
+                                </span>
+                            </summary>
+                            <div class="compact-panel-body">
 
-                        @if ($booking->serviceItems->count() > 0)
-                            <div class="table-responsive mb-3">
-                                <table class="table table-sm table-clean align-middle mb-0">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th>Tên khoản thu</th>
-                                            <th>Phạm vi</th>
-                                            <th>Loại</th>
-                                            <th>Đơn giá</th>
-                                            <th>SL</th>
-                                            <th>Dùng</th>
-                                            <th>Thành tiền</th>
-                                            <th></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach ($booking->serviceItems as $item)
-                                            <tr>
-                                                <td>
-                                                    <strong>{{ $item->name }}</strong>
-                                                    @if ($item->note)
-                                                        <div class="text-muted small">{{ $item->note }}</div>
-                                                    @endif
-                                                </td>
-                                                <td>
-                                                    @if (($item->scope ?? 'booking') === 'room')
-                                                        <span class="badge bg-primary">Phòng {{ $item->bookingRoom?->room?->room_number ?? $item->roomSnapshot?->room_number ?? '---' }}</span>
-                                                    @else
-                                                        <span class="badge bg-secondary">Toàn bộ đơn</span>
-                                                    @endif
-                                                </td>
-                                                <td>
-                                                    @if (in_array($item->type, ['violation_fee', 'policy_violation_fee', 'occupancy_fee']))
-                                                        <span class="badge-clean status-muted">Phụ thu</span>
-                                                    @elseif ($item->type == 'minibar_order')
-                                                        <span class="badge bg-info text-dark">Minibar gọi thêm</span>
-                                                    @elseif ($item->type == 'minibar')
-                                                        <span class="badge-clean status-warning">Minibar kiểm kê</span>
-                                                    @elseif ($item->type == 'damage_fee')
-                                                        <span class="badge-clean status-cancelled">Hư hại</span>
-                                                    @else
-                                                        <span class="badge-clean status-info">Dịch vụ</span>
-                                                    @endif
-                                                </td>
-                                                <td>{{ number_format($item->unit_price, 0, ',', '.') }}đ</td>
-                                                <td style="min-width: 120px;">
-                                                    @if ($canEditServiceItems && in_array($item->type, ['service', 'minibar_order']))
-                                                        <form
-                                                            action="{{ route('admin.bookings.service-items.update', [$booking->id, $item->id]) }}"
-                                                            method="POST" class="d-flex gap-1 align-items-center">
-                                                            @csrf
-                                                            @method('PATCH')
-                                                            <input type="number" name="quantity" class="form-control form-control-sm"
-                                                                value="{{ $item->quantity }}" min="1" style="width: 72px;">
-                                                            <button type="submit" class="btn btn-sm btn-outline-primary">Lưu</button>
-                                                        </form>
-                                                    @else
-                                                        {{ $item->quantity }}
-                                                    @endif
-                                                </td>
-                                                <td>{{ $item->used_quantity ?? $item->quantity }}</td>
-                                                <td class="fw-bold text-danger">{{ number_format($item->total, 0, ',', '.') }}đ</td>
-                                                <td class="text-end">
-                                                    @if ($canEditServiceItems && in_array($item->type, ['service', 'minibar_order']))
-                                                        <form
-                                                            action="{{ route('admin.bookings.service-items.destroy', [$booking->id, $item->id]) }}"
-                                                            method="POST" onsubmit="return confirm('Xóa dịch vụ này khỏi đơn?')">
-                                                            @csrf
-                                                            @method('DELETE')
-                                                            <button type="submit" class="btn btn-sm btn-outline-danger">Xóa</button>
-                                                        </form>
-                                                    @endif
-                                                </td>
-                                            </tr>
-                                        @endforeach
-                                    </tbody>
-                                </table>
+                        @php
+                            $serviceCatalogTypes = \App\Models\Service::serviceCatalogTypes();
+                            $surchargeCatalogTypes = \App\Models\Service::surchargeCatalogTypes();
+                            $serviceCatalogItems = $booking->serviceItems->filter(fn ($item) => in_array($item->type, $serviceCatalogTypes, true));
+                            $surchargeItems = $booking->serviceItems->filter(fn ($item) => in_array($item->type, $surchargeCatalogTypes, true));
+                            $legacyServiceItems = $booking->serviceItems->reject(fn ($item) => in_array($item->type, array_merge($serviceCatalogTypes, $surchargeCatalogTypes), true));
+                            $serviceCatalogTotal = (float) $serviceCatalogItems->where('billing_status', 'confirmed')->sum('total');
+                            $surchargeItemsTotal = (float) $surchargeItems->where('billing_status', 'confirmed')->sum('total');
+                            $legacyServiceItemsTotal = (float) $legacyServiceItems->where('billing_status', 'confirmed')->sum('total');
+                        @endphp
+
+                        <details class="compact-panel mb-3">
+                            <summary>
+                                <span>Dịch vụ / minibar</span>
+                                <span class="d-flex align-items-center gap-2 flex-wrap ms-auto">
+                                    <span class="badge-clean status-muted">{{ $serviceCatalogItems->count() }} khoản</span>
+                                    <span class="badge-clean {{ $serviceCatalogTotal > 0 ? 'status-warning' : 'status-muted' }}">{{ number_format($serviceCatalogTotal, 0, ',', '.') }}đ</span>
+                                </span>
+                            </summary>
+                            <div class="compact-panel-body">
+                                @include('admin.pages.bookings.partials.service-item-table', [
+                                    'items' => $serviceCatalogItems,
+                                    'booking' => $booking,
+                                    'canEditServiceItems' => $canEditServiceItems,
+                                    'emptyText' => 'Chưa có dịch vụ/minibar khách mua hoặc gọi thêm.',
+                                ])
                             </div>
-                        @else
-                            <div class="soft-note mb-3">Chưa có dịch vụ hoặc phụ thu phát sinh.</div>
+                        </details>
+
+                        <details class="compact-panel mb-3">
+                            <summary>
+                                <span>Phụ thu / phí phát sinh</span>
+                                <span class="d-flex align-items-center gap-2 flex-wrap ms-auto">
+                                    <span class="badge-clean status-muted">{{ $surchargeItems->count() }} khoản</span>
+                                    <span class="badge-clean {{ $surchargeItemsTotal > 0 ? 'status-warning' : 'status-muted' }}">{{ number_format($surchargeItemsTotal, 0, ',', '.') }}đ</span>
+                                </span>
+                            </summary>
+                            <div class="compact-panel-body">
+                                @include('admin.pages.bookings.partials.service-item-table', [
+                                    'items' => $surchargeItems,
+                                    'booking' => $booking,
+                                    'canEditServiceItems' => $canEditServiceItems,
+                                    'emptyText' => 'Chưa có phụ thu/phí phát sinh ngoài kiểm phòng.',
+                                ])
+                            </div>
+                        </details>
+
+                        @if ($legacyServiceItems->isNotEmpty())
+                            <details class="compact-panel mb-3">
+                                <summary>
+                                    <span>Khoản lịch sử khác</span>
+                                    <span class="d-flex align-items-center gap-2 flex-wrap ms-auto">
+                                        <span class="badge-clean status-muted">{{ $legacyServiceItems->count() }} khoản</span>
+                                        <span class="badge-clean {{ $legacyServiceItemsTotal > 0 ? 'status-warning' : 'status-muted' }}">{{ number_format($legacyServiceItemsTotal, 0, ',', '.') }}đ</span>
+                                    </span>
+                                </summary>
+                                <div class="compact-panel-body">
+                                    <div class="soft-note mb-2">Các dòng kiểu cũ được giữ nguyên để không mất lịch sử booking.</div>
+                                    @include('admin.pages.bookings.partials.service-item-table', [
+                                        'items' => $legacyServiceItems,
+                                        'booking' => $booking,
+                                        'canEditServiceItems' => $canEditServiceItems,
+                                    ])
+                                </div>
+                            </details>
                         @endif
 
                         @if ($approvedInspectionItems->count() > 0)
                             <details class="compact-panel mb-3">
-                                <summary>Dịch vụ tại phòng / hư hại đã duyệt từ kiểm tra phòng</summary>
+                                <summary>
+                                    <span>Khoản kiểm phòng đã duyệt</span>
+                                    <span class="d-flex align-items-center gap-2 flex-wrap ms-auto">
+                                        <span class="badge-clean status-muted">{{ $approvedInspectionItems->count() }} khoản</span>
+                                        <span class="badge-clean status-warning">{{ number_format((float) $approvedInspectionItems->sum('total'), 0, ',', '.') }}đ</span>
+                                    </span>
+                                </summary>
                                 <div class="compact-panel-body">
                                     <div class="table-responsive">
                                         <table class="table table-sm table-clean align-middle mb-0">
@@ -4082,7 +4136,7 @@
                         @endif
 
                         @if ($canEditServiceItems)
-                            <details class="compact-panel">
+                            <details class="compact-panel" @if($errors->has('services.*')) open @endif>
                                 <summary>Thêm dịch vụ / minibar gọi thêm / xe cộ</summary>
                                 <div class="compact-panel-body">
                                     <form action="{{ route('admin.bookings.service-items.store', $booking->id) }}" method="POST"
@@ -4177,6 +4231,8 @@
                                 </div>
                             </details>
                         @endif
+                            </div>
+                        </details>
                     </section>
 
                     <section class="card-clean">
@@ -4260,8 +4316,8 @@
 
                             <div class="payment-summary-section mt-3">Tiền khách đã thanh toán</div>
 
-                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailDeposit" data-payment-title="Mức cọc 30% hiện tại">
-                                <span class="info-label">Mức cọc 30% hiện tại</span>
+                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailDeposit" data-payment-title="Mức cọc {{ $depositPercentLabel }} hiện tại">
+                                <span class="info-label">Mức cọc {{ $depositPercentLabel }} hiện tại</span>
                                 <span class="info-value">{{ number_format($adminPaymentDepositTarget, 0, ',', '.') }}đ</span>
                             </button>
                             <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailPayments" data-payment-title="Lịch sử tiền khách đã thanh toán">
@@ -4314,7 +4370,7 @@
                                     <strong>{{ number_format($finalTotal, 0, ',', '.') }}đ</strong>
                                 </div>
                                 <div class="d-flex justify-content-between gap-2 mt-1">
-                                    <span>Mức cọc 30% hiện tại</span>
+                                    <span>Mức cọc {{ $depositPercentLabel }} hiện tại</span>
                                     <strong>{{ number_format($adminPaymentDepositTarget, 0, ',', '.') }}đ</strong>
                                 </div>
                                 <div class="d-flex justify-content-between gap-2 mt-1">
@@ -4350,7 +4406,7 @@
                                                 class="form-select form-select-sm" required>
                                                 <option value="deposit_30" data-amount="{{ $adminPaymentDepositAmount }}"
                                                     @disabled($adminPaymentDepositAmount <= 0)>
-                                                    Thu bổ sung để đủ cọc 30% - {{ number_format($adminPaymentDepositAmount, 0, ',', '.') }}đ
+                                                    Thu bổ sung để đủ cọc {{ $depositPercentLabel }} - {{ number_format($adminPaymentDepositAmount, 0, ',', '.') }}đ
                                                 </option>
                                                 <option value="custom" data-amount="{{ $adminPaymentFullAmount }}" data-entry-mode="remaining">
                                                     Thu phần còn lại - {{ number_format($adminPaymentFullAmount, 0, ',', '.') }}đ
@@ -4408,7 +4464,7 @@
                                                 class="form-select form-select-sm" required>
                                                 <option value="deposit_30" data-amount="{{ $adminPaymentDepositAmount }}"
                                                     @disabled($adminPaymentDepositAmount <= 0)>
-                                                    Gửi yêu cầu bổ sung cọc 30% - {{ number_format($adminPaymentDepositAmount, 0, ',', '.') }}đ
+                                                    Gửi yêu cầu bổ sung cọc {{ $depositPercentLabel }} - {{ number_format($adminPaymentDepositAmount, 0, ',', '.') }}đ
                                                 </option>
                                                 <option value="custom" data-amount="{{ $adminPaymentFullAmount }}">
                                                     Gửi yêu cầu thanh toán phần còn lại - {{ number_format($adminPaymentFullAmount, 0, ',', '.') }}đ
@@ -4473,8 +4529,8 @@
                                             } elseif ($payment->created_at) {
                                                 $paymentExpiresAt = $payment->created_at->copy()->timezone('Asia/Ho_Chi_Minh')->addMinutes(
                                                     $payment->provider === 'admin_vnpay'
-                                                        ? (int) config('vnpay.admin_request_expire_minutes', 1440)
-                                                        : (int) config('vnpay.expire_minutes', 30)
+                                                        ? (int) $bookingPolicy('payment.admin_vnpay_expire_minutes', 1440)
+                                                        : (int) $bookingPolicy('payment.vnpay_expire_minutes', 30)
                                                 );
                                             }
 
@@ -4773,7 +4829,7 @@
     <template id="paymentDetailDeposit">
         <div class="payment-breakdown-item">
             <div class="fw-bold">Mức cọc được tính lại theo đơn hiện tại</div>
-            <div class="payment-breakdown-formula">30% × tiền phòng sau phần ưu đãi thuộc phạm vi tính cọc = {{ number_format($adminPaymentDepositTarget, 0, ',', '.') }}đ.</div>
+            <div class="payment-breakdown-formula">{{ $depositPercentLabel }} × tiền phòng sau phần ưu đãi thuộc phạm vi tính cọc = {{ number_format($adminPaymentDepositTarget, 0, ',', '.') }}đ.</div>
             <div class="small text-muted mt-2">Lịch sử khách đã chuyển tiền vẫn giữ nguyên; hệ thống chỉ phân bổ lại số đã thu vào mức cọc mới.</div>
         </div>
         <div class="payment-breakdown-total"><span>Còn thiếu để đủ cọc</span><span>{{ number_format($adminPaymentDepositAmount, 0, ',', '.') }}đ</span></div>
@@ -5221,6 +5277,13 @@
                     const cutoffAt = parseLocalBookingDateTime(lateArrivalForm.dataset.cutoffAt || '');
                     const checkOutAt = parseLocalBookingDateTime(lateArrivalForm.dataset.checkOutAt || '');
                     const oneNightTotal = parseFloat(lateArrivalForm.dataset.oneNightTotal || 0);
+                    const tier1EndText = lateArrivalForm.dataset.tier1End || '21:00';
+                    const tier1Parts = tier1EndText.split(':').map(Number);
+                    const tier1Minutes = (tier1Parts[0] || 0) * 60 + (tier1Parts[1] || 0);
+                    const percent1 = Number(lateArrivalForm.dataset.percent1 || 0);
+                    const percent2 = Number(lateArrivalForm.dataset.percent2 || 0);
+                    const percentNextDay = Number(lateArrivalForm.dataset.percentNextDay || 0);
+                    const graceMinutes = Math.max(0, Number(lateArrivalForm.dataset.graceMinutes || 0));
 
                     if (!expectedAt || !cutoffAt || !checkOutAt) {
                         alert('Không đọc được ngày giờ dự kiến đến. Vui lòng kiểm tra lại.');
@@ -5241,19 +5304,19 @@
                         && expectedAt.getMonth() === cutoffAt.getMonth()
                         && expectedAt.getDate() === cutoffAt.getDate();
                     const expectedMinutes = expectedAt.getHours() * 60 + expectedAt.getMinutes();
-                    let percent = 100;
-                    let policy = 'Khách dự kiến đến từ 00:00 ngày hôm sau, phụ thu 100% giá 1 đêm để tiếp tục giữ phòng.';
+                    let percent = percentNextDay;
+                    let policy = 'Khách dự kiến đến từ ngày hôm sau, phụ thu ' + percentNextDay + '% giá 1 đêm để tiếp tục giữ phòng.';
 
-                    if (sameDate && expectedMinutes <= 21 * 60) {
-                        percent = 20;
-                        policy = 'Khách dự kiến đến sau 18:00 đến 21:00, phụ thu 20% giá 1 đêm để tiếp tục giữ phòng.';
+                    if (sameDate && expectedMinutes <= tier1Minutes) {
+                        percent = percent1;
+                        policy = 'Khách dự kiến đến sau giờ G đến ' + tier1EndText + ', phụ thu ' + percent1 + '% giá 1 đêm để tiếp tục giữ phòng.';
                     } else if (sameDate) {
-                        percent = 50;
-                        policy = 'Khách dự kiến đến sau 21:00 đến trước 00:00, phụ thu 50% giá 1 đêm để tiếp tục giữ phòng.';
+                        percent = percent2;
+                        policy = 'Khách dự kiến đến sau ' + tier1EndText + ' đến trước 00:00, phụ thu ' + percent2 + '% giá 1 đêm để tiếp tục giữ phòng.';
                     }
 
                     const amount = Math.round(oneNightTotal * percent / 100);
-                    const holdUntil = new Date(Math.min(expectedAt.getTime() + 30 * 60 * 1000, checkOutAt.getTime()));
+                    const holdUntil = new Date(Math.min(expectedAt.getTime() + graceMinutes * 60 * 1000, checkOutAt.getTime()));
 
                     if (lateArrivalModalCutoff) lateArrivalModalCutoff.textContent = formatLocalBookingDateTime(cutoffAt);
                     if (lateArrivalModalExpected) lateArrivalModalExpected.textContent = formatLocalBookingDateTime(expectedAt);
@@ -5526,6 +5589,7 @@
             const adminDirectChangeDueBox = document.getElementById('adminDirectChangeDueBox');
             const adminDirectChangeDueText = document.getElementById('adminDirectChangeDueText');
             const adminRemainingAmount = Number({{ json_encode((float) $remainingTotal) }});
+            const adminDepositPercentLabel = @json($depositPercentLabel);
             const adminVnpayPaymentType = document.getElementById('adminVnpayPaymentType');
             const adminVnpayPaymentSubmit = document.getElementById('adminVnpayPaymentSubmit');
             const adminVnpayPaymentSpeakText = document.getElementById('adminVnpayPaymentSpeakText');
@@ -5580,7 +5644,7 @@
                 } else if (type === 'deposit_30') {
                     if (adminDirectChangeDueText) adminDirectChangeDueText.textContent = '0đ';
                     adminDirectPaymentSubmit.innerHTML = '<i class="bx bx-money-withdraw me-1"></i> Ghi nhận bổ sung cọc ' + formatMoneyVn(amount);
-                    message = 'Lễ tân nói với khách: Booking hiện còn thiếu ' + formatMoneyVn(amount) + ' để đủ mức cọc 30% ạ.';
+                    message = 'Lễ tân nói với khách: Booking hiện còn thiếu ' + formatMoneyVn(amount) + ' để đủ mức cọc ' + adminDepositPercentLabel + ' ạ.';
                 } else {
                     if (adminDirectChangeDueText) adminDirectChangeDueText.textContent = '0đ';
                     adminDirectPaymentSubmit.innerHTML = '<i class="bx bx-money-withdraw me-1"></i> Ghi nhận đã thu ' + formatMoneyVn(amount);
@@ -5599,7 +5663,7 @@
 
                 const amount = getSelectedOptionAmount(adminVnpayPaymentType);
                 const type = adminVnpayPaymentType.value;
-                const purpose = type === 'deposit_30' ? 'bổ sung để đủ cọc 30%' : 'thanh toán số tiền còn lại';
+                const purpose = type === 'deposit_30' ? 'bổ sung để đủ cọc ' + adminDepositPercentLabel : 'thanh toán số tiền còn lại';
                 const amountText = formatMoneyVn(amount);
 
                 adminVnpayPaymentSubmit.innerHTML = '<i class="bx bx-envelope me-1"></i> Gửi email VNPay ' + amountText;
@@ -5819,14 +5883,17 @@ document.addEventListener('DOMContentLoaded', function () {
     if (roomPanel) {
         const sourceBody = roomPanel.querySelector(':scope > .compact-panel-body');
         const forms = sourceBody ? Array.from(sourceBody.querySelectorAll(':scope form.mini-form-box')) : [];
+        const roomPreview = sourceBody?.querySelector('#room-operation-preview') || null;
+        if (roomPreview) roomPreview.remove();
         roomModalBody.innerHTML = '';
+        if (roomPreview) roomModalBody.appendChild(roomPreview);
 
         forms.forEach(function (form, index) {
             const heading = form.querySelector('h6');
             const rawTitle = heading?.textContent?.trim() || `Thao tác ${index + 1}`;
             if (heading) heading.remove();
             const title = rawTitle.includes('Thêm') ? 'Thêm phòng'
-                : (rawTitle.includes('toàn bộ') ? 'Đổi hạng toàn bộ đơn' : 'Đổi hạng một phòng');
+                : (rawTitle.includes('toàn bộ') ? 'Đổi hạng toàn bộ đơn' : ({{ $booking->bookingRooms->count() <= 1 ? 'true' : 'false' }} ? 'Đổi hạng phòng' : 'Đổi hạng một phòng'));
             const key = rawTitle.includes('Thêm') ? 'add-room'
                 : (rawTitle.includes('toàn bộ') ? 'change-all-category' : 'change-one-category');
             form.dataset.keepSupportPosition = key;

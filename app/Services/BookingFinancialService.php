@@ -16,8 +16,24 @@ class BookingFinancialService
     public function currentTotal(Booking $booking): float
     {
         $booking->loadMissing(['bookingRooms', 'serviceItems', 'roomInspections.items']);
-        $nights = max(1, $booking->check_in_at->copy()->startOfDay()->diffInDays($booking->check_out_at->copy()->startOfDay()));
-        $roomTotal = (float) $booking->bookingRooms->sum(fn ($item) => (float) $item->price_at_booking * $nights + (float) $item->surcharge);
+
+        $roomSurchargeTotal = (float) $booking->bookingRooms->sum('surcharge');
+        if ($booking->booking_type === 'hourly' && $booking->check_in_at && $booking->check_out_at) {
+            $oneNightRoomTotal = (float) $booking->bookingRooms->sum('price_at_booking');
+            $durationMinutes = max(1, $booking->check_in_at->diffInMinutes($booking->check_out_at));
+            $hourly = app(StayPricingPolicyService::class)->shortStay(
+                $oneNightRoomTotal,
+                1,
+                $durationMinutes,
+                $booking
+            );
+            $roomTotal = (float) $hourly['amount'] + $roomSurchargeTotal;
+        } else {
+            $nights = max(1, $booking->check_in_at->copy()->startOfDay()->diffInDays($booking->check_out_at->copy()->startOfDay()));
+            $roomTotal = (float) $booking->bookingRooms->sum(fn ($item) => (float) $item->price_at_booking * $nights)
+                + $roomSurchargeTotal;
+        }
+
         if ($roomTotal <= 0) {
             $roomTotal = max(0, (float) $booking->subtotal_amount - (float) $booking->serviceItems->sum('total'));
         }
@@ -39,7 +55,7 @@ class BookingFinancialService
             return round((float) $booking->deposit_amount, 0);
         }
 
-        return round(max(0, (float) $booking->estimated_total) * 0.30, 0);
+        return round(max(0, (float) $booking->estimated_total) * app(HotelPolicyService::class)->depositRate($booking), 0);
     }
 
     public function hasMinimumDeposit(Booking $booking): bool
@@ -70,7 +86,7 @@ class BookingFinancialService
      * Phân bổ tiền khách đã thanh toán theo booking hiện tại.
      *
      * Lịch sử giao dịch không bị sửa khi booking đổi ngày/hạng. Hệ thống chỉ
-     * phân bổ lại số đã thu: ưu tiên đủ mức cọc 30% hiện hành, phần vượt mức
+     * phân bổ lại số đã thu: ưu tiên đủ mức cọc hiện hành, phần vượt mức
      * cọc trở thành tiền trả trước và tiếp tục bù trừ dịch vụ/phụ thu sau đó.
      */
     public function paymentAllocation(Booking $booking, ?float $currentTotal = null): array

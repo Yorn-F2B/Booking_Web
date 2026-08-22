@@ -343,6 +343,10 @@
     <div id="adminChatRoot" class="admin-wrapper chat-page"
         data-conversation-id="{{ $selectedConversation?->id ?? 0 }}"
         data-read-url="{{ $selectedConversation ? route('admin.chats.read', $selectedConversation) : '' }}"
+        data-older-messages-url="{{ $selectedConversation ? route('admin.chats.messages', $selectedConversation) : '' }}"
+        data-has-older-messages="{{ !empty($hasOlderMessages) ? '1' : '0' }}"
+        data-chat-supervisor="{{ in_array(auth()->user()->role, ['super_admin', 'manager', 'receptionist_lead'], true) ? '1' : '0' }}"
+        data-chat-staff-user-id="{{ in_array(auth()->user()->role, ['receptionist', 'receptionist_lead'], true) ? auth()->id() : 0 }}"
         data-current-filter="{{ $currentFilter }}">
         <main class="admin-content">
             <div class="mb-3">
@@ -350,9 +354,106 @@
                 <p class="text-muted mb-0">Tin cần phản hồi được đánh dấu vàng; hội thoại đã xử lý giữ trạng thái bình thường.</p>
             </div>
 
-            @if(session('error'))
-            <div class="alert alert-danger">{{ session('error') }}</div> @endif
-            @if($errors->any())
+            <div class="card border-0 shadow-sm mb-3">
+                <div class="card-body py-3">
+                    <div class="row g-3 align-items-end">
+                        @if($myPresenceStatus)
+                            <div class="col-xl-6">
+                                <form method="POST" action="{{ route('admin.chats.presence.update') }}" class="row g-2 align-items-end">
+                                    @csrf
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-semibold mb-1">Trạng thái trực chat</label>
+                                        <select name="status" class="form-select form-select-sm">
+                                            <option value="online" @selected($myPresenceStatus === 'online')>Online · nhận chat mới</option>
+                                            <option value="away" @selected($myPresenceStatus === 'away')>Away · không nhận chat mới</option>
+                                            <option value="offline" @selected($myPresenceStatus === 'offline')>Offline · bàn giao toàn bộ</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-semibold mb-1">Khi Offline</label>
+                                        <select name="handoff_mode" class="form-select form-select-sm">
+                                            <option value="rebalance">Chia đều người đang online</option>
+                                            <option value="target">Chuyển hết cho một người</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-semibold mb-1">Người nhận nếu chuyển hết</label>
+                                        <select name="target_staff_id" class="form-select form-select-sm">
+                                            <option value="">-- Chọn khi cần --</option>
+                                            @foreach($onlineStaffs as $staff)
+                                                @if($staff->id !== auth()->id())
+                                                    <option value="{{ $staff->id }}">{{ $staff->name }} · {{ $staffLoads[$staff->id] ?? 0 }} chat</option>
+                                                @endif
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div class="col-12">
+                                        <button class="btn btn-sm btn-primary">Cập nhật trạng thái</button>
+                                        <span class="small text-muted ms-2">Away giữ khách hiện tại; Offline sẽ bàn giao toàn bộ chat đang mở.</span>
+                                    </div>
+                                </form>
+                            </div>
+                        @endif
+
+                        <div class="col-xl-{{ $myPresenceStatus ? '6' : '12' }}">
+                            <div class="small fw-semibold mb-2">Tải trực chat hiện tại</div>
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach($chatStaffs as $staff)
+                                    @php
+                                        $presenceStatus = app(\App\Services\ChatPresenceService::class)->statusFor($staff);
+                                        $statusClass = $presenceStatus === 'online' ? 'success' : ($presenceStatus === 'away' ? 'warning' : 'secondary');
+                                    @endphp
+                                    <span class="badge text-bg-{{ $statusClass }} fw-normal">
+                                        {{ $staff->name }} · {{ strtoupper($presenceStatus) }} · {{ $staffLoads[$staff->id] ?? 0 }} chat
+                                    </span>
+                                @endforeach
+                            </div>
+                        </div>
+                    </div>
+
+                    @if(in_array(auth()->user()->role, ['super_admin', 'manager', 'receptionist_lead'], true))
+                        <hr class="my-3">
+                        <form method="POST" action="{{ route('admin.chats.handoff') }}" class="row g-2 align-items-end">
+                            @csrf
+                            <div class="col-md-3">
+                                <label class="form-label small fw-semibold mb-1">Bàn giao toàn bộ chat của</label>
+                                <select name="from_staff_id" class="form-select form-select-sm" required>
+                                    <option value="">-- Chọn nhân viên --</option>
+                                    @foreach($chatStaffs as $staff)
+                                        <option value="{{ $staff->id }}">{{ $staff->name }} · {{ $staffLoads[$staff->id] ?? 0 }} chat</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-semibold mb-1">Cách bàn giao</label>
+                                <select name="handoff_mode" class="form-select form-select-sm">
+                                    <option value="rebalance">Chia đều người online</option>
+                                    <option value="target">Chuyển hết cho một người</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-semibold mb-1">Người nhận</label>
+                                <select name="target_staff_id" class="form-select form-select-sm">
+                                    <option value="">-- Chỉ cần khi chuyển hết --</option>
+                                    @foreach($onlineStaffs as $staff)
+                                        <option value="{{ $staff->id }}">{{ $staff->name }} · {{ $staffLoads[$staff->id] ?? 0 }} chat</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="form-check mt-4">
+                                    <input class="form-check-input" type="checkbox" value="1" id="markOffline" name="mark_offline">
+                                    <label class="form-check-label small" for="markOffline">Đánh dấu Offline</label>
+                                </div>
+                            </div>
+                            <div class="col-md-1 d-grid">
+                                <button class="btn btn-sm btn-outline-primary">Bàn giao</button>
+                            </div>
+                        </form>
+                    @endif
+                </div>
+            </div>
+@if($errors->any())
                 <div class="alert alert-danger">{{ $errors->first() }}</div>
             @endif
 
@@ -420,7 +521,7 @@
                                     </div>
 
                                     <div class="d-flex gap-2">
-                                        @if($selectedConversation->status === 'waiting' && !$selectedConversation->assigned_staff_id)
+                                        @if($selectedConversation->status === 'waiting' && !$selectedConversation->assigned_staff_id && $myPresenceStatus === 'online')
                                             <form method="POST" action="{{ route('admin.chats.take', $selectedConversation) }}">
                                                 @csrf
                                                 <button class="btn btn-sm btn-success">Tiếp nhận</button>
@@ -445,6 +546,9 @@
                                 </header>
 
                                 <div class="chat-body" id="adminChatBody">
+                                    <div class="text-center mb-3" id="adminChatOlderWrap" @style(['display:none' => empty($hasOlderMessages)])>
+                                        <button type="button" id="adminChatLoadOlder" class="btn btn-sm btn-light border">Tải tin nhắn cũ hơn</button>
+                                    </div>
                                     @foreach($selectedConversation->messages as $message)
                                         <div class="chat-row {{ $message->sender_type === 'staff' ? 'staff' : '' }}"
                                             data-message-id="{{ $message->id }}">
@@ -514,15 +618,18 @@
                         @if($selectedConversation->status !== 'closed')
                             <form method="POST" action="{{ route('admin.chats.transfer', $selectedConversation) }}">
                                 @csrf
-                                <select name="staff_id" class="form-select form-select-sm mb-2">
-                                    @foreach($staffs as $staff)
+                                <select name="staff_id" class="form-select form-select-sm mb-2" @disabled($onlineStaffs->isEmpty())>
+                                    @if($onlineStaffs->isEmpty())
+                                        <option value="">Không có lễ tân online</option>
+                                    @endif
+                                    @foreach($onlineStaffs as $staff)
                                         <option value="{{ $staff->id }}"
                                             @selected($selectedConversation->assigned_staff_id == $staff->id)>
-                                            {{ $staff->name }}
+                                            {{ $staff->name }} · {{ $staffLoads[$staff->id] ?? 0 }} chat · ONLINE
                                         </option>
                                     @endforeach
                                 </select>
-                                <button class="btn btn-sm btn-outline-primary w-100">Chuyển nhân viên</button>
+                                <button class="btn btn-sm btn-outline-primary w-100" @disabled($onlineStaffs->isEmpty())>Chuyển nhân viên</button>
                             </form>
                         @endif
                     @endif
@@ -544,6 +651,10 @@
             const archivedUnreadBadge = document.getElementById('archivedUnreadBadge');
             const currentFilter = root?.dataset.currentFilter || 'messages';
             const readUrl = root?.dataset.readUrl || '';
+            const olderMessagesUrl = root?.dataset.olderMessagesUrl || '';
+            const loadOlderButton = document.getElementById('adminChatLoadOlder');
+            const olderWrap = document.getElementById('adminChatOlderWrap');
+            let hasOlderMessages = root?.dataset.hasOlderMessages === '1';
             let selectedFiles = [];
 
             const conversationId = Number(
@@ -717,6 +828,23 @@
             `;
             };
 
+            const buildAdminMessageRow = function (message) {
+                const row = document.createElement('div');
+                row.className = `chat-row ${message.sender_type === 'staff' ? 'staff' : ''}`;
+                row.dataset.messageId = message.id;
+                const attachments = (message.attachments || []).map(renderAttachment).join('');
+                row.innerHTML = `
+                    <div class="chat-bubble">
+                        ${message.message ? `<div>${escapeHtml(message.message)}</div>` : ''}
+                        ${attachments}
+                        <div class="chat-meta">
+                            ${escapeHtml(message.sender_name || 'Người gửi')} · ${escapeHtml(message.created_at || '')}
+                        </div>
+                    </div>
+                `;
+                return row;
+            };
+
             const appendAdminMessage = function (message) {
                 if (!body || !message?.id) {
                     return;
@@ -730,39 +858,7 @@
                     return;
                 }
 
-                const row = document.createElement('div');
-
-                row.className = `chat-row ${message.sender_type === 'staff'
-                        ? 'staff'
-                        : ''
-                    }`;
-
-                row.dataset.messageId = message.id;
-
-                const attachments = (
-                    message.attachments || []
-                )
-                    .map(renderAttachment)
-                    .join('');
-
-                row.innerHTML = `
-                <div class="chat-bubble">
-                    ${message.message
-                        ? `<div>${escapeHtml(message.message)}</div>`
-                        : ''
-                    }
-
-                    ${attachments}
-
-                    <div class="chat-meta">
-                        ${escapeHtml(
-                        message.sender_name || 'Người gửi'
-                    )}
-                        ·
-                        ${escapeHtml(message.created_at || '')}
-                    </div>
-                </div>
-            `;
+                const row = buildAdminMessageRow(message);
 
                 body.appendChild(row);
                 scrollToLatestMessage();
@@ -798,6 +894,46 @@
                     filesPreview.appendChild(chip);
                 });
             };
+
+            const loadOlderMessages = async function () {
+                if (!body || !loadOlderButton || !olderMessagesUrl || !hasOlderMessages) {
+                    return;
+                }
+
+                const firstMessage = body.querySelector('[data-message-id]');
+                const beforeId = Number(firstMessage?.dataset.messageId || 0);
+                if (!beforeId) return;
+
+                loadOlderButton.disabled = true;
+                const oldHeight = body.scrollHeight;
+                const oldTop = body.scrollTop;
+
+                try {
+                    const response = await fetch(`${olderMessagesUrl}?before_id=${beforeId}`, {
+                        credentials: 'same-origin',
+                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    if (!response.ok) throw new Error('Không thể tải lịch sử chat.');
+                    const payload = await response.json();
+                    const messages = payload.messages || [];
+                    const firstExisting = body.querySelector('[data-message-id]');
+
+                    [...messages].reverse().forEach(function (message) {
+                        if (body.querySelector(`[data-message-id="${message.id}"]`)) return;
+                        body.insertBefore(buildAdminMessageRow(message), firstExisting);
+                    });
+
+                    hasOlderMessages = Boolean(payload.has_more);
+                    if (olderWrap) olderWrap.style.display = hasOlderMessages ? '' : 'none';
+                    body.scrollTop = oldTop + (body.scrollHeight - oldHeight);
+                } catch (error) {
+                    console.error(error);
+                } finally {
+                    loadOlderButton.disabled = false;
+                }
+            };
+
+            loadOlderButton?.addEventListener('click', loadOlderMessages);
 
             filesInput?.addEventListener('change', function () {
                 const existing = new Set(selectedFiles.map(fileKey));
@@ -946,48 +1082,37 @@
             );
 
             if (window.Echo) {
-                if (conversationId > 0) {
-                    window.Echo
-                        .private(`chat.conversation.${conversationId}`)
-                        .listen('.chat.message.sent', function (message) {
-                            appendAdminMessage(message);
+                const isChatSupervisor = root?.dataset.chatSupervisor === '1';
+                const chatStaffUserId = Number(root?.dataset.chatStaffUserId || 0);
+                const channelName = isChatSupervisor
+                    ? 'chat.supervisors'
+                    : (chatStaffUserId > 0 ? `chat.staff.${chatStaffUserId}` : null);
 
-                            if (message?.sender_type === 'customer') {
-                                markCurrentConversationRead();
+                if (channelName) {
+                    window.Echo
+                        .private(channelName)
+                        .listen('.chat.message.sent', function (message) {
+                            const incomingConversationId = Number(message?.conversation_id || 0);
+                            if (!incomingConversationId) return;
+
+                            if (incomingConversationId === conversationId) {
+                                appendAdminMessage(message);
+                                if (message?.sender_type === 'customer') {
+                                    markCurrentConversationRead();
+                                }
+                                return;
+                            }
+
+                            const found = message?.sender_type === 'customer'
+                                ? setConversationUnread(incomingConversationId, true, currentFilter)
+                                : true;
+
+                            // Chat mới vừa được phân cho mình / hàng đợi supervisor chưa có trong DOM.
+                            if (!found && message?.sender_type === 'customer') {
+                                window.location.reload();
                             }
                         });
                 }
-
-                window.Echo
-                    .private('admin.realtime')
-                    .listen('.chat.message.sent', function (message) {
-                        const incomingConversationId = Number(
-                            message?.conversation_id || 0
-                        );
-
-                        if (!incomingConversationId) {
-                            return;
-                        }
-
-                        if (incomingConversationId === conversationId) {
-                            appendAdminMessage(message);
-
-                            if (message?.sender_type === 'customer') {
-                                markCurrentConversationRead();
-                            }
-
-                            return;
-                        }
-
-                        const found = message?.sender_type === 'customer'
-                            ? setConversationUnread(incomingConversationId, true, currentFilter)
-                            : true;
-
-                        // Hội thoại mới chưa có trong DOM thì tải lại danh sách một lần.
-                        if (!found && message?.sender_type === 'customer') {
-                            window.location.reload();
-                        }
-                    });
             }
             };
 

@@ -73,8 +73,8 @@
                                     <div class="col-12">
                                         <div class="border rounded p-3 bg-light">
                                             <div class="d-flex flex-wrap gap-2 align-items-center">
-                                                <button type="button" id="registerCccdButton" class="btn btn-outline-primary" onclick="document.getElementById('registerCccdImage').click()">Quét ảnh CCCD</button>
-                                                <input type="file" id="registerCccdImage" class="d-none js-cccd-image" accept="image/*" capture="environment"
+                                                <button type="button" id="registerCccdButton" class="btn btn-outline-primary" onclick="document.getElementById('registerCccdImage').click()"><i class="bx bx-image-add me-1"></i> Quét CCCD từ ảnh</button>
+                                                <input type="file" id="registerCccdImage" class="d-none js-cccd-image" accept="image/*"
                                                     data-button="#registerCccdButton" data-status="#registerCccdStatus"
                                                     data-target-cccd="input[name='cccd']" data-target-first-name="input[name='first_name']"
                                                     data-target-last-name="input[name='last_name']" data-target-birthday="#reg_birthday"
@@ -126,7 +126,9 @@
                                             Ngày sinh
                                         </label>
 
-                                        @php($bdVal = old('birthday', ''))
+                                        @php
+                                            $bdVal = old('birthday', '');
+                                        @endphp
                                         <input type="date" name="birthday" id="reg_birthday"
                                             class="form-control" value="{{ $bdVal }}"
                                             min="1900-01-01" max="{{ now('Asia/Ho_Chi_Minh')->toDateString() }}"

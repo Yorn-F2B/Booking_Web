@@ -24,14 +24,7 @@
                 </a>
 
             </div>
-
-            @if (session('success'))
-                <div class="alert alert-success">
-                    {{ session('success') }}
-                </div>
-            @endif
-
-            <div class="settings-section mb-3">
+<div class="settings-section mb-3">
                 <form method="GET" action="{{ route('room-categories.index') }}" class="row g-2 align-items-end">
                     <div class="col-md-6">
                         <label class="form-label small fw-bold">Tìm hạng phòng</label>

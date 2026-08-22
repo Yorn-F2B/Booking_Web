@@ -10,27 +10,12 @@
 
 </head>
 
-<body class="admin-page">
-    <div class="d-none" aria-hidden="true">
-        @if(session('success'))
-            <span data-admin-flash data-type="success">{{ session('success') }}</span>
-        @endif
-        @if(session('error'))
-            <span data-admin-flash data-type="error">{{ session('error') }}</span>
-        @endif
-        @if(session('warning'))
-            <span data-admin-flash data-type="warning">{{ session('warning') }}</span>
-        @endif
-        @if(session('info'))
-            <span data-admin-flash data-type="info">{{ session('info') }}</span>
-        @endif
-        @if($errors->any())
-            @foreach($errors->all() as $error)
-                <span data-admin-flash data-type="error">{{ $error }}</span>
-            @endforeach
-        @endif
-    </div>
-
+<body class="admin-page"
+    @auth
+        data-auth-user-id="{{ auth()->id() }}"
+        data-auth-user-role="{{ auth()->user()->role }}"
+    @endauth>
+    @include('partials.flash-toasts')
     <div class="admin-sidebar-overlay" id="adminSidebarOverlay"></div>
 
     {{-- Header --}}
@@ -44,8 +29,41 @@
     {{-- Footer --}}
     @include('admin.layouts.partials.scripts')
 
+    {{-- Camera thật dùng getUserMedia cho mọi nút "Chụp ảnh" --}}
+    @include('partials.camera-capture')
+
     {{-- Axios, Echo, Reverb và realtime chat --}}
     @vite('resources/js/app.js')
+
+    @auth
+        @if(in_array(auth()->user()->role, ['receptionist', 'receptionist_lead'], true))
+            <script>
+                (function () {
+                    const url = @json(route('admin.chats.presence.heartbeat'));
+                    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+                    const heartbeat = async function () {
+                        try {
+                            await fetch(url, {
+                                method: 'POST',
+                                credentials: 'same-origin',
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    'X-CSRF-TOKEN': csrf,
+                                },
+                            });
+                        } catch (error) {
+                            console.debug('Chat heartbeat unavailable.', error);
+                        }
+                    };
+
+                    heartbeat();
+                    window.setInterval(heartbeat, 45000);
+                })();
+            </script>
+        @endif
+    @endauth
 
 </body>
 

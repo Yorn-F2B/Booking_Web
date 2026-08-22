@@ -1,6 +1,6 @@
 @extends('layouts.user')
 
-@section('title', 'User Settings')
+@section('title', 'Tài khoản')
 
 @section('content')
     @php
@@ -57,7 +57,7 @@
                         <hr class="my-3" />
                         <ul class="list-unstyled text-start small text-muted mb-0" style="line-height:2">
                             <li><i class="bx bx-calendar-check me-2 text-gold"></i>Thành viên từ:
-                                {{ Auth::user()->created_at }}
+                                {{ Auth::user()->created_at?->timezone('Asia/Ho_Chi_Minh')->format('d/m/Y') ?? '—' }}
                             </li>
                             <li><i class="bx bx-hotel me-2 text-gold"></i>Đã đặt: {{ $bookingCount }} lần</li>
                         </ul>
@@ -104,14 +104,7 @@
                                     <i class="bx bx-user"></i>
                                     Thông tin cá nhân
                                 </h3>
-
-                                @if(session('success'))
-                                    <div class="alert alert-success">
-                                        {{ session('success') }}
-                                    </div>
-                                @endif
-
-                                @error('profile')
+@error('profile')
                                     <div class="alert alert-danger">{{ $message }}</div>
                                 @enderror
 
@@ -148,9 +141,8 @@
                                         <div class="col-12">
                                             <div class="border rounded p-3 bg-light">
                                                 <div class="fw-semibold mb-2">Đọc thông tin từ ảnh CCCD</div>
-                                                <button type="button" id="settingsCccdImageButton" class="btn btn-outline-primary btn-sm"
-                                                    onclick="document.getElementById('settingsCccdImage').click()">
-                                                    <i class="bx bx-image-add me-1"></i> Chọn ảnh CCCD
+                                                <button type="button" id="settingsCccdImageButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('settingsCccdImage').click()">
+                                                    <i class="bx bx-image-add me-1"></i> Quét CCCD từ ảnh
                                                 </button>
                                                 <input type="file" id="settingsCccdImage" class="d-none js-cccd-image"
                                                     accept="image/jpeg,image/png,image/webp"
@@ -202,7 +194,7 @@
                                             <input type="date" name="birthday" id="us_birthday"
                                                 data-birth-date data-year-select
                                                 class="form-control @error('birthday') is-invalid @enderror"
-                                                value="{{ $bdVal }}" min="1900-01-01" max="{{ now('Asia/Ho_Chi_Minh')->subYears(18)->format('Y-m-d') }}">
+                                                value="{{ $bdVal }}" min="1900-01-01" max="{{ now('Asia/Ho_Chi_Minh')->format('Y-m-d') }}">
                                             @error('birthday')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
 
@@ -270,12 +262,7 @@
                                 </h3>
                                 <p class="small text-muted mb-3">Để bảo mật tài khoản, hãy sử dụng mật khẩu mạnh gồm chữ
                                     hoa, chữ thường, số và ký tự đặc biệt.</p>
-                                @if(session('success'))
-                                    <div class="alert alert-success">
-                                        {{ session('success') }}
-                                    </div>
-                                @endif
-                                <form id="passwordForm" method="post" action="{{ route('user.password.update') }}">
+<form id="passwordForm" method="post" action="{{ route('user.password.update') }}">
                                     @csrf
                                     <div class="row g-3">
                                         <div class="col-md-12">
@@ -489,11 +476,6 @@
             </div>
         </div>
     </main>
-
-@if(session('success'))
-<script>document.addEventListener('DOMContentLoaded', function(){ document.body.dataset.profileSaved = '1'; });</script>
-@endif
-
 @include('partials.cccd-scanner-script')
 
 

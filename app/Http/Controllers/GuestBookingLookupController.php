@@ -297,9 +297,10 @@ class GuestBookingLookupController extends Controller
             return null;
         }
 
+        // Đồng bộ với chính sách booking đã snapshot tại thời điểm tạo đơn.
         return $booking->booking_type === 'hourly'
-            ? $checkInAt->copy()->addMinutes(30)
-            : $checkInAt->copy()->setTime(18, 0, 0);
+            ? $checkInAt->copy()->addMinutes($booking->hourlyCancelGraceMinutes())
+            : \Carbon\Carbon::parse($booking->check_in_date . ' ' . $booking->directCancelCutoffTime(), 'Asia/Ho_Chi_Minh');
     }
 
     private function lookupKey(string $bookingCode, string $email): string

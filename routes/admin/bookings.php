@@ -6,7 +6,6 @@ use App\Http\Controllers\Admin\BookingController;
 use App\Http\Controllers\Admin\BookingRoomController;
 use App\Http\Controllers\Admin\BookingLifecycleController;
 use App\Http\Controllers\Admin\FloorInspectionController;
-use App\Http\Controllers\Admin\InspectionApprovalController;
 use App\Http\Controllers\Admin\HousekeepingController;
 use App\Http\Controllers\Admin\BookingCreateController;
 use App\Http\Controllers\Admin\RoomAvailabilityController;
@@ -61,6 +60,8 @@ Route::patch('bookings/{booking}/change-one-room-category', [BookingLifecycleCon
 
 Route::patch('bookings/{booking}/change-all-room-category', [BookingLifecycleController::class, 'changeAllRoomCategory'])
     ->name('admin.bookings.change-all-room-category');
+Route::post('bookings/{booking}/room-operation/discard-preview', [BookingLifecycleController::class, 'discardRoomOperationPreview'])
+    ->name('admin.bookings.room-operation.discard-preview');
 
 /*
 |--------------------------------------------------------------------------
@@ -112,6 +113,8 @@ Route::patch('bookings/{booking}/check-out', [BookingLifecycleController::class,
 
 Route::post('bookings/{booking}/extend-stay/preview', [BookingLifecycleController::class, 'previewExtendStay'])
     ->name('admin.bookings.extend-stay.preview');
+Route::post('bookings/{booking}/extend-stay/discard-preview', [BookingLifecycleController::class, 'discardExtendStayPreview'])
+    ->name('admin.bookings.extend-stay.discard-preview');
 
 Route::patch('bookings/{booking}/extend-stay', [BookingLifecycleController::class, 'extendStay'])
     ->name('admin.bookings.extend-stay');
@@ -122,7 +125,7 @@ Route::post('bookings/room-category-availability', [BookingCreateController::cla
 Route::post('bookings/hourly-inventory-check', [BookingCreateController::class, 'checkHourlyInventory'])
     ->name('admin.bookings.hourly-inventory-check');
 
-Route::middleware('role:super_admin,manager,receptionist_lead')->group(function () {
+Route::middleware('role:super_admin,manager,receptionist_lead,receptionist')->group(function () {
 Route::post('bookings/{booking}/promotions', [BookingController::class, 'applyPromotions'])
     ->name('admin.bookings.promotions.store');
 });

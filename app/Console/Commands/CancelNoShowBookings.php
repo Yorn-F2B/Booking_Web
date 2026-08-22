@@ -86,7 +86,7 @@ class CancelNoShowBookings extends Command
     {
         $timezone = 'Asia/Ho_Chi_Minh';
         $checkInDate = Carbon::parse($booking->check_in_date, $timezone);
-        $originalCutoffAt = $checkInDate->copy()->setTime(18, 0);
+        $originalCutoffAt = Carbon::parse($booking->check_in_date . ' ' . $booking->lateArrivalCutoffTime(), $timezone);
         $hasExtendedHold = $booking->late_arrival_confirmed_at !== null
             && $booking->late_arrival_hours !== null
             && (float) $booking->late_arrival_hours > 0;

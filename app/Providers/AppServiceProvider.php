@@ -20,6 +20,7 @@ use App\Models\ChatConversation;
 use App\Models\ChatMessage;
 use App\Models\Customer;
 use App\Models\CustomerRequest;
+use App\Models\CustomerRequestAttachment;
 use App\Models\HotelReview;
 use App\Models\Promotion;
 use App\Models\PromotionRoomUpgradeOffer;
@@ -28,8 +29,6 @@ use App\Models\Room;
 use App\Models\RoomCategory;
 use App\Models\RoomCategoryImage;
 use App\Models\RoomInspection;
-use App\Models\RoomInspectionItem;
-use App\Models\RoomInspectionRevision;
 use App\Models\RoomIssueAttachment;
 use App\Models\RoomIssueRequest;
 use App\Models\RoomIssueRoomHold;
@@ -79,14 +78,13 @@ class AppServiceProvider extends ServiceProvider
             ChatConversation::class,
             Customer::class,
             CustomerRequest::class,
+            CustomerRequestAttachment::class,
             HotelReview::class,
             Promotion::class,
             PromotionRoomUpgradeOffer::class,
             PromotionServiceOffer::class,
             RoomCategory::class,
             RoomCategoryImage::class,
-            RoomInspectionItem::class,
-            RoomInspectionRevision::class,
             RoomIssueAttachment::class,
             RoomIssueRequest::class,
             RoomIssueRoomHold::class,

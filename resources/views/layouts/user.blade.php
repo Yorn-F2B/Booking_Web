@@ -17,6 +17,7 @@
 </head>
 
 <body>
+    @include('partials.flash-toasts')
     {{-- Header --}}
     @include('user.partials.header')
 
@@ -33,6 +34,9 @@
 
     {{-- Giao diện chat --}}
     @include('user.partials.chat-box')
+
+    {{-- Camera thật dùng getUserMedia cho mọi nút "Chụp ảnh" --}}
+    @include('partials.camera-capture')
 
     {{-- Axios, Echo, Reverb và logic chat --}}
     @vite('resources/js/app.js')

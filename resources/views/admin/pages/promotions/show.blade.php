@@ -123,14 +123,7 @@
                     </a>
                 </div>
             </div>
-
-            @if (session('success'))
-                <div class="alert alert-success">
-                    {{ session('success') }}
-                </div>
-            @endif
-
-            <div class="promotion-detail-card">
+<div class="promotion-detail-card">
                 <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
                     <div>
                         <div class="promotion-code-large mb-2">{{ $promotion->code }}</div>

@@ -25,6 +25,8 @@ use App\Services\BookingCancellationService;
 use App\Services\BookingFinancialService;
 use App\Services\PendingPaymentRequestService;
 use App\Services\BookingServicePricingService;
+use App\Services\BookingRepricingService;
+use App\Services\HotelPolicyService;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
 use App\Support\Realtime;
@@ -35,14 +37,20 @@ class BookingController extends Controller
     private const CHILD_MAX_AGE = 17;
     public function index(Request $request)
     {
-        $bookings = Booking::with([
-            'customer',
-            'roomCategory',
-            'bookingRooms.room',
-            'activeStaffAssignments.staff.staff',
-            'pendingCancellationRequest',
-            'pendingRoomIssueRequest',
-        ]);
+        $bookings = Booking::query()
+            ->visibleToOperationsUser(Auth::user())
+            ->with([
+                'customer',
+                'roomCategory',
+                'bookingRooms.room',
+                'activeStaffAssignments.staff.staff',
+                'pendingCancellationRequest',
+                'pendingRoomIssueRequest',
+            ])
+            ->withExists([
+                'logs as auto_cancelled_by_payment_expiry' => fn ($query) => $query
+                    ->where('action', 'payment_hold_expired'),
+            ]);
 
         if ($request->filled('keyword')) {
             $keyword = $request->keyword;
@@ -93,27 +101,40 @@ class BookingController extends Controller
                 ->where('check_out_at', '>', $filterStart);
         }
 
-        // Ưu tiên nghiệp vụ: việc cần xử lý và khách đang lưu trú luôn ở trên;
-        // các đơn đã trả phòng/hoàn tất/hủy được đẩy xuống cuối danh sách.
+        $sort = $request->input('sort', 'updated');
+
+        if ($sort === 'operations') {
+            // Chế độ điều hành: việc cần xử lý và khách đang lưu trú ở trên.
+            $bookings->orderByRaw("CASE
+                    WHEN status = 'inspection_requested' THEN 1
+                    WHEN status = 'checked_in' AND check_out_at <= DATE_ADD(NOW(), INTERVAL 3 HOUR) THEN 2
+                    WHEN status = 'checked_in' THEN 3
+                    WHEN status = 'pending' THEN 4
+                    WHEN status = 'confirmed' AND check_in_at <= DATE_ADD(NOW(), INTERVAL 3 HOUR) THEN 5
+                    WHEN status = 'confirmed' THEN 6
+                    WHEN status = 'checked_out' THEN 8
+                    WHEN status IN ('completed', 'cancelled', 'canceled') THEN 9
+                    ELSE 7
+                END")
+                ->orderByRaw("CASE
+                    WHEN status IN ('pending', 'confirmed') THEN check_in_at
+                    WHEN status IN ('checked_in', 'inspection_requested') THEN check_out_at
+                    ELSE NULL
+                END ASC")
+                ->orderByDesc('updated_at')
+                ->orderByDesc('id');
+        } elseif ($sort === 'created') {
+            $bookings->orderByDesc('created_at')->orderByDesc('id');
+        } else {
+            // Mặc định hiển thị thay đổi mới nhất. Booking vừa tự hủy vì hết hạn
+            // thanh toán phải xuất hiện ngay thay vì bị đẩy xuống sau các đơn cũ.
+            $sort = 'updated';
+            $bookings->orderByDesc('updated_at')->orderByDesc('id');
+        }
+
         $bookings = $bookings
-            ->orderByRaw("CASE
-                WHEN status = 'inspection_requested' THEN 1
-                WHEN status = 'checked_in' AND check_out_at <= DATE_ADD(NOW(), INTERVAL 3 HOUR) THEN 2
-                WHEN status = 'checked_in' THEN 3
-                WHEN status = 'pending' THEN 4
-                WHEN status = 'confirmed' AND check_in_at <= DATE_ADD(NOW(), INTERVAL 3 HOUR) THEN 5
-                WHEN status = 'confirmed' THEN 6
-                WHEN status = 'checked_out' THEN 8
-                WHEN status IN ('completed', 'cancelled', 'canceled') THEN 9
-                ELSE 7
-            END")
-            ->orderByRaw("CASE
-                WHEN status IN ('pending', 'confirmed') THEN check_in_at
-                WHEN status IN ('checked_in', 'inspection_requested') THEN check_out_at
-                ELSE NULL
-            END ASC")
-            ->latest('id')
-            ->paginate(10);
+            ->paginate(10)
+            ->withQueryString();
 
         return view('admin.pages.bookings.index', compact('bookings'));
     }
@@ -136,6 +157,7 @@ class BookingController extends Controller
             'roomInspections.room',
             'roomInspections.items.guestResponder',
             'roomInspections.items.rechecker',
+            'roomInspections.items.detector',
             'serviceItems.service',
             'serviceItems.bookingRoom.room.category',
             'bookingPromotions.user',
@@ -568,54 +590,38 @@ class BookingController extends Controller
             'note' => 'nullable|string|max:1000',
         ]);
 
-        $oldStatus = $booking->status;
-        $oldPaymentStatus = $booking->payment_status;
-
-        $booking->update($data);
-
-        $booking->load('bookingRooms.room');
-
-        foreach ($booking->bookingRooms as $bookingRoom) {
-            if (!$bookingRoom->room) {
-                continue;
-            }
-
-            if ($booking->status == 'checked_in') {
-                $bookingRoom->room->update([
-                    'status' => 'occupied',
-                ]);
-            }
-
-            if ($booking->status == 'checked_out') {
-                $bookingRoom->room->update([
-                    'status' => 'cleaning',
-                ]);
-            }
-        }
-
-        $changes = [];
-
-        if ($oldStatus !== $booking->status) {
-            $changes[] = 'trạng thái booking từ ' . $oldStatus . ' sang ' . $booking->status;
-        }
-
-        if ($oldPaymentStatus !== $booking->payment_status) {
-            $changes[] = 'thanh toán từ ' . $oldPaymentStatus . ' sang ' . $booking->payment_status;
-        }
-
-        if (!empty($changes)) {
-            $this->addBookingLog(
-                $booking,
-                'booking_update',
-                'Cập nhật nhanh: ' . implode(', ', $changes) . '.'
+        // Không cho form chỉnh sửa chung bỏ qua state machine của booking.
+        // Check-in/check-out/xác nhận/hủy phải đi qua các nghiệp vụ riêng để kiểm tra
+        // tiền cọc, tình trạng phòng, kiểm phòng và ghi log đầy đủ.
+        if ($data['status'] !== $booking->status) {
+            return back()->with(
+                'error',
+                'Không thể đổi trạng thái booking tại màn hình chỉnh sửa chung. Hãy dùng đúng nút nghiệp vụ Xác nhận / Check-in / Kiểm phòng / Check-out / Hủy.'
             );
         }
 
-        Realtime::booking($booking, 'updated');
+        $financials = app(BookingFinancialService::class);
+        $financials->refreshPaymentStatus($booking);
+        $booking->refresh();
+
+        if ($data['payment_status'] !== $booking->payment_status) {
+            return back()->with(
+                'error',
+                'Trạng thái thanh toán được tính tự động từ các giao dịch thành công. Hãy ghi nhận thanh toán ở mục Thanh toán thay vì sửa trạng thái bằng tay.'
+            );
+        }
+
+        $oldNote = (string) ($booking->note ?? '');
+        $newNote = (string) ($data['note'] ?? '');
+        if ($oldNote !== $newNote) {
+            $booking->update(['note' => $data['note'] ?? null]);
+            $this->addBookingLog($booking, 'booking_note_updated', 'Cập nhật ghi chú booking.');
+            Realtime::booking($booking, 'updated');
+        }
 
         return redirect()
             ->route('admin.bookings.show', $booking->id)
-            ->with('success', 'Cập nhật booking và trạng thái phòng thành công.');
+            ->with('success', 'Cập nhật thông tin booking thành công.');
     }
 
     public function cancel(
@@ -630,12 +636,12 @@ class BookingController extends Controller
         }
 
         $checkInDate = Carbon::parse($booking->check_in_date, 'Asia/Ho_Chi_Minh');
-        $directCancelCutoff = $checkInDate->copy()->setTime(14, 0, 0);
-        $holdCutoff = $checkInDate->copy()->setTime(18, 0, 0);
+        $directCancelCutoff = Carbon::parse($booking->check_in_date . ' ' . $booking->directCancelCutoffTime(), 'Asia/Ho_Chi_Minh');
+        $holdCutoff = Carbon::parse($booking->check_in_date . ' ' . $booking->lateArrivalCutoffTime(), 'Asia/Ho_Chi_Minh');
         $now = now('Asia/Ho_Chi_Minh');
 
         if ($now->greaterThanOrEqualTo($holdCutoff)) {
-            return back()->with('error', 'Đơn đã qua 18:00 ngày nhận phòng. Hãy xử lý theo luồng no-show.');
+            return back()->with('error', 'Đơn đã qua ' . $holdCutoff->format('H:i') . ' ngày nhận phòng. Hãy xử lý theo luồng no-show.');
         }
 
         if ($now->greaterThanOrEqualTo($directCancelCutoff)) {
@@ -665,7 +671,7 @@ class BookingController extends Controller
                 'booking_id' => $booking->id,
                 'user_id' => Auth::id(),
                 'action' => 'admin_cancellation_otp_sent',
-                'description' => 'Lễ tân đã gửi mã OTP xác nhận hủy sau 14:00.',
+                'description' => 'Lễ tân đã gửi mã OTP xác nhận hủy sau ' . $directCancelCutoff->format('H:i') . '.',
             ]);
 
             return back()->with('success', 'Đã gửi mã xác nhận hủy về email khách.');
@@ -716,6 +722,10 @@ class BookingController extends Controller
         DB::beginTransaction();
 
         try {
+            $booking = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
+            if (!in_array($booking->status, ['pending', 'confirmed', 'checked_in'], true)) {
+                throw new \RuntimeException('Booking vừa thay đổi trạng thái nên không thể thêm dịch vụ lúc này.');
+            }
             $booking->loadMissing(['bookingRooms.room.category', 'guests']);
             $totalAdded = 0;
             $logMessages = [];
@@ -739,8 +749,26 @@ class BookingController extends Controller
 
                 $quantity = max(1, (int) $serviceRow['quantity']);
                 $unitPrice = (float) $service->price;
-                $nightCount = max(1, $booking->check_in_at->copy()->startOfDay()->diffInDays($booking->check_out_at->copy()->startOfDay()));
                 $pricing = app(BookingServicePricingService::class);
+                $nightCount = $pricing->nightCountForNewService($booking);
+
+                $pendingQuery = BookingServiceItem::where('booking_id', $booking->id)
+                    ->where('service_id', $service->id)
+                    ->where('scope', $scope)
+                    ->whereIn('type', ['service', 'minibar_order'])
+                    ->where('billing_status', 'pending');
+
+                $scope === 'room'
+                    ? $pendingQuery->where('booking_room_id', $bookingRoom->id)
+                    : $pendingQuery->whereNull('booking_room_id');
+
+                if ($pendingQuery->lockForUpdate()->exists()) {
+                    throw new \RuntimeException(
+                        'Dịch vụ "' . $service->name . '" đã có yêu cầu của khách đang chờ xác nhận'
+                        . ($scope === 'room' ? ' cho phòng ' . ($bookingRoom->room?->room_number ?? '---') : '')
+                        . '. Hãy xác nhận hoặc từ chối yêu cầu hiện có thay vì thêm trùng.'
+                    );
+                }
 
                 $existingQuery = BookingServiceItem::where('booking_id', $booking->id)
                     ->where('service_id', $service->id)
@@ -752,7 +780,12 @@ class BookingController extends Controller
                     ? $existingQuery->where('booking_room_id', $bookingRoom->id)
                     : $existingQuery->whereNull('booking_room_id');
 
-                $existingItem = $existingQuery->lockForUpdate()->first();
+                // Sau khi đã check-in, mỗi lần gọi thêm là một snapshot mới.
+                // Không gộp vào dòng đã xác nhận trước đó vì sẽ làm thay đổi ngược
+                // số đêm/số phòng/số khách của phần dịch vụ đã chốt.
+                $existingItem = ($booking->actual_check_in || $booking->status === 'checked_in')
+                    ? null
+                    : $existingQuery->lockForUpdate()->first();
                 $oldItemTotal = (float) ($existingItem?->total ?? 0);
                 $newBaseQuantity = $quantity + ($existingItem
                     ? max(1, (int) ($existingItem->base_quantity ?? $existingItem->quantity))
@@ -824,17 +857,7 @@ class BookingController extends Controller
                     . ' (' . $service->billing_rule_label . '): ' . $snapshot['formula'];
             }
 
-            if (abs($totalAdded) > 0.01) {
-                $oldSubtotal = (float) ($booking->subtotal_amount ?? 0);
-                if ($oldSubtotal <= 0) {
-                    $oldSubtotal = (float) $booking->estimated_total + (float) ($booking->discount_amount ?? 0);
-                }
-                $booking->subtotal_amount = max(0, $oldSubtotal + $totalAdded);
-                $booking->estimated_total = max(0, (float) $booking->estimated_total + $totalAdded);
-                $booking->save();
-            }
-
-            app(BookingFinancialService::class)->refreshPaymentStatus($booking);
+            $this->repriceAfterServiceChange($booking);
             $this->addBookingLog(
                 $booking,
                 'service_added',
@@ -873,11 +896,34 @@ class BookingController extends Controller
         DB::beginTransaction();
 
         try {
+            $booking = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
+            if (!in_array($booking->status, ['pending', 'confirmed', 'checked_in'], true)) {
+                throw new \RuntimeException('Booking vừa thay đổi trạng thái nên không thể sửa dịch vụ lúc này.');
+            }
+            $bookingServiceItem = BookingServiceItem::whereKey($bookingServiceItem->id)
+                ->where('booking_id', $booking->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            if (!in_array($bookingServiceItem->type, ['service', 'minibar_order'], true)) {
+                throw new \RuntimeException('Khoản thu này không phải dịch vụ/minibar có thể sửa số lượng.');
+            }
+
+            if (
+                ($booking->actual_check_in || $booking->status === 'checked_in')
+                && $bookingServiceItem->billing_status === 'confirmed'
+            ) {
+                throw new \RuntimeException(
+                    'Dịch vụ đã xác nhận sau khi khách check-in được giữ nguyên snapshot lịch sử. '
+                    . 'Nếu phát sinh thêm, hãy thêm một dòng dịch vụ mới thay vì sửa ngược dòng đã chốt.'
+                );
+            }
+
             $oldTotal = (float) $bookingServiceItem->total;
             $oldQuantity = (int) $bookingServiceItem->quantity;
 
             $newQuantity = (int) $data['quantity'];
-            $nightCount = max(1, $booking->check_in_at->copy()->startOfDay()->diffInDays($booking->check_out_at->copy()->startOfDay()));
+            $pricing = app(BookingServicePricingService::class);
+            $nightCount = $pricing->nightCountForNewService($booking);
             $booking->loadMissing(['bookingRooms', 'guests']);
             if (($bookingServiceItem->scope ?? 'booking') === 'room' && $bookingServiceItem->booking_room_id) {
                 $roomQuantity = 1;
@@ -886,7 +932,7 @@ class BookingController extends Controller
                 $roomQuantity = max(1, (int) $booking->room_quantity);
                 $guestCount = max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0));
             }
-            $line = app(BookingServicePricingService::class)->calculateLine(
+            $line = $pricing->calculateLine(
                 $bookingServiceItem->billing_rule_snapshot ?: ($bookingServiceItem->service?->billing_rule ?? Service::BILLING_ONCE),
                 $newQuantity,
                 (float) $bookingServiceItem->unit_price,
@@ -907,24 +953,12 @@ class BookingController extends Controller
                 'people_snapshot' => $line['guest_count'],
                 'billing_status' => 'confirmed',
                 'confirmed_by' => Auth::id(),
-                'confirmed_at' => now(),
+                'confirmed_at' => $bookingServiceItem->confirmed_at ?: now(),
                 'confirm_note' => 'Dịch vụ hoặc minibar gọi thêm, tính tiền ngay vào booking.',
                 'total' => $newTotal,
             ]);
 
-            if ($difference != 0) {
-                $oldSubtotal = (float) ($booking->subtotal_amount ?? 0);
-
-                if ($oldSubtotal <= 0) {
-                    $oldSubtotal = (float) $booking->estimated_total + (float) ($booking->discount_amount ?? 0);
-                }
-
-                $booking->subtotal_amount = max(0, $oldSubtotal + $difference);
-                $booking->estimated_total = max(0, (float) $booking->estimated_total + $difference);
-                $booking->save();
-            }
-
-            app(BookingFinancialService::class)->refreshPaymentStatus($booking);
+            $this->repriceAfterServiceChange($booking);
 
             $this->addBookingLog(
                 $booking,
@@ -957,31 +991,57 @@ class BookingController extends Controller
         DB::beginTransaction();
 
         try {
-            $total = (float) $bookingServiceItem->total;
-            $serviceName = $bookingServiceItem->name;
-
-            $bookingServiceItem->delete();
-
-            $oldSubtotal = (float) ($booking->subtotal_amount ?? 0);
-
-            if ($oldSubtotal <= 0) {
-                $oldSubtotal = (float) $booking->estimated_total + (float) ($booking->discount_amount ?? 0);
+            $booking = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
+            if (!in_array($booking->status, ['pending', 'confirmed', 'checked_in'], true)) {
+                throw new \RuntimeException('Booking vừa thay đổi trạng thái nên không thể xóa dịch vụ lúc này.');
+            }
+            $bookingServiceItem = BookingServiceItem::whereKey($bookingServiceItem->id)
+                ->where('booking_id', $booking->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            if (!in_array($bookingServiceItem->type, ['service', 'minibar_order'], true)) {
+                throw new \RuntimeException('Khoản thu này không phải dịch vụ/minibar có thể xóa thủ công.');
             }
 
-            $booking->subtotal_amount = max(0, $oldSubtotal - $total);
-            $booking->estimated_total = max(0, (float) $booking->estimated_total - $total);
-            $booking->save();
-            app(BookingFinancialService::class)->refreshPaymentStatus($booking);
+            $total = (float) $bookingServiceItem->total;
+            $serviceName = $bookingServiceItem->name;
+            $preserveHistory = (bool) $booking->actual_check_in || $booking->status === 'checked_in';
+
+            if ($preserveHistory) {
+                $wasConfirmed = $bookingServiceItem->billing_status === 'confirmed';
+                $bookingServiceItem->forceFill([
+                    'billing_status' => 'cancelled',
+                    'confirm_note' => trim(
+                        ($bookingServiceItem->confirm_note ? $bookingServiceItem->confirm_note . "\n" : '')
+                        . 'Đã hủy ghi nhận bởi nhân viên lúc '
+                        . now('Asia/Ho_Chi_Minh')->format('d/m/Y H:i')
+                        . ' để giữ lịch sử sau check-in.'
+                    ),
+                ])->save();
+            } else {
+                $wasConfirmed = $bookingServiceItem->billing_status === 'confirmed';
+                $bookingServiceItem->delete();
+            }
+
+            $this->repriceAfterServiceChange($booking);
 
             $this->addBookingLog(
                 $booking,
-                'service_removed',
-                'Xóa dịch vụ "' . $serviceName . '". Trừ khỏi tổng tiền: ' . number_format($total, 0, ',', '.') . 'đ.'
+                $preserveHistory ? 'service_cancelled' : 'service_removed',
+                ($preserveHistory ? 'Hủy ghi nhận' : 'Xóa') . ' dịch vụ "' . $serviceName . '".'
+                . ($wasConfirmed
+                    ? ' Loại khỏi tổng tiền: ' . number_format($total, 0, ',', '.') . 'đ.'
+                    : ' Yêu cầu chưa xác nhận nên chưa phát sinh tiền.')
             );
 
             DB::commit();
 
-            return back()->with('success', 'Đã xóa dịch vụ khỏi booking.');
+            return back()->with(
+                'success',
+                $preserveHistory
+                    ? 'Đã hủy ghi nhận dịch vụ và giữ lại lịch sử, khoản này không còn được tính vào tổng tiền.'
+                    : 'Đã xóa dịch vụ khỏi booking.'
+            );
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -993,41 +1053,36 @@ class BookingController extends Controller
     {
         $this->guardCanAccessBooking($booking);
 
-        if ($booking->payment_status === 'paid') {
-            return back()->with('error', 'Booking đã thanh toán nên không thể đổi trạng thái thanh toán.');
-        }
-
-        $data = $request->validate([
+        $request->validate([
             'payment_status' => 'required|in:unpaid,partial,paid',
         ]);
 
+        $financials = app(BookingFinancialService::class);
         $oldPaymentStatus = $booking->payment_status;
-
-        if ($oldPaymentStatus == 'partial' && $data['payment_status'] == 'unpaid') {
-            return back()->with('error', 'Booking đã có thanh toán một phần nên không thể chuyển về chưa thanh toán.');
-        }
-
-        $booking->update([
-            'payment_status' => $data['payment_status'],
-        ]);
+        $financials->refreshPaymentStatus($booking);
+        $booking->refresh();
 
         if ($oldPaymentStatus !== $booking->payment_status) {
             $this->addBookingLog(
                 $booking,
-                'payment_update',
-                'Cập nhật thanh toán từ ' . $oldPaymentStatus . ' sang ' . $booking->payment_status . '.'
+                'payment_status_reconciled',
+                'Đồng bộ trạng thái thanh toán theo giao dịch thực tế: '
+                . $oldPaymentStatus . ' → ' . $booking->payment_status . '.'
             );
         }
 
-        return back()->with('success', 'Cập nhật trạng thái thanh toán thành công.');
+        return back()->with(
+            'success',
+            'Trạng thái thanh toán đã được đồng bộ theo các giao dịch thành công. Muốn thu tiền, hãy dùng mục Ghi nhận thanh toán.'
+        );
     }
 
     public function recordPayment(Request $request, Booking $booking)
     {
         $this->guardCanAccessBooking($booking);
 
-        if (in_array($booking->status, ['canceled', 'cancelled', 'no_show'], true)) {
-            return back()->with('error', 'Booking đã hủy/no-show nên không thể ghi nhận thanh toán.');
+        if ($booking->status === 'cancelled') {
+            return back()->with('error', 'Booking đã hủy nên không thể ghi nhận thanh toán.');
         }
 
         $data = $request->validate([
@@ -1078,15 +1133,23 @@ class BookingController extends Controller
             if ($amount <= 0) {
                 throw new \Exception(
                     $data['payment_type'] === 'deposit_30'
-                        ? 'Booking đã đủ mức cọc 30% hiện tại. Hãy chọn thu phần còn lại hoặc nhập số tiền khác.'
+                        ? 'Booking đã đủ mức cọc ' . $this->depositPercentLabel($booking) . ' hiện tại. Hãy chọn thu phần còn lại hoặc nhập số tiền khác.'
                         : 'Số tiền thu không hợp lệ.'
                 );
             }
 
-            // Ghi nhận đúng toàn bộ số tiền khách thực tế đưa/chuyển. Nếu vượt số
-            // đang còn phải thu thì phần vượt không bị bỏ đi và không tự coi là tiền
-            // trả lại; hệ thống giữ làm tiền trả trước để bù trừ phát sinh sau đó.
+            // Ghi nhận đúng toàn bộ số tiền khách thực tế đưa/chuyển. Nếu booking
+            // vẫn pending vì đang chờ VNPay/cọc, chuyển sang thanh toán tại quầy
+            // phải thu tối thiểu đủ mức cọc trước khi bỏ cơ chế giữ chỗ có hạn.
             $newPaidAmount = $currentPaid + $amount;
+            if ($booking->status === 'pending' && $newPaidAmount + 0.01 < $requiredDeposit) {
+                throw new \Exception(
+                    'Booking đang chờ cọc. Khi chuyển sang thanh toán tại quầy phải thu tối thiểu đủ mức cọc còn thiếu: '
+                    . number_format(max(0, $requiredDeposit - $currentPaid), 0, ',', '.')
+                    . 'đ.'
+                );
+            }
+
             $newOverpayment = max(0, $newPaidAmount - $payableTotal);
             $newPaymentStatus = $newPaidAmount + 0.01 >= $payableTotal ? 'paid' : 'partial';
             $allocatedDepositAfter = min($newPaidAmount, $requiredDeposit);
@@ -1134,7 +1197,12 @@ class BookingController extends Controller
             $booking->forceFill([
                 'payment_status' => $newPaymentStatus,
                 'overpayment_amount' => $newOverpayment,
+                'payment_expires_at' => null,
+                'status' => $booking->status === 'pending' && $newPaidAmount + 0.01 >= $requiredDeposit
+                    ? 'confirmed'
+                    : $booking->status,
             ])->save();
+            $bookingObserverBroadcastedPayment = $booking->wasChanged();
 
             $methodLabel = $data['payment_method'] === 'cash'
                 ? 'tiền mặt tại quầy'
@@ -1147,7 +1215,7 @@ class BookingController extends Controller
                 . number_format($amount, 0, ',', '.')
                 . 'đ. Tổng đã thu: '
                 . number_format($newPaidAmount, 0, ',', '.')
-                . 'đ. Mức cọc 30% hiện tại: '
+                . 'đ. Mức cọc ' . $this->depositPercentLabel($booking) . ' hiện tại: '
                 . number_format($requiredDeposit, 0, ',', '.')
                 . 'đ; đã phân bổ vào cọc: '
                 . number_format($allocatedDepositAfter, 0, ',', '.')
@@ -1169,7 +1237,11 @@ class BookingController extends Controller
 
             DB::commit();
 
-            Realtime::booking($booking->id, 'payment_updated');
+            // BookingObserver đã broadcast nếu model thực sự đổi. Chỉ phát tay
+            // khi payment record mới được tạo nhưng các cột booking không đổi.
+            if (!$bookingObserverBroadcastedPayment) {
+                Realtime::booking($booking->id, 'payment_updated');
+            }
 
             $successMessage = 'Đã ghi nhận toàn bộ ' . number_format($amount, 0, ',', '.') . 'đ khách thực tế thanh toán.';
             if ($newOverpayment > 0) {
@@ -1245,12 +1317,7 @@ class BookingController extends Controller
     {
         $user = Auth::user();
 
-        abort_unless($user && in_array($user->role, [
-            'super_admin',
-            'manager',
-            'receptionist_lead',
-            'receptionist',
-        ], true), 403, 'Bạn không có quyền xử lý booking này.');
+        abort_unless($booking->canBeHandledBy($user), 403, 'Booking này đang được phân cho lễ tân khác hoặc bạn không có quyền xử lý.');
     }
 
     public function addGuest(Request $request, Booking $booking)
@@ -1273,6 +1340,15 @@ class BookingController extends Controller
             return back()->withErrors(['guests' => 'Vui lòng nhập ít nhất một khách lưu trú.'])->withInput();
         }
 
+        // Ngày sinh là nguồn xác định nhóm tuổi. Không tin giá trị guest_type từ UI,
+        // đồng thời phải phân loại trước khi sort để người lớn được tạo trước trẻ cần giám hộ.
+        $guestPayloads = collect($guestPayloads)->map(function (array $payload) {
+            if (filled($payload['birthday'] ?? null)) {
+                $payload['guest_type'] = $this->guestTypeFromBirthday((string) $payload['birthday']);
+            }
+            return $payload;
+        })->all();
+
         $createdGuests = collect();
         DB::transaction(function () use ($booking, $guestPayloads, $createdGuests) {
             $hasRepresentative = $booking->guests()->where('is_booking_representative', true)->exists();
@@ -1284,7 +1360,9 @@ class BookingController extends Controller
             if (!$hasRepresentative && !$payloads->contains(fn ($payload) => !empty($payload['is_booking_representative']))) {
                 $firstAdultKey = $payloads->search(fn ($payload) => ($payload['guest_type'] ?? null) === 'adult');
                 if ($firstAdultKey !== false) {
-                    $payloads[$firstAdultKey]['is_booking_representative'] = 1;
+                    $firstAdultPayload = $payloads->get($firstAdultKey);
+                    $firstAdultPayload['is_booking_representative'] = 1;
+                    $payloads->put($firstAdultKey, $firstAdultPayload);
                 }
             }
 
@@ -1442,7 +1520,8 @@ class BookingController extends Controller
     {
         $data = $request->validate([
             'full_name' => ['required', 'string', 'max:255'],
-            'guest_type' => ['required', 'in:adult,child,infant'],
+            // Nhóm tuổi được server tự suy ra từ ngày sinh; field này chỉ giữ để tương thích UI cũ.
+            'guest_type' => ['nullable', 'in:adult,child,infant'],
             'document_type' => ['nullable', 'in:cccd,passport,birth_certificate,personal_id,other,none'],
             'document_number' => ['nullable', 'string', 'max:50'],
             'birthday' => ['required', 'date', 'before_or_equal:today'],
@@ -1454,9 +1533,10 @@ class BookingController extends Controller
             'guardian_guest_id' => ['nullable', 'integer', 'exists:booking_guests,id'],
             'guardian_relationship' => ['nullable', 'string', 'max:100'],
             'note' => ['nullable', 'string', 'max:500'],
+            'no_document_acknowledged' => ['nullable', 'boolean'],
+            'no_document_reason' => ['nullable', 'string', 'max:500'],
         ], [
             'full_name.required' => 'Vui lòng nhập họ và tên khách lưu trú.',
-            'guest_type.required' => 'Vui lòng chọn nhóm tuổi của khách.',
             'birthday.required' => 'Vui lòng nhập ngày sinh.',
             'gender.required' => 'Vui lòng chọn giới tính.',
             'nationality.required' => 'Vui lòng nhập quốc tịch.',
@@ -1469,24 +1549,8 @@ class BookingController extends Controller
             ]);
         }
 
-        $birthday = Carbon::parse($data['birthday'])->startOfDay();
-        $age = $birthday->age;
-        $expectedGuestType = $age <= self::INFANT_MAX_AGE
-            ? 'infant'
-            : ($age <= self::CHILD_MAX_AGE ? 'child' : 'adult');
-
-        if ($data['guest_type'] !== $expectedGuestType) {
-            $expectedLabel = [
-                'adult' => 'Người lớn (từ 18 tuổi)',
-                'child' => 'Trẻ em (6–17 tuổi)',
-                'infant' => 'Em bé (0–5 tuổi)',
-            ][$expectedGuestType];
-
-            throw \Illuminate\Validation\ValidationException::withMessages([
-                'guest_type' => 'Ngày sinh tương ứng nhóm "' . $expectedLabel . '". Vui lòng kiểm tra lại nhóm tuổi hoặc ngày sinh.',
-                'birthday' => 'Ngày sinh và nhóm tuổi đang không khớp.',
-            ]);
-        }
+        // Server là nguồn sự thật: ngày sinh tự quyết định Người lớn / Trẻ em / Em bé.
+        $data['guest_type'] = $this->guestTypeFromBirthday((string) $data['birthday']);
 
         if ($request->boolean('is_booking_representative')) {
             $otherRepresentativeExists = $booking->guests()
@@ -1501,9 +1565,13 @@ class BookingController extends Controller
             }
         }
 
-        if (!empty(trim((string) ($data['document_number'] ?? '')))) {
+        $documentNumber = trim((string) ($data['document_number'] ?? ''));
+        $documentType = (string) ($data['document_type'] ?? 'none');
+        $hasValidDocument = $this->hasValidStayingGuestDocument($documentType, $documentNumber);
+
+        if ($documentNumber !== '') {
             $duplicateDocument = $booking->guests()
-                ->where('document_number', trim((string) $data['document_number']))
+                ->where('document_number', $documentNumber)
                 ->when($guest, fn ($query) => $query->where('id', '!=', $guest->id))
                 ->exists();
 
@@ -1514,13 +1582,55 @@ class BookingController extends Controller
             }
         }
 
-        $isMinor = in_array($data['guest_type'], ['child', 'infant'], true);
-        if (!$isMinor) {
-            if (empty($data['document_type']) || $data['document_type'] === 'none' || empty(trim((string) ($data['document_number'] ?? '')))) {
+        // Khách chưa xuất trình giấy tờ chỉ được thêm sau khi lễ tân xác nhận panel rủi ro.
+        // Với hồ sơ cũ đã xác nhận, chỉnh sửa thông tin khác không bắt xác nhận lại.
+        $existingNoDocumentAcknowledgement = $guest
+            && !$this->hasValidStayingGuestDocument((string) $guest->document_type, trim((string) $guest->document_number))
+            && (bool) $guest->document_exception_acknowledged;
+
+        if (!$hasValidDocument) {
+            $acknowledgedNow = $request->boolean('no_document_acknowledged');
+            if (!$acknowledgedNow && !$existingNoDocumentAcknowledgement) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
-                    'document_number' => 'Người lớn phải có loại giấy tờ và số giấy tờ.',
+                    'document_number' => 'Khách chưa xuất trình giấy tờ. Phải mở panel cảnh báo và xác nhận rủi ro trước khi thêm khách vào phòng.',
+                    'no_document_acknowledged' => 'Chưa có xác nhận cho trường hợp khách không có giấy tờ.',
                 ]);
             }
+
+            $reason = trim((string) ($data['no_document_reason'] ?? ''));
+            if ($reason === '' && $existingNoDocumentAcknowledgement) {
+                $reason = trim((string) $guest->document_exception_reason);
+            }
+            if ($reason === '') {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'no_document_reason' => 'Vui lòng ghi lý do khách chưa xuất trình giấy tờ.',
+                ]);
+            }
+
+            // Chuẩn hóa để DB/UI không hiểu nhầm rằng khách có giấy tờ chỉ vì đã chọn một loại.
+            $data['document_type'] = 'none';
+            $data['document_number'] = null;
+
+            if ($acknowledgedNow || !$existingNoDocumentAcknowledgement) {
+                $data['document_exception_acknowledged'] = true;
+                $data['document_exception_reason'] = $reason;
+                $data['document_exception_acknowledged_at'] = now('Asia/Ho_Chi_Minh');
+                $data['document_exception_acknowledged_by'] = Auth::id();
+                $data['document_exception_acknowledged_by_name'] = (string) (Auth::user()?->name ?? 'Nhân viên khách sạn');
+            } else {
+                // Giữ nguyên audit của lần xác nhận trước.
+                $data['document_exception_acknowledged'] = (bool) $guest->document_exception_acknowledged;
+                $data['document_exception_reason'] = $guest->document_exception_reason;
+                $data['document_exception_acknowledged_at'] = $guest->document_exception_acknowledged_at;
+                $data['document_exception_acknowledged_by'] = $guest->document_exception_acknowledged_by;
+                $data['document_exception_acknowledged_by_name'] = $guest->document_exception_acknowledged_by_name;
+            }
+        }
+
+        unset($data['no_document_acknowledged'], $data['no_document_reason']);
+
+        $isMinor = in_array($data['guest_type'], ['child', 'infant'], true);
+        if (!$isMinor) {
             $data['guardian_guest_id'] = null;
             $data['guardian_relationship'] = null;
         } else {
@@ -1547,12 +1657,30 @@ class BookingController extends Controller
                 ]);
             }
 
-            $data['document_type'] = $data['document_type'] ?: 'none';
+            if (!$hasValidDocument) {
+                $data['document_type'] = 'none';
+            }
         }
 
         $data['is_booking_representative'] = $request->boolean('is_booking_representative');
 
         return $data;
+    }
+
+    private function guestTypeFromBirthday(string $birthday): string
+    {
+        $age = Carbon::parse($birthday, 'Asia/Ho_Chi_Minh')->startOfDay()->age;
+
+        return $age <= self::INFANT_MAX_AGE
+            ? 'infant'
+            : ($age <= self::CHILD_MAX_AGE ? 'child' : 'adult');
+    }
+
+    private function hasValidStayingGuestDocument(?string $documentType, ?string $documentNumber): bool
+    {
+        return !empty($documentType)
+            && $documentType !== 'none'
+            && trim((string) $documentNumber) !== '';
     }
 
     private function resolveServiceScope(Booking $booking, ?string $scope, $bookingRoomId): array
@@ -1641,6 +1769,32 @@ class BookingController extends Controller
         }
     }
 
+    private function repriceAfterServiceChange(Booking $booking): array
+    {
+        $booking->refresh()->load([
+            'bookingRooms.room.category',
+            'bookingPromotions.promotion.serviceOffers.service',
+            'bookingPromotions.promotion.roomUpgradeOffers',
+            'bookingPromotions.serviceOffers',
+            'bookingPromotions.roomUpgradeOffers.offer',
+            'serviceItems.service',
+            'payments',
+            'customer',
+            'guests',
+            'roomInspections.items',
+        ]);
+
+        $oneNightRoomTotal = (float) $booking->bookingRooms->sum('price_at_booking');
+        $preview = app(BookingRepricingService::class)->preview(
+            $booking,
+            Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh'),
+            Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh'),
+            $oneNightRoomTotal
+        );
+
+        return app(BookingRepricingService::class)->apply($booking, $preview);
+    }
+
     private function addBookingLog(Booking $booking, string $action, string $description): void
     {
         BookingLog::create([
@@ -1650,4 +1804,11 @@ class BookingController extends Controller
             'description' => $description,
         ]);
     }
+
+    private function depositPercentLabel(Booking $booking): string
+    {
+        $percent = (float) app(HotelPolicyService::class)->forBooking($booking, 'payment.deposit_percent', 30);
+        return rtrim(rtrim(number_format($percent, 2, '.', ''), '0'), '.') . '%';
+    }
+
 }

@@ -27,6 +27,10 @@ class RoomInspectionItem extends Model
         'recheck_note',
         'rechecked_by',
         'rechecked_at',
+        'detection_source',
+        'detected_by',
+        'detected_at',
+        'detection_version',
     ];
 
     protected $casts = [
@@ -37,6 +41,8 @@ class RoomInspectionItem extends Model
         'guest_claimed_quantity' => 'integer',
         'guest_responded_at' => 'datetime',
         'rechecked_at' => 'datetime',
+        'detected_at' => 'datetime',
+        'detection_version' => 'integer',
     ];
 
     public function roomInspection()
@@ -57,6 +63,11 @@ class RoomInspectionItem extends Model
     public function rechecker()
     {
         return $this->belongsTo(User::class, 'rechecked_by');
+    }
+
+    public function detector()
+    {
+        return $this->belongsTo(User::class, 'detected_by');
     }
 
     public function revisions()

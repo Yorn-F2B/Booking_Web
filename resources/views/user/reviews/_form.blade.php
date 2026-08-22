@@ -8,15 +8,13 @@
         <select name="rating" class="form-select" required>
             <option value="">Chọn số sao</option>
             @foreach ($scoreOptions as $score => $label)
-                <option value="{{ $score }}" {{ (string) old('rating', $review->rating ?? '') === (string) $score ? 'selected' : '' }}>
-                    {{ $label }}
-                </option>
+                <option value="{{ $score }}" {{ (string) old('rating', $review->rating ?? '') === (string) $score ? 'selected' : '' }}>{{ $label }}</option>
             @endforeach
         </select>
     </div>
 
     <div class="col-md-6">
-        <label class="form-label fw-semibold">Vệ sinh phòng <span class="text-danger">*</span></label>
+        <label class="form-label fw-semibold">Sạch sẽ <span class="text-danger">*</span></label>
         <select name="cleanliness_rating" class="form-select" required>
             <option value="">Chọn điểm</option>
             @foreach ($scoreOptions as $score => $label)
@@ -26,7 +24,27 @@
     </div>
 
     <div class="col-md-6">
-        <label class="form-label fw-semibold">Dịch vụ / nhân viên <span class="text-danger">*</span></label>
+        <label class="form-label fw-semibold">Chất lượng / tiện nghi phòng <span class="text-danger">*</span></label>
+        <select name="room_quality_rating" class="form-select" required>
+            <option value="">Chọn điểm</option>
+            @foreach ($scoreOptions as $score => $label)
+                <option value="{{ $score }}" {{ (string) old('room_quality_rating', $review->room_quality_rating ?? '') === (string) $score ? 'selected' : '' }}>{{ $label }}</option>
+            @endforeach
+        </select>
+    </div>
+
+    <div class="col-md-6">
+        <label class="form-label fw-semibold">Nhân viên <span class="text-danger">*</span></label>
+        <select name="staff_rating" class="form-select" required>
+            <option value="">Chọn điểm</option>
+            @foreach ($scoreOptions as $score => $label)
+                <option value="{{ $score }}" {{ (string) old('staff_rating', $review->staff_rating ?? '') === (string) $score ? 'selected' : '' }}>{{ $label }}</option>
+            @endforeach
+        </select>
+    </div>
+
+    <div class="col-md-6">
+        <label class="form-label fw-semibold">Dịch vụ <span class="text-danger">*</span></label>
         <select name="service_rating" class="form-select" required>
             <option value="">Chọn điểm</option>
             @foreach ($scoreOptions as $score => $label)
@@ -36,11 +54,11 @@
     </div>
 
     <div class="col-md-6">
-        <label class="form-label fw-semibold">Vị trí khách sạn <span class="text-danger">*</span></label>
-        <select name="location_rating" class="form-select" required>
+        <label class="form-label fw-semibold">Thoải mái <span class="text-danger">*</span></label>
+        <select name="comfort_rating" class="form-select" required>
             <option value="">Chọn điểm</option>
             @foreach ($scoreOptions as $score => $label)
-                <option value="{{ $score }}" {{ (string) old('location_rating', $review->location_rating ?? '') === (string) $score ? 'selected' : '' }}>{{ $label }}</option>
+                <option value="{{ $score }}" {{ (string) old('comfort_rating', $review->comfort_rating ?? '') === (string) $score ? 'selected' : '' }}>{{ $label }}</option>
             @endforeach
         </select>
     </div>
@@ -65,6 +83,6 @@
     <div class="col-12">
         <label class="form-label fw-semibold">Nội dung đánh giá <span class="text-danger">*</span></label>
         <textarea name="comment" rows="6" class="form-control" required maxlength="1500"
-            placeholder="Chia sẻ trải nghiệm thực tế của bạn về phòng, dịch vụ, vệ sinh, vị trí...">{{ old('comment', $review->comment ?? '') }}</textarea>
+            placeholder="Chia sẻ trải nghiệm thực tế của bạn về phòng, tiện nghi, nhân viên, dịch vụ, sự thoải mái...">{{ old('comment', $review->comment ?? '') }}</textarea>
     </div>
 </div>

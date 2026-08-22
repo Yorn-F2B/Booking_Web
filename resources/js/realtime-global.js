@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let dirty = false;
     let refreshTimer = null;
+    let hiddenAt = document.hidden ? Date.now() : null;
 
     document.addEventListener('input', (event) => {
         if (event.isTrusted && event.target.closest('form')) dirty = true;
@@ -18,6 +19,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const scheduleRefresh = () => {
         refreshMenuBadges();
+
+        // Danh sách booking có refresh fragment riêng: không full reload làm mất filter/scroll.
+        if (isSpecializedBookingIndex()) {
+            window.dispatchEvent(new CustomEvent('booking-index:refresh-requested'));
+            return;
+        }
 
         // Trang có cơ chế cập nhật riêng tự xử lý realtime, không reload và không hiện thông báo chung.
         if (document.body.matches('[data-realtime-local-only]')) {
@@ -33,6 +40,27 @@ document.addEventListener('DOMContentLoaded', () => {
             window.location.reload();
         }, 900);
     };
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            hiddenAt = Date.now();
+            return;
+        }
+
+        const hiddenFor = hiddenAt ? Date.now() - hiddenAt : 0;
+        hiddenAt = null;
+        refreshMenuBadges();
+
+        // Sau khi quay lại tab đủ lâu, chủ động đồng bộ state để bù event có thể bỏ lỡ lúc reconnect.
+        if (hiddenFor >= 30000) {
+            scheduleRefresh();
+        }
+    });
+
+    window.addEventListener('online', () => {
+        // Echo/Reverb tự reconnect; đồng bộ lại dữ liệu sau khi mạng trở lại.
+        scheduleRefresh();
+    });
 
     if (document.body.classList.contains('admin-page')) {
         window.Echo.private('admin.realtime')
@@ -120,31 +148,34 @@ function isSpecializedBookingIndex() {
 }
 
 function showRefreshButton() {
-    if (document.querySelector('[data-realtime-refresh]')) return;
+    if (document.querySelector('[data-realtime-refresh-pending]')) return;
 
-    const notice = document.createElement('div');
-    notice.dataset.realtimeRefresh = 'true';
-    notice.setAttribute('role', 'status');
-    notice.style.cssText = [
-        'position:fixed', 'right:20px', 'bottom:20px', 'z-index:100000',
-        'display:flex', 'align-items:center', 'gap:12px', 'padding:10px 12px',
-        'border:1px solid #d8dee9', 'border-radius:12px', 'background:#fff',
-        'box-shadow:0 14px 36px rgba(15,23,42,.18)', 'color:#0f172a',
-        'font:600 14px/1.4 system-ui,sans-serif',
-    ].join(';');
+    const marker = document.createElement('span');
+    marker.dataset.realtimeRefreshPending = 'true';
+    marker.hidden = true;
+    document.body.appendChild(marker);
 
-    const label = document.createElement('span');
-    label.textContent = 'Có dữ liệu mới';
+    const options = {
+        title: 'Có dữ liệu mới',
+        duration: 9000,
+        actionLabel: 'Cập nhật',
+        onAction: () => window.location.reload(),
+    };
 
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = 'Cập nhật';
-    button.style.cssText = [
-        'border:0', 'border-radius:8px', 'padding:8px 12px',
-        'background:#0b1d38', 'color:#fff', 'font:700 13px system-ui,sans-serif',
-    ].join(';');
-    button.addEventListener('click', () => window.location.reload());
+    const done = () => window.setTimeout(() => marker.remove(), 9500);
 
-    notice.append(label, button);
-    document.body.appendChild(notice);
+    if (window.AppToast && typeof window.AppToast.info === 'function') {
+        window.AppToast.info('Trang có dữ liệu mới. Bạn có thể cập nhật sau khi hoàn tất nội dung đang nhập.', options);
+        done();
+        return;
+    }
+
+    window.__appToastQueue = window.__appToastQueue || [];
+    window.__appToastQueue.push({
+        message: 'Trang có dữ liệu mới. Bạn có thể cập nhật sau khi hoàn tất nội dung đang nhập.',
+        type: 'info',
+        options,
+    });
+    done();
 }
+

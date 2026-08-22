@@ -126,14 +126,15 @@ class CustomerRequestController extends Controller
             $data['expected_arrival_date'] . ' ' . $data['expected_arrival_time'],
             $timezone
         )->seconds(0);
-        $cutoff = Carbon::createFromFormat('Y-m-d H:i', $booking->check_in_date . ' 18:00', $timezone);
+        $cutoffLabel = $booking->lateArrivalCutoffTime();
+        $cutoff = Carbon::createFromFormat('Y-m-d H:i', $booking->check_in_date . ' ' . substr($cutoffLabel, 0, 5), $timezone);
         $checkOut = $booking->check_out_at
             ? Carbon::parse($booking->check_out_at)->timezone($timezone)
-            : Carbon::createFromFormat('Y-m-d H:i', $booking->check_out_date . ' 12:00', $timezone);
+            : Carbon::createFromFormat('Y-m-d H:i', $booking->check_out_date . ' ' . substr($booking->standardCheckOutTime(), 0, 5), $timezone);
 
         if ($arrival->lte($cutoff)) {
             throw ValidationException::withMessages([
-                'expected_arrival_time' => 'Giờ dự kiến đến phải sau giờ G (18:00 ngày nhận phòng).',
+                'expected_arrival_time' => 'Giờ dự kiến đến phải sau giờ G (' . substr($cutoffLabel, 0, 5) . ' ngày nhận phòng).',
             ]);
         }
 

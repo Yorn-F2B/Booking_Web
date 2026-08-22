@@ -46,11 +46,13 @@ class AppRealtimeObserver implements ShouldHandleEventsAfterCommit
         $resource = str(class_basename($model))->snake()->toString();
 
         try {
+            $isPublic = in_array($resource, self::PUBLIC_RESOURCES, true);
+
             event(new AppRealtimeUpdated(
                 $resource,
                 $action,
-                $model->getKey(),
-                in_array($resource, self::PUBLIC_RESOURCES, true),
+                $isPublic ? $model->getKey() : null,
+                $isPublic,
             ));
         } catch (Throwable $exception) {
             Log::warning('Không thể phát cập nhật realtime tổng quát.', [

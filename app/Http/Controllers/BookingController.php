@@ -17,6 +17,7 @@ use Carbon\Carbon;
 use App\Models\BookingPayment;
 use App\Models\BookingLog;
 use App\Models\HotelReview;
+use App\Models\Promotion;
 use App\Services\VnpayService;
 use App\Services\PromotionService;
 use App\Support\Realtime;
@@ -32,16 +33,12 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use App\Services\BookingCodeGenerator;
+use App\Services\HotelPolicyService;
+use App\Services\PendingPaymentRequestService;
 
 
 class BookingController extends Controller
 {
-    private const ONLINE_CHECK_IN_TIME = Booking::STANDARD_CHECK_IN_TIME;
-    private const ONLINE_CHECK_OUT_TIME = Booking::STANDARD_CHECK_OUT_TIME;
-    private const ONLINE_CHECK_IN_LABEL = '14:00';
-    private const EARLY_CHECK_IN_LABEL = '13:00';
-    private const ONLINE_CHECK_OUT_LABEL = '12:00';
-
     public function confirm(Request $request)
     {
         if (!Auth::check()) {
@@ -71,7 +68,7 @@ class BookingController extends Controller
             'child_count' => 'nullable|integer|min:0',
             'note' => 'nullable|string|max:1000',
         ], [
-            'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . self::ONLINE_CHECK_IN_LABEL . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
+            'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . $this->standardCheckInLabel() . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
             'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
         ]);
 
@@ -79,8 +76,8 @@ class BookingController extends Controller
         // Không nhận room_quantity từ request để tránh can thiệp phía client.
         $data['room_quantity'] = 1;
 
-        $checkInAt = $data['check_in_date'] . ' ' . self::ONLINE_CHECK_IN_TIME;
-        $checkOutAt = $data['check_out_date'] . ' ' . self::ONLINE_CHECK_OUT_TIME;
+        $checkInAt = $data['check_in_date'] . ' ' . $this->standardCheckInTime();
+        $checkOutAt = $data['check_out_date'] . ' ' . $this->standardCheckOutTime();
 
         $roomCategory = RoomCategory::where('status', 'active')
             ->findOrFail($data['room_category_id']);
@@ -210,7 +207,8 @@ class BookingController extends Controller
                 Rule::unique('users', 'email')->ignore($currentUser?->id),
                 Rule::unique('customers', 'email')->ignore($currentCustomer?->id),
             ],
-            'birthday' => ['required', 'date', 'before_or_equal:' . now()->subYears(18)->toDateString()],
+            'birthday' => ['required', 'date', 'before_or_equal:' . now('Asia/Ho_Chi_Minh')->subYears(max(0, (int) app(HotelPolicyService::class)->get('booking.min_age', 18)))->toDateString()],
+            'gender' => ['required', Rule::in(['male', 'female', 'other'])],
             'address' => ['required', 'string', 'max:1000'],
 
             'note' => ['nullable', 'string', 'max:1000'],
@@ -224,7 +222,7 @@ class BookingController extends Controller
             'promotion_codes' => ['nullable', 'array'],
             'promotion_codes.*' => ['nullable', 'string', 'max:50'],
         ], [
-            'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . self::ONLINE_CHECK_IN_LABEL . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
+            'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . $this->standardCheckInLabel() . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
             'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
             'last_name.required' => 'Vui lòng nhập họ của khách lưu trú.',
             'first_name.required' => 'Vui lòng nhập tên của khách lưu trú.',
@@ -238,7 +236,9 @@ class BookingController extends Controller
             'email.email' => 'Email không đúng định dạng.',
             'email.unique' => 'Email này đã được một tài khoản khác sử dụng.',
             'birthday.required' => 'Vui lòng nhập ngày sinh.',
-            'birthday.before_or_equal' => 'Người đứng tên đặt phòng phải đủ 18 tuổi.',
+            'birthday.before_or_equal' => 'Người đứng tên đặt phòng phải đủ ' . max(0, (int) app(HotelPolicyService::class)->get('booking.min_age', 18)) . ' tuổi.',
+            'gender.required' => 'Vui lòng quét CCCD hoặc chọn giới tính.',
+            'gender.in' => 'Giới tính không hợp lệ.',
             'address.required' => 'Vui lòng nhập địa chỉ liên hệ.',
             'payment_type.required' => 'Vui lòng chọn hình thức thanh toán.',
             'payment_type.in' => 'Hình thức thanh toán không hợp lệ.',
@@ -248,8 +248,8 @@ class BookingController extends Controller
         // Giá trị này do backend quyết định, không phụ thuộc dữ liệu gửi từ form.
         $data['room_quantity'] = 1;
 
-        $checkInAt = $data['check_in_date'] . ' ' . self::ONLINE_CHECK_IN_TIME;
-        $checkOutAt = $data['check_out_date'] . ' ' . self::ONLINE_CHECK_OUT_TIME;
+        $checkInAt = $data['check_in_date'] . ' ' . $this->standardCheckInTime();
+        $checkOutAt = $data['check_out_date'] . ' ' . $this->standardCheckOutTime();
 
         $roomCategory = RoomCategory::where('status', 'active')
             ->findOrFail($data['room_category_id']);
@@ -269,6 +269,15 @@ class BookingController extends Controller
         $requestedRoomQuantity = 1;
 
         $booking = DB::transaction(function () use ($data, $roomCategory, $checkInAt, $checkOutAt, $requestedRoomQuantity) {
+            $existingCustomer = Customer::query()->where('user_id', Auth::id())->lockForUpdate()->first();
+            if ($existingCustomer) {
+                app(BookingIdentityGuard::class)->assertIdentityUpdateAllowed(
+                    $existingCustomer,
+                    $data['cccd'],
+                    $data['birthday']
+                );
+            }
+
             $customer = Customer::updateOrCreate(
                 [
                     'user_id' => Auth::id(),
@@ -280,15 +289,22 @@ class BookingController extends Controller
                     'cccd' => $data['cccd'],
                     'email' => $data['email'],
                     'birthday' => $data['birthday'],
+                    'gender' => $data['gender'],
                     'address' => $data['address'],
-                    'status' => 'active',
                 ]
             );
+
+            // Tuần tự hóa các lần submit cùng một tài khoản để không tạo hai booking
+            // chồng thời gian khi người dùng bấm thanh toán nhiều tab cùng lúc.
+            $customer = Customer::whereKey($customer->id)->lockForUpdate()->firstOrFail();
 
             $user = Auth::user();
 
             if ($user instanceof \App\Models\User) {
                 $user->name = trim($data['last_name'] . ' ' . $data['first_name']);
+                if (strcasecmp((string) $user->email, (string) $data['email']) !== 0) {
+                    $user->email_verified_at = null;
+                }
                 $user->email = $data['email'];
                 $user->save();
             }
@@ -309,7 +325,8 @@ class BookingController extends Controller
                 $roomCategory->id,
                 $checkInAt,
                 $checkOutAt,
-                $requestedRoomQuantity
+                $requestedRoomQuantity,
+                true
             );
 
             if (count($availableRooms) < $requestedRoomQuantity) {
@@ -325,7 +342,7 @@ class BookingController extends Controller
                 $data['services'] ?? [],
                 $nightCount,
                 $requestedRoomQuantity,
-                max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0))
+                max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0))
             );
             $serviceItemTotal = collect($serviceItems)->sum('total');
             $subtotalAmount = ($roomCategory->price * $nightCount * $requestedRoomQuantity) + $serviceItemTotal;
@@ -340,7 +357,7 @@ class BookingController extends Controller
                     'check_out_at' => $checkOutAt,
                     'night_count' => $nightCount,
                     'room_quantity' => $requestedRoomQuantity,
-                    'guest_count' => max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0)),
+                    'guest_count' => max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0)),
                 ],
                 'user'
             );
@@ -359,8 +376,12 @@ class BookingController extends Controller
             $subtotalAmount = (float) $promotionResult['subtotal_amount'];
             $moneyDiscountAmount = (float) ($promotionResult['money_discount_total'] ?? 0);
             $serviceDiscountAmount = (float) ($promotionResult['service_discount_total'] ?? 0);
+            $roomUpgradeDiscountAmount = (float) ($promotionResult['room_upgrade_discount_total'] ?? 0);
             $discountAmount = (float) $promotionResult['discount_total'];
             $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
+            $roomBaseTotal = (float) $roomCategory->price * $nightCount * $requestedRoomQuantity;
+            $roomDiscountForDeposit = min($roomBaseTotal, $moneyDiscountAmount + $roomUpgradeDiscountAmount);
+            $requiredDepositAmount = round(max(0, $roomBaseTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(), 0);
 
             $booking = Booking::create([
                 'booking_code' => $this->generateBookingCode(),
@@ -371,7 +392,8 @@ class BookingController extends Controller
                 'booking_type' => 'overnight',
                 'booking_mode' => 'advance',
                 'booking_source' => 'user_online',
-                'cleaning_buffer_minutes' => Booking::DEFAULT_CLEANING_BUFFER_MINUTES,
+                'cleaning_buffer_minutes' => max(0, (int) app(HotelPolicyService::class)->get('booking.cleaning_buffer_minutes', Booking::DEFAULT_CLEANING_BUFFER_MINUTES)),
+                'policy_snapshot' => app(HotelPolicyService::class)->snapshot(),
                 'check_in_date' => $data['check_in_date'],
                 'check_out_date' => $data['check_out_date'],
                 'check_in_at' => $checkInAt,
@@ -384,9 +406,9 @@ class BookingController extends Controller
                 'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
                 'deposit_amount' => 0,
-                'required_deposit_amount' => round(max(0, ($roomCategory->price * $nightCount * $requestedRoomQuantity) - $moneyDiscountAmount) * 0.30, 0),
+                'required_deposit_amount' => $requiredDepositAmount,
                 'overpayment_amount' => 0,
-                'payment_expires_at' => now('Asia/Ho_Chi_Minh')->addMinutes((int) config('vnpay.expire_minutes', 30)),
+                'payment_expires_at' => now('Asia/Ho_Chi_Minh')->addMinutes(max(5, (int) app(HotelPolicyService::class)->get('payment.vnpay_expire_minutes', config('vnpay.expire_minutes', 30)))),
                 'payment_status' => 'unpaid',
                 'status' => 'pending',
                 'note' => $data['note'] ?? null,
@@ -411,6 +433,11 @@ class BookingController extends Controller
             foreach ($serviceItems as $item) {
                 BookingServiceItem::create([
                     'booking_id' => $booking->id,
+                    'scope' => $item['scope'] ?? 'booking',
+                    'booking_room_id' => $item['booking_room_id'] ?? null,
+                    'room_id_snapshot' => $item['room_id_snapshot'] ?? null,
+                    'source_type' => $item['source_type'] ?? 'booking_initial',
+                    'source_id' => $item['source_id'] ?? null,
                     'service_id' => $item['service_id'],
                     'name' => $item['name'],
                     'type' => $item['type'],
@@ -669,16 +696,16 @@ class BookingController extends Controller
 
         $policy = $financials->cancellationPolicy($booking);
         $checkInDate = Carbon::parse($booking->check_in_date, 'Asia/Ho_Chi_Minh');
-        $directCancelCutoff = $checkInDate->copy()->setTime(14, 0, 0);
-        $holdCutoff = $checkInDate->copy()->setTime(18, 0, 0);
+        $directCancelCutoff = Carbon::parse($booking->check_in_date . ' ' . $booking->directCancelCutoffTime(), 'Asia/Ho_Chi_Minh');
+        $holdCutoff = Carbon::parse($booking->check_in_date . ' ' . $booking->lateArrivalCutoffTime(), 'Asia/Ho_Chi_Minh');
         $now = now('Asia/Ho_Chi_Minh');
 
         if ($now->greaterThanOrEqualTo($directCancelCutoff)) {
             if ($now->lt($holdCutoff)) {
-                return back()->with('error', 'Sau 14:00 không thể hủy trực tiếp. Vui lòng dùng chức năng báo đến muộn.');
+                return back()->with('error', 'Sau ' . $directCancelCutoff->format('H:i') . ' không thể hủy trực tiếp. Vui lòng dùng chức năng báo đến muộn.');
             }
 
-            return back()->with('error', 'Sau 18:00 không thể hủy trực tiếp. Vui lòng cập nhật thời gian check-in dự kiến.');
+            return back()->with('error', 'Sau ' . $holdCutoff->format('H:i') . ' không thể hủy trực tiếp. Vui lòng cập nhật thời gian check-in dự kiến.');
         }
 
         $cancellations->cancel(
@@ -729,8 +756,8 @@ class BookingController extends Controller
 
         $canReviewBooking = $booking->canBeReviewed();
         $checkInDateForCancel = Carbon::parse($booking->check_in_date, 'Asia/Ho_Chi_Minh');
-        $cancellationCutoff = $checkInDateForCancel->copy()->setTime(14, 0, 0);
-        $cancellationHoldCutoff = $checkInDateForCancel->copy()->setTime(18, 0, 0);
+        $cancellationCutoff = Carbon::parse($booking->check_in_date . ' ' . $booking->directCancelCutoffTime(), 'Asia/Ho_Chi_Minh');
+        $cancellationHoldCutoff = Carbon::parse($booking->check_in_date . ' ' . $booking->lateArrivalCutoffTime(), 'Asia/Ho_Chi_Minh');
         $canCustomerCancel = in_array($booking->status, ['pending', 'confirmed'], true)
             && !$booking->actual_check_in
             && now('Asia/Ho_Chi_Minh')->lt($cancellationCutoff);
@@ -795,6 +822,414 @@ class BookingController extends Controller
                 'activeRoomIssueRoomIds'
             )
         );
+    }
+
+    public function editBeforePayment(Booking $booking)
+    {
+        $customer = Customer::where('user_id', Auth::id())->first();
+
+        if (!$customer || (int) $booking->customer_id !== (int) $customer->id) {
+            abort(403);
+        }
+
+        if (!$this->canEditBeforePayment($booking)) {
+            return redirect()->route('bookings.show', $booking)
+                ->with('error', 'Chỉ có thể chỉnh sửa đơn online khi đơn còn chờ thanh toán và chưa có giao dịch thành công.');
+        }
+
+        $booking->load([
+            'roomCategory',
+            'bookingRooms.room',
+            'serviceItems.service',
+            'bookingPromotions.promotion',
+            'promotionServiceOffers',
+            'payments',
+        ]);
+
+        $roomCategories = RoomCategory::query()
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get();
+
+        $services = Service::query()
+            ->where('status', 'active')
+            ->where('price', '>', 0)
+            ->where('type', Service::TYPE_SERVICE)
+            ->orderByRaw("FIELD(service_group, 'vehicle', 'food_drink', 'transport', 'laundry', 'wellness', 'room_support', 'general', 'other')")
+            ->orderBy('name')
+            ->get();
+
+        // Ở màn chỉnh sửa hiển thị toàn bộ mã công khai đang bật. Điều kiện cuối
+        // cùng vẫn được backend kiểm lại theo dữ liệu mới khi bấm Lưu.
+        $availablePromotions = Promotion::query()
+            ->with(['serviceOffers.service'])
+            ->where('status', 'active')
+            ->where('user_can_apply', true)
+            ->where('is_public', true)
+            ->where('promotion_type', '!=', Promotion::TYPE_SUPPORT)
+            ->orderByRaw("FIELD(promotion_type, 'normal_discount', 'event_discount', 'conditional_discount', 'support_discount')")
+            ->orderBy('code')
+            ->get();
+
+        $promotionGeneratedServiceIds = $booking->promotionServiceOffers
+            ->pluck('service_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique();
+
+        $selectedServices = $booking->serviceItems
+            ->filter(function ($item) use ($promotionGeneratedServiceIds) {
+                if ($item->billing_status !== 'confirmed') {
+                    return false;
+                }
+                if ($item->source_type === 'promotion') {
+                    return false;
+                }
+                if ($item->source_type === null && $promotionGeneratedServiceIds->contains((int) $item->service_id)) {
+                    return false;
+                }
+
+                return in_array($item->source_type, [null, 'booking_initial'], true);
+            })
+            ->keyBy('service_id');
+
+        $selectedPromotionCodes = $booking->bookingPromotions
+            ->where('applied_channel', 'user')
+            ->where('scope', 'booking')
+            ->pluck('code_snapshot')
+            ->filter()
+            ->values()
+            ->all();
+
+        $promotionSelectionRules = app(PromotionService::class)->selectionRules();
+        $serviceGroupLabels = Service::groupLabels();
+
+        return view('user.pages.booking-edit-before-payment', compact(
+            'booking',
+            'customer',
+            'roomCategories',
+            'services',
+            'availablePromotions',
+            'selectedServices',
+            'selectedPromotionCodes',
+            'promotionSelectionRules',
+            'serviceGroupLabels'
+        ));
+    }
+
+    public function updateBeforePayment(Request $request, Booking $booking)
+    {
+        $currentUser = Auth::user();
+        $currentCustomer = Customer::where('user_id', Auth::id())->first();
+
+        if (!$currentCustomer || (int) $booking->customer_id !== (int) $currentCustomer->id) {
+            abort(403);
+        }
+
+        if (!$this->canEditBeforePayment($booking)) {
+            return redirect()->route('bookings.show', $booking)
+                ->with('error', 'Đơn đã có thanh toán thành công hoặc không còn ở trạng thái cho phép chỉnh sửa.');
+        }
+
+        $request->merge([
+            'first_name' => trim((string) $request->input('first_name')),
+            'last_name' => trim((string) $request->input('last_name')),
+            'phone' => preg_replace('/\s+/', '', (string) $request->input('phone')),
+            'cccd' => preg_replace('/\s+/', '', (string) $request->input('cccd')),
+            'email' => mb_strtolower(trim((string) $request->input('email'))),
+            'address' => trim((string) $request->input('address')),
+        ]);
+
+        $minOnlineCheckInDate = $this->getOnlineMinCheckInDate();
+        $minimumAge = max(0, (int) app(HotelPolicyService::class)->get('booking.min_age', 18));
+
+        $data = $request->validate([
+            'room_category_id' => ['required', 'exists:room_categories,id'],
+            'check_in_date' => ['required', 'date', 'after_or_equal:' . $minOnlineCheckInDate],
+            'check_out_date' => ['required', 'date', 'after:check_in_date'],
+            'adult_count' => ['required', 'integer', 'min:1'],
+            'child_count' => ['nullable', 'integer', 'min:0'],
+            'last_name' => ['required', 'string', 'max:100'],
+            'first_name' => ['required', 'string', 'max:100'],
+            'phone' => ['required', 'regex:/^0[0-9]{9}$/', Rule::unique('customers', 'phone')->ignore($currentCustomer->id)],
+            'cccd' => ['required', 'regex:/^[0-9]{12}$/', Rule::unique('customers', 'cccd')->ignore($currentCustomer->id)],
+            'email' => [
+                'required', 'email:rfc', 'max:255',
+                Rule::unique('users', 'email')->ignore($currentUser?->id),
+                Rule::unique('customers', 'email')->ignore($currentCustomer->id),
+            ],
+            'birthday' => ['required', 'date', 'before_or_equal:' . now('Asia/Ho_Chi_Minh')->subYears($minimumAge)->toDateString()],
+            'gender' => ['required', Rule::in(['male', 'female', 'other'])],
+            'address' => ['required', 'string', 'max:1000'],
+            'note' => ['nullable', 'string', 'max:1000'],
+            'services' => ['nullable', 'array'],
+            'services.*.service_id' => ['nullable', 'exists:services,id'],
+            'services.*.quantity' => ['nullable', 'integer', 'min:1', 'max:50'],
+            'services.*.note' => ['nullable', 'string', 'max:1000'],
+            'promotion_codes' => ['nullable', 'array'],
+            'promotion_codes.*' => ['nullable', 'string', 'max:50'],
+        ], [
+            'check_in_date.after_or_equal' => 'Ngày nhận phòng không còn hợp lệ. Vui lòng chọn từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
+            'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
+            'phone.regex' => 'Số điện thoại phải gồm 10 chữ số và bắt đầu bằng số 0.',
+            'cccd.regex' => 'Số CCCD phải gồm đúng 12 chữ số.',
+            'birthday.before_or_equal' => 'Người đứng tên đặt phòng phải đủ ' . $minimumAge . ' tuổi.',
+        ]);
+
+        $result = DB::transaction(function () use ($booking, $currentCustomer, $currentUser, $data) {
+            $lockedBooking = Booking::query()->whereKey($booking->id)->lockForUpdate()->firstOrFail();
+
+            if ((int) $lockedBooking->customer_id !== (int) $currentCustomer->id || !$this->canEditBeforePayment($lockedBooking)) {
+                return ['error' => 'Đơn vừa thay đổi ở tab khác hoặc đã có thanh toán thành công. Vui lòng tải lại trang.'];
+            }
+
+            $customer = Customer::query()->whereKey($currentCustomer->id)->lockForUpdate()->firstOrFail();
+            app(BookingIdentityGuard::class)->assertIdentityUpdateAllowed($customer, $data['cccd'], $data['birthday']);
+            app(BookingIdentityGuard::class)->assertNoActiveBookingForCccd($data['cccd'], $lockedBooking->id);
+
+            $roomCategory = RoomCategory::query()->where('status', 'active')->findOrFail($data['room_category_id']);
+            if ((int) $data['adult_count'] > (int) $roomCategory->adult_capacity) {
+                return ['error' => 'Số người lớn vượt quá sức chứa của hạng phòng đã chọn.'];
+            }
+            if ((int) ($data['child_count'] ?? 0) > (int) $roomCategory->child_capacity) {
+                return ['error' => 'Số trẻ em vượt quá sức chứa của hạng phòng đã chọn.'];
+            }
+
+            $checkInAt = $data['check_in_date'] . ' ' . $this->standardCheckInTime();
+            $checkOutAt = $data['check_out_date'] . ' ' . $this->standardCheckOutTime();
+
+            $otherBooking = Booking::query()
+                ->where('customer_id', $customer->id)
+                ->whereKeyNot($lockedBooking->id)
+                ->activeForOperations()
+                ->where('check_in_at', '<', $checkOutAt)
+                ->where('check_out_at', '>', $checkInAt)
+                ->exists();
+            if ($otherBooking) {
+                return ['error' => 'Bạn đã có một booking khác đang hoạt động trong khoảng thời gian mới chọn.'];
+            }
+
+            $availableRooms = Room::query()
+                ->where('room_category_id', $roomCategory->id)
+                ->bookableForPeriod($checkInAt, $checkOutAt, $lockedBooking->id)
+                ->limit(1)
+                ->lockForUpdate()
+                ->get();
+            if ($availableRooms->count() < 1) {
+                return ['error' => 'Hạng phòng này vừa hết phòng trống trong khoảng thời gian mới. Vui lòng chọn hạng/ngày khác.'];
+            }
+
+            $nightCount = $this->getNightCount($data['check_in_date'], $data['check_out_date']);
+            $guestCount = max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0));
+            $serviceItems = $this->prepareServiceItems($data['services'] ?? [], $nightCount, 1, $guestCount);
+            $serviceItemTotal = collect($serviceItems)->sum('total');
+            $roomBaseTotal = (float) $roomCategory->price * $nightCount;
+            $rawSubtotal = $roomBaseTotal + $serviceItemTotal;
+
+            $promotionResult = app(PromotionService::class)->validateCodes(
+                $data['promotion_codes'] ?? [],
+                [
+                    'booking_id' => $lockedBooking->id,
+                    'customer_id' => $customer->id,
+                    'customer_email' => $data['email'],
+                    'customer_phone' => $data['phone'],
+                    'customer_cccd' => $data['cccd'],
+                    'subtotal_amount' => $rawSubtotal,
+                    'service_items' => $serviceItems,
+                    'check_in_at' => $checkInAt,
+                    'check_out_at' => $checkOutAt,
+                    'night_count' => $nightCount,
+                    'room_quantity' => 1,
+                    'guest_count' => $guestCount,
+                ],
+                'user'
+            );
+            if (!$promotionResult['ok']) {
+                return ['error' => implode(' ', $promotionResult['messages'])];
+            }
+
+            $serviceItems = app(PromotionService::class)->mergeServiceItems(
+                $serviceItems,
+                $promotionResult['auto_service_items'] ?? []
+            );
+
+            $subtotalAmount = (float) $promotionResult['subtotal_amount'];
+            $moneyDiscountAmount = (float) ($promotionResult['money_discount_total'] ?? 0);
+            $roomUpgradeDiscountAmount = (float) ($promotionResult['room_upgrade_discount_total'] ?? 0);
+            $discountAmount = (float) ($promotionResult['discount_total'] ?? 0);
+            $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
+            $roomDiscountForDeposit = min($roomBaseTotal, $moneyDiscountAmount + $roomUpgradeDiscountAmount);
+            $requiredDepositAmount = round(max(0, $roomBaseTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(), 0);
+
+            // Link VNPay cũ mang số tiền cũ phải hết hiệu lực trước khi ghi giá mới.
+            app(PendingPaymentRequestService::class)->expire(
+                $lockedBooking->id,
+                'customer_edited_booking_before_payment'
+            );
+
+            // Chỉ thay các ưu đãi do khách tự áp dụng. Ưu đãi hỗ trợ của khách sạn
+            // (nếu có) không bị xoá nhầm.
+            $oldUserPromotions = $lockedBooking->bookingPromotions()
+                ->with('promotion')
+                ->where('applied_channel', 'user')
+                ->where('scope', 'booking')
+                ->get();
+            $oldPromotionIds = $oldUserPromotions->pluck('id');
+            if ($oldPromotionIds->isNotEmpty()) {
+                $lockedBooking->promotionServiceOffers()->whereIn('booking_promotion_id', $oldPromotionIds)->delete();
+            }
+            foreach ($oldUserPromotions as $usage) {
+                if ($usage->promotion && (int) $usage->promotion->used_count > 0) {
+                    $usage->promotion->decrement('used_count');
+                }
+                $usage->delete();
+            }
+
+            // Booking online chưa thanh toán được phép dựng lại phần dịch vụ ban đầu.
+            // Các yêu cầu dịch vụ pending gửi sau đó vẫn được giữ để nhân viên xử lý.
+            $lockedBooking->serviceItems()
+                ->where(function ($query) {
+                    $query->whereIn('source_type', ['booking_initial', 'promotion'])
+                        ->orWhere(function ($legacy) {
+                            $legacy->whereNull('source_type')->where('billing_status', 'confirmed');
+                        });
+                })
+                ->delete();
+
+            $customer->fill([
+                'first_name' => $data['first_name'],
+                'last_name' => $data['last_name'],
+                'phone' => $data['phone'],
+                'cccd' => $data['cccd'],
+                'email' => $data['email'],
+                'birthday' => $data['birthday'],
+                'gender' => $data['gender'],
+                'address' => $data['address'],
+            ])->save();
+
+            if ($currentUser instanceof \App\Models\User) {
+                $currentUser->name = trim($data['last_name'] . ' ' . $data['first_name']);
+                if (strcasecmp((string) $currentUser->email, (string) $data['email']) !== 0) {
+                    $currentUser->email_verified_at = null;
+                }
+                $currentUser->email = $data['email'];
+                $currentUser->save();
+            }
+
+            // Booking online của khách chỉ có một suất phòng. Cập nhật ngay trên
+            // booking_room hiện hữu để giữ nguyên ID cho mọi lịch sử/FK đã trỏ tới nó.
+            $bookingRooms = $lockedBooking->bookingRooms()->lockForUpdate()->get();
+            if ($bookingRooms->count() > 1) {
+                return ['error' => 'Đơn này đã có nhiều suất phòng nên không thể chỉnh sửa bằng màn khách hàng. Vui lòng liên hệ lễ tân.'];
+            }
+
+            $bookingRoom = $bookingRooms->first();
+            $roomAttributes = [
+                'room_id' => $availableRooms->first()->id,
+                'adult_count' => $data['adult_count'],
+                'child_count' => $data['child_count'] ?? 0,
+                'price_at_booking' => (float) $roomCategory->price,
+                'surcharge' => 0,
+                'surcharge_reason' => null,
+            ];
+
+            if ($bookingRoom) {
+                $bookingRoom->fill($roomAttributes)->save();
+            } else {
+                BookingRoom::create(['booking_id' => $lockedBooking->id, ...$roomAttributes]);
+            }
+
+            $holdMinutes = max(5, (int) app(HotelPolicyService::class)->get(
+                'payment.vnpay_expire_minutes',
+                config('vnpay.expire_minutes', 30)
+            ));
+            $lockedBooking->fill([
+                ...Booking::customerSnapshotAttributes($customer),
+                'room_category_id' => $roomCategory->id,
+                'check_in_date' => $data['check_in_date'],
+                'check_out_date' => $data['check_out_date'],
+                'check_in_at' => $checkInAt,
+                'check_out_at' => $checkOutAt,
+                'adult_count' => $data['adult_count'],
+                'child_count' => $data['child_count'] ?? 0,
+                'room_quantity' => 1,
+                'subtotal_amount' => $subtotalAmount,
+                'discount_amount' => $discountAmount,
+                'estimated_total' => $estimatedTotal,
+                'final_total' => null,
+                'deposit_amount' => 0,
+                'required_deposit_amount' => $requiredDepositAmount,
+                'overpayment_amount' => 0,
+                'payment_expires_at' => now('Asia/Ho_Chi_Minh')->addMinutes($holdMinutes),
+                'payment_status' => 'unpaid',
+                'status' => 'pending',
+                'note' => $data['note'] ?? null,
+            ])->save();
+
+            foreach ($serviceItems as $item) {
+                BookingServiceItem::create([
+                    'booking_id' => $lockedBooking->id,
+                    'scope' => $item['scope'] ?? 'booking',
+                    'booking_room_id' => $item['booking_room_id'] ?? null,
+                    'room_id_snapshot' => $item['room_id_snapshot'] ?? null,
+                    'source_type' => $item['source_type'] ?? 'booking_initial',
+                    'source_id' => $item['source_id'] ?? null,
+                    'service_id' => $item['service_id'],
+                    'name' => $item['name'],
+                    'type' => $item['type'],
+                    'billing_rule_snapshot' => $item['billing_rule_snapshot'],
+                    'unit_price' => $item['unit_price'],
+                    'base_quantity' => $item['base_quantity'],
+                    'quantity' => $item['quantity'],
+                    'used_quantity' => $item['used_quantity'],
+                    'nights_snapshot' => $item['nights_snapshot'],
+                    'rooms_snapshot' => $item['rooms_snapshot'],
+                    'people_snapshot' => $item['people_snapshot'],
+                    'billing_status' => $item['billing_status'],
+                    'total' => $item['total'],
+                    'note' => $item['note'],
+                ]);
+            }
+
+            app(PromotionService::class)->storeUsages(
+                $lockedBooking,
+                $promotionResult['promotions'],
+                'user',
+                'Khách chỉnh sửa đơn trước khi thanh toán.',
+                Auth::id()
+            );
+
+            BookingLog::create([
+                'booking_id' => $lockedBooking->id,
+                'user_id' => Auth::id(),
+                'action' => 'customer_pre_payment_edit',
+                'description' => 'Khách chỉnh sửa booking trước thanh toán; hệ thống đã tính lại phòng, dịch vụ, ưu đãi và vô hiệu link VNPay cũ.',
+            ]);
+
+            return ['booking' => $lockedBooking->fresh()];
+        });
+
+        if (isset($result['error'])) {
+            return back()->withInput()->with('error', $result['error']);
+        }
+
+        Realtime::booking($result['booking'], 'updated');
+
+        return redirect()->route('bookings.show', $booking)
+            ->with('success', 'Đã cập nhật đơn và tính lại số tiền. Bạn có thể kiểm tra lại rồi thanh toán khi sẵn sàng.');
+    }
+
+    private function canEditBeforePayment(Booking $booking): bool
+    {
+        if ($booking->booking_source !== 'user_online' || $booking->status !== 'pending' || $booking->actual_check_in) {
+            return false;
+        }
+
+        if ($booking->payment_status !== 'unpaid') {
+            return false;
+        }
+
+        return !$booking->payments()->where('status', 'success')->exists();
     }
 
     public function current()
@@ -888,7 +1323,7 @@ class BookingController extends Controller
             $nightCount = max(1, Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')->startOfDay()
                 ->diffInDays(Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')->startOfDay()));
             $roomQuantity = max(1, (int) $booking->room_quantity);
-            $guestCount = max(1, (int) $booking->adult_count + (int) $booking->child_count);
+            $guestCount = max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) $booking->baby_count);
 
             if ($existingItem) {
                 $existingItem->base_quantity = max(1, (int) ($existingItem->base_quantity ?? $existingItem->quantity)) + $quantity;
@@ -989,6 +1424,11 @@ class BookingController extends Controller
             );
 
             $preparedItems[] = [
+                'scope' => 'booking',
+                'booking_room_id' => null,
+                'room_id_snapshot' => null,
+                'source_type' => 'booking_initial',
+                'source_id' => null,
                 'service_id' => $service->id,
                 'name' => $service->name,
                 'type' => $service->type,
@@ -1018,12 +1458,17 @@ class BookingController extends Controller
             ->first();
     }
 
-    private function findAvailableRooms($roomCategoryId, $checkInAt, $checkOutAt, $quantity)
+    private function findAvailableRooms($roomCategoryId, $checkInAt, $checkOutAt, $quantity, bool $lockForUpdate = false)
     {
-        return Room::where('room_category_id', $roomCategoryId)
+        $query = Room::where('room_category_id', $roomCategoryId)
             ->bookableForPeriod($checkInAt, $checkOutAt)
-            ->limit($quantity)
-            ->get();
+            ->limit($quantity);
+
+        if ($lockForUpdate) {
+            $query->lockForUpdate();
+        }
+
+        return $query->get();
     }
 
     private function hasActiveBookingInDateRange($customerId, $checkInAt, $checkOutAt)
@@ -1034,12 +1479,7 @@ class BookingController extends Controller
     private function findActiveBookingInDateRange($customerId, $checkInAt, $checkOutAt)
     {
         return Booking::where('customer_id', $customerId)
-            ->whereIn('status', [
-                'pending',
-                'confirmed',
-                'checked_in',
-                'inspection_requested',
-            ])
+            ->activeForOperations()
             ->where('check_in_at', '<', $checkOutAt)
             ->where('check_out_at', '>', $checkInAt)
             ->orderByRaw("FIELD(status, 'checked_in', 'inspection_requested', 'confirmed', 'pending')")
@@ -1050,12 +1490,7 @@ class BookingController extends Controller
     private function findCurrentActiveBookingForCustomer($customerId)
     {
         return Booking::where('customer_id', $customerId)
-            ->whereIn('status', [
-                'pending',
-                'confirmed',
-                'checked_in',
-                'inspection_requested',
-            ])
+            ->activeForOperations()
             ->orderByRaw("FIELD(status, 'checked_in', 'inspection_requested', 'confirmed', 'pending')")
             ->latest()
             ->first();
@@ -1072,7 +1507,7 @@ class BookingController extends Controller
     private function getOnlineMinCheckInDate(): string
     {
         $now = Carbon::now('Asia/Ho_Chi_Minh');
-        $todayCheckInDeadline = $now->copy()->setTimeFromTimeString(self::ONLINE_CHECK_IN_TIME);
+        $todayCheckInDeadline = $now->copy()->setTimeFromTimeString($this->standardCheckInTime());
 
         if ($now->greaterThanOrEqualTo($todayCheckInDeadline)) {
             return $now->copy()->addDay()->toDateString();
@@ -1095,7 +1530,7 @@ class BookingController extends Controller
         $now = Carbon::now('Asia/Ho_Chi_Minh');
 
         return $now->greaterThanOrEqualTo(
-            $now->copy()->setTimeFromTimeString(self::ONLINE_CHECK_IN_TIME)
+            $now->copy()->setTimeFromTimeString($this->standardCheckInTime())
         );
     }
 
@@ -1132,4 +1567,19 @@ class BookingController extends Controller
 
         return $txnRef;
     }
+    private function standardCheckInLabel(): string
+    {
+        return (string) app(HotelPolicyService::class)->get('stay.standard_check_in_time', '14:00');
+    }
+
+    private function standardCheckInTime(): string
+    {
+        return $this->standardCheckInLabel() . ':00';
+    }
+
+    private function standardCheckOutTime(): string
+    {
+        return (string) app(HotelPolicyService::class)->get('stay.standard_check_out_time', '12:00') . ':00';
+    }
+
 }

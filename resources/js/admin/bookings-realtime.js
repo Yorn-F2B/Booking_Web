@@ -8,35 +8,65 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    window.Echo.private('admin.realtime')
-        .listen('.booking.updated', (event) => {
-            window.dispatchEvent(new CustomEvent('booking:updated', { detail: event }));
-            handleBookingUpdated(event);
-        })
-        .listen('.room.updated', (event) => {
-            window.dispatchEvent(new CustomEvent('room:updated', { detail: event }));
-            handleRoomUpdated(event);
-        })
-        .listen('.inspection.updated', (event) => {
-            window.dispatchEvent(new CustomEvent('inspection:updated', { detail: event }));
-            handleInspectionUpdated(event);
-        })
-        .listen('.chat.message.sent', (event) => {
-            window.dispatchEvent(new CustomEvent('chat:message-sent', { detail: event }));
-            handleChatMessageSent(event);
-        })
-        .error((error) => {
-            console.error('Lỗi realtime admin:', error);
-        });
+    const role = document.body.dataset.authUserRole || '';
+    const userId = Number(document.body.dataset.authUserId || 0);
+    const bookingChannels = [];
+
+    const listenBookingChannel = (channelName) => {
+        if (!channelName || bookingChannels.includes(channelName)) return;
+        bookingChannels.push(channelName);
+        window.Echo.private(channelName)
+            .listen('.booking.updated', (event) => {
+                window.dispatchEvent(new CustomEvent('booking:updated', { detail: event }));
+                handleBookingUpdated(event);
+            })
+            .error((error) => console.error(`Lỗi realtime ${channelName}:`, error));
+    };
+
+    if (['super_admin', 'manager', 'receptionist_lead'].includes(role)) {
+        listenBookingChannel('admin.bookings.supervisors');
+    } else if (role === 'receptionist' && userId > 0) {
+        listenBookingChannel(`admin.bookings.staff.${userId}`);
+        listenBookingChannel('admin.bookings.unassigned');
+    }
+
+    if (['super_admin', 'manager', 'receptionist_lead', 'receptionist', 'housekeeping_supervisor'].includes(role)) {
+        window.Echo.private('admin.rooms.operations')
+            .listen('.room.updated', (event) => {
+                window.dispatchEvent(new CustomEvent('room:updated', { detail: event }));
+                handleRoomUpdated(event);
+            })
+            .error((error) => console.error('Lỗi realtime phòng:', error));
+    }
+
+    if (['super_admin', 'manager', 'receptionist_lead', 'housekeeping_supervisor'].includes(role)) {
+        window.Echo.private('admin.inspections.supervisors')
+            .listen('.inspection.updated', (event) => {
+                window.dispatchEvent(new CustomEvent('inspection:updated', { detail: event }));
+                handleInspectionUpdated(event);
+            })
+            .error((error) => console.error('Lỗi realtime kiểm phòng:', error));
+    }
 });
 
 let bookingIndexRefreshTimer = null;
 let bookingIndexRefreshing = false;
 
+window.addEventListener('booking-index:refresh-requested', () => {
+    if (isAdminBookingsIndexPage()) {
+        scheduleBookingIndexRefresh();
+    }
+});
+
 function handleBookingUpdated(event) {
     updateBookingBadge(event);
     updateBookingRow(event);
-    showRealtimeToast(getBookingMessage(event), 'Booking');
+
+    const currentUserId = Number(document.body.dataset.authUserId || 0);
+    const actorUserId = Number(event.actor_user_id || 0);
+    if (!currentUserId || !actorUserId || currentUserId !== actorUserId) {
+        showRealtimeToast(getBookingMessage(event), 'Booking', `booking:${event.id}:${event.action}`);
+    }
 
     if (isAdminBookingsIndexPage()) {
         scheduleBookingIndexRefresh();
@@ -231,9 +261,15 @@ function updateRoomCard(event) {
     card.dataset.status = event.status;
 
     const statusEl = card.querySelector('[data-room-status]');
+    const statusLabelEl = card.querySelector('[data-room-status-label]');
     const categoryEl = card.querySelector('[data-room-category]');
 
-    if (statusEl) statusEl.textContent = event.status_label;
+    if (statusEl) {
+        statusEl.className = `status-pill s-${event.status}`;
+        statusEl.dataset.roomStatus = '';
+    }
+    if (statusLabelEl) statusLabelEl.textContent = event.status_label;
+    else if (statusEl) statusEl.textContent = event.status_label;
     if (categoryEl) categoryEl.textContent = event.room_category;
 
     markUpdated(card);
@@ -259,8 +295,9 @@ function getBookingMessage(event) {
             return `Booking ${code} đã yêu cầu kiểm tra phòng`;
         case 'inspection_reported':
             return `Booking ${code} đã có báo cáo kiểm tra phòng`;
+        case 'inspection_completed':
         case 'inspection_approved':
-            return `Booking ${code} đã được duyệt kiểm tra phòng`;
+            return `Booking ${code} đã hoàn tất kiểm tra phòng`;
         case 'completed':
         case 'checked_out':
             return `Booking ${code} đã hoàn tất/trả phòng`;
@@ -288,53 +325,14 @@ function getBookingMessage(event) {
     }
 }
 
-function showRealtimeToast(message, title = 'Realtime') {
-    let wrapper = document.querySelector('[data-realtime-toast-wrapper]');
-
-    if (!wrapper) {
-        wrapper = document.createElement('div');
-        wrapper.setAttribute('data-realtime-toast-wrapper', 'true');
-        wrapper.style.position = 'fixed';
-        wrapper.style.right = '18px';
-        wrapper.style.bottom = '18px';
-        wrapper.style.zIndex = '99999';
-        wrapper.style.display = 'flex';
-        wrapper.style.flexDirection = 'column';
-        wrapper.style.gap = '10px';
-        document.body.appendChild(wrapper);
+function showRealtimeToast(message, title = 'Realtime', dedupeKey = '') {
+    if (window.AppToast && typeof window.AppToast.info === 'function') {
+        window.AppToast.info(message, { title, duration: 4500, dedupeKey });
+        return;
     }
 
-    const toast = document.createElement('div');
-    toast.style.minWidth = '270px';
-    toast.style.maxWidth = '380px';
-    toast.style.padding = '12px 14px';
-    toast.style.borderRadius = '14px';
-    toast.style.background = '#111827';
-    toast.style.color = '#fff';
-    toast.style.boxShadow = '0 12px 32px rgba(0,0,0,.22)';
-    toast.style.fontSize = '14px';
-    toast.style.lineHeight = '1.45';
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(8px)';
-    toast.style.transition = 'all .2s ease';
-
-    toast.innerHTML = `
-        <div style="font-weight:700;margin-bottom:3px;">${escapeHtml(title)}</div>
-        <div>${escapeHtml(message)}</div>
-    `;
-
-    wrapper.appendChild(toast);
-
-    requestAnimationFrame(() => {
-        toast.style.opacity = '1';
-        toast.style.transform = 'translateY(0)';
-    });
-
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateY(8px)';
-        setTimeout(() => toast.remove(), 250);
-    }, 4500);
+    window.__appToastQueue = window.__appToastQueue || [];
+    window.__appToastQueue.push({ message, type: 'info', options: { title, duration: 4500, dedupeKey } });
 }
 
 function markUpdated(element) {

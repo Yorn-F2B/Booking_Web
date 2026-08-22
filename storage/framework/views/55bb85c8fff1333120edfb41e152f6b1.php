@@ -21,6 +21,12 @@
             </div>
         </header>
 
+        <div id="hotelChatOlderWrap" class="hotel-chat-older d-none">
+            <button type="button" id="hotelChatLoadOlder" class="btn btn-sm btn-light border">
+                Tải tin nhắn cũ hơn
+            </button>
+        </div>
+
         <div id="hotelChatMessages" class="hotel-chat-messages">
             <div class="hotel-chat-empty">
                 Xin chào! Bạn cần khách sạn hỗ trợ vấn đề gì?
@@ -38,12 +44,11 @@
             <input id="hotelChatFiles" name="files[]" type="file" class="d-none" multiple
                 accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip">
 
-            <label class="hotel-chat-file-btn" for="hotelChatCamera" title="Chụp ảnh sự cố">
+            <button type="button" class="hotel-chat-file-btn js-open-camera" data-target-input="#hotelChatCamera" title="Chụp ảnh bằng camera" aria-label="Chụp ảnh bằng camera">
                 <i class="bx bx-camera"></i>
-            </label>
+            </button>
 
-            <input id="hotelChatCamera" name="camera_image" type="file" class="d-none" accept="image/*"
-                capture="environment">
+            <input id="hotelChatCamera" name="camera_image" type="file" class="d-none" accept="image/jpeg,image/png,image/webp">
             <textarea id="hotelChatInput" name="message" rows="1" maxlength="2000"
                 placeholder="Nhập tin nhắn..."></textarea>
             <button type="submit" class="hotel-chat-send" title="Gửi">
@@ -149,6 +154,14 @@
     .hotel-chat-head small {
         opacity: .8;
         font-size: 11px
+    }
+
+
+    .hotel-chat-older {
+        padding: 7px 12px;
+        text-align: center;
+        background: #f8fafc;
+        border-bottom: 1px solid #e5e7eb;
     }
 
     .hotel-chat-messages {
@@ -323,6 +336,8 @@
     }
 
     .hotel-chat-file-btn {
+        border: 0;
+        padding: 0;
         background: transparent;
         color: #64748b;
         cursor: pointer;

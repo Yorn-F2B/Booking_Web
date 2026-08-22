@@ -28,8 +28,8 @@ class RoomInspectionObserver implements ShouldHandleEventsAfterCommit
         if ($roomInspection->wasChanged('status')) {
             return match ($roomInspection->status) {
                 'pending' => 'inspection_requested',
-                'submitted', 'reported' => 'inspection_reported',
-                'confirmed', 'approved' => 'inspection_approved',
+                'reported' => 'inspection_reported',
+                'confirmed' => 'inspection_completed',
                 'rejected' => 'inspection_rejected',
                 default => 'inspection_updated',
             };

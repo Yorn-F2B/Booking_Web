@@ -7,6 +7,7 @@ use App\Models\Booking;
 use App\Models\BookingLog;
 use App\Models\RoomInspection;
 use App\Services\RoomInspectionWorkflowService;
+use App\Services\RoomInspectionFinalizationService;
 use App\Support\Realtime;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,7 +20,8 @@ class InspectionGuestConsultationController extends Controller
         Request $request,
         Booking $booking,
         RoomInspection $roomInspection,
-        RoomInspectionWorkflowService $workflow
+        RoomInspectionWorkflowService $workflow,
+        RoomInspectionFinalizationService $finalizer
     ) {
         $this->guardCanAccessBooking($booking);
 
@@ -137,7 +139,7 @@ class InspectionGuestConsultationController extends Controller
                     $itemUpdate['recheck_decision'] = 'not_required';
                 }
                 // Nếu buồng phòng vừa kiểm tra lại và khách đồng ý, giữ nguyên kết quả/ghi chú
-                // để admin nhìn thấy căn cứ cuối cùng, không xóa mất dấu.
+                // để giữ lại căn cứ đối chiếu cuối cùng, không xóa mất dấu.
 
                 $item->update($itemUpdate);
 
@@ -163,11 +165,11 @@ class InspectionGuestConsultationController extends Controller
             }
 
             $nextStage = empty($disputedNames)
-                ? RoomInspection::STAGE_ADMIN_APPROVAL
+                ? RoomInspection::STAGE_COMPLETED
                 : RoomInspection::STAGE_HOUSEKEEPING_RECHECK;
 
             $summary = empty($disputedNames)
-                ? 'Lễ tân đã trao đổi lại với khách: khách đồng ý toàn bộ ' . count($acceptedNames) . ' hạng mục hiện tại. Chờ admin xác nhận.'
+                ? 'Lễ tân đã trao đổi lại với khách: khách đồng ý toàn bộ ' . count($acceptedNames) . ' hạng mục hiện tại. Kết quả được chốt ngay.'
                 : 'Lễ tân đã trao đổi với khách: ' . count($disputedNames) . ' hạng mục cần buồng phòng kiểm tra lại (' . implode(', ', $disputedNames) . ').';
 
             $inspection->update([
@@ -194,13 +196,22 @@ class InspectionGuestConsultationController extends Controller
                     . ' với khách. ' . $summary,
             ]);
 
+            if (empty($disputedNames)) {
+                $finalizer->finalize(
+                    $inspection,
+                    $workflow,
+                    Auth::id(),
+                    'Khách đã đồng ý toàn bộ kết quả kiểm tra hiện tại; phiếu được hoàn tất ngay.'
+                );
+            }
+
             DB::commit();
-            Realtime::inspection($inspection->id, empty($disputedNames) ? 'guest_accepted' : 'recheck_requested');
+            Realtime::inspection($inspection->id, empty($disputedNames) ? 'inspection_completed' : 'recheck_requested');
 
             return back()->with(
                 'success',
                 empty($disputedNames)
-                    ? 'Đã ghi nhận khách đồng ý toàn bộ kết quả hiện tại. Phiếu đã chuyển sang admin xác nhận cuối.'
+                    ? 'Đã ghi nhận khách đồng ý toàn bộ kết quả. Phiếu đã hoàn tất ngay.'
                     : 'Đã gửi các hạng mục khách phản hồi sang buồng phòng kiểm tra lại.'
             );
         } catch (ValidationException $e) {
@@ -217,11 +228,6 @@ class InspectionGuestConsultationController extends Controller
     {
         $user = Auth::user();
 
-        abort_unless($user && in_array($user->role, [
-            'super_admin',
-            'manager',
-            'receptionist_lead',
-            'receptionist',
-        ], true), 403, 'Bạn không có quyền trao đổi phiếu kiểm tra với khách.');
+        abort_unless($booking->canBeHandledBy($user), 403, 'Bạn không có quyền trao đổi phiếu kiểm tra với khách.');
     }
 }

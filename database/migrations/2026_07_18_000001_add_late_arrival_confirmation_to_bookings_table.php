@@ -7,23 +7,34 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::table('bookings', function (Blueprint $table) {
-            if (!Schema::hasColumn('bookings', 'late_arrival_confirmed_at')) {
-                $table->timestamp('late_arrival_confirmed_at')->nullable()->after('late_arrival_policy');
+        $hasPolicy = Schema::hasColumn('bookings', 'late_arrival_policy');
+        $hasConfirmedAt = Schema::hasColumn('bookings', 'late_arrival_confirmed_at');
+        $hasConfirmedBy = Schema::hasColumn('bookings', 'late_arrival_confirmed_by');
+
+        Schema::table('bookings', function (Blueprint $table) use ($hasPolicy, $hasConfirmedAt, $hasConfirmedBy) {
+            if (!$hasConfirmedAt) {
+                $column = $table->timestamp('late_arrival_confirmed_at')->nullable();
+                if ($hasPolicy) {
+                    $column->after('late_arrival_policy');
+                }
             }
-            if (!Schema::hasColumn('bookings', 'late_arrival_confirmed_by')) {
-                $table->unsignedBigInteger('late_arrival_confirmed_by')->nullable()->after('late_arrival_confirmed_at');
+
+            if (!$hasConfirmedBy) {
+                $column = $table->unsignedBigInteger('late_arrival_confirmed_by')->nullable();
+                $column->after('late_arrival_confirmed_at');
             }
         });
     }
 
     public function down(): void
     {
-        Schema::table('bookings', function (Blueprint $table) {
-            $columns = [];
-            if (Schema::hasColumn('bookings', 'late_arrival_confirmed_by')) $columns[] = 'late_arrival_confirmed_by';
-            if (Schema::hasColumn('bookings', 'late_arrival_confirmed_at')) $columns[] = 'late_arrival_confirmed_at';
-            if ($columns) $table->dropColumn($columns);
-        });
+        $columns = array_values(array_filter([
+            Schema::hasColumn('bookings', 'late_arrival_confirmed_by') ? 'late_arrival_confirmed_by' : null,
+            Schema::hasColumn('bookings', 'late_arrival_confirmed_at') ? 'late_arrival_confirmed_at' : null,
+        ]));
+
+        if ($columns !== []) {
+            Schema::table('bookings', fn (Blueprint $table) => $table->dropColumn($columns));
+        }
     }
 };

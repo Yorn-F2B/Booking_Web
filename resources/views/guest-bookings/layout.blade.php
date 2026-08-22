@@ -11,12 +11,10 @@
     </style>
 </head>
 <body>
+@include('partials.flash-toasts')
 <div class="wrap"><div class="card">
     <div class="head"><div class="brand">MCuong Hotel</div><h1>@yield('heading')</h1><p>@yield('subheading')</p></div>
     <div class="body">
-        @if(session('error'))<div class="alert alert-error">{{ session('error') }}</div>@endif
-        @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
-        @if($errors->any())<div class="alert alert-error">{{ $errors->first() }}</div>@endif
         @yield('content')
     </div>
     <div class="footer">Dữ liệu chỉ được hiển thị sau khi xác thực email đã dùng khi đặt phòng.</div>

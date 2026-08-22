@@ -88,19 +88,7 @@
                 </a>
             </div>
 
-            @if (session('success'))
-                <div class="alert alert-success">
-                    {{ session('success') }}
-                </div>
-            @endif
-
-            @if (session('error'))
-                <div class="alert alert-danger">
-                    {{ session('error') }}
-                </div>
-            @endif
-
-            <div class="promotion-admin-card mb-3">
+<div class="promotion-admin-card mb-3">
                 <form action="{{ route('admin.promotions.index') }}" method="GET">
                     <div class="promotion-filter-grid">
                         <input type="text" name="keyword" class="form-control"

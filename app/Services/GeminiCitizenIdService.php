@@ -90,10 +90,95 @@ class GeminiCitizenIdService
         string $prompt,
         array $schema,
     ): array {
+        // Google AI Studio hiện tạo authorization key dạng AQ.
+        // Key AQ. đi theo Interactions API mới; key AIza cũ vẫn giữ nguyên
+        // luồng GenerateContent đã được project kiểm thử ổn định trước đây.
+        if (str_starts_with($apiKey, 'AQ.')) {
+            return $this->requestStructuredJsonViaInteractions(
+                apiKey: $apiKey,
+                model: $model,
+                baseUrl: $baseUrl,
+                bytes: $bytes,
+                mimeType: $mimeType,
+                prompt: $prompt,
+                schema: $schema,
+            );
+        }
+
+        return $this->requestStructuredJsonViaGenerateContent(
+            apiKey: $apiKey,
+            model: $model,
+            baseUrl: $baseUrl,
+            bytes: $bytes,
+            mimeType: $mimeType,
+            prompt: $prompt,
+            schema: $schema,
+        );
+    }
+
+    private function requestStructuredJsonViaInteractions(
+        string $apiKey,
+        string $model,
+        string $baseUrl,
+        string $bytes,
+        string $mimeType,
+        string $prompt,
+        array $schema,
+    ): array {
         $response = Http::asJson()
+            ->withHeaders([
+                'x-goog-api-key' => $apiKey,
+            ])
             ->timeout(45)
             ->retry(1, 400, throw: false)
-            ->post("{$baseUrl}/models/{$model}:generateContent?key=" . urlencode($apiKey), [
+            ->post("{$baseUrl}/interactions", [
+                'model' => $model,
+                'input' => [
+                    ['type' => 'text', 'text' => $prompt],
+                    [
+                        'type' => 'image',
+                        'data' => base64_encode($bytes),
+                        'mime_type' => $mimeType,
+                    ],
+                ],
+                'response_format' => [[
+                    'type' => 'text',
+                    'mime_type' => 'application/json',
+                    'schema' => $this->normalizeJsonSchemaForInteractions($schema),
+                ]],
+            ]);
+
+        if ($response->failed()) {
+            $this->throwGeminiHttpError($response->status(), (string) data_get($response->json(), 'error.message', ''));
+        }
+
+        $text = $this->interactionOutputText($response->json());
+        if ($text === '') {
+            $status = (string) data_get($response->json(), 'status', '');
+            throw new RuntimeException($status !== ''
+                ? 'Gemini chưa trả dữ liệu CCCD. Trạng thái: ' . $status . '.'
+                : 'Gemini chưa trả dữ liệu nhận diện CCCD.');
+        }
+
+        return $this->decodeStructuredJsonText($text);
+    }
+
+    private function requestStructuredJsonViaGenerateContent(
+        string $apiKey,
+        string $model,
+        string $baseUrl,
+        string $bytes,
+        string $mimeType,
+        string $prompt,
+        array $schema,
+    ): array {
+        $response = Http::asJson()
+            ->withHeaders([
+                'x-goog-api-key' => $apiKey,
+            ])
+            ->timeout(45)
+            ->retry(1, 400, throw: false)
+            ->post("{$baseUrl}/models/{$model}:generateContent", [
                 'contents' => [[
                     'role' => 'user',
                     'parts' => [
@@ -107,17 +192,13 @@ class GeminiCitizenIdService
                     ],
                 ]],
                 'generationConfig' => [
-                    'temperature' => 0,
                     'responseMimeType' => 'application/json',
                     'responseSchema' => $schema,
                 ],
             ]);
 
         if ($response->failed()) {
-            $message = (string) data_get($response->json(), 'error.message', '');
-            throw new RuntimeException($message !== ''
-                ? 'Gemini API lỗi: ' . $message
-                : 'Gemini API không phản hồi hợp lệ (HTTP ' . $response->status() . ').');
+            $this->throwGeminiHttpError($response->status(), (string) data_get($response->json(), 'error.message', ''));
         }
 
         $text = data_get($response->json(), 'candidates.0.content.parts.0.text');
@@ -128,6 +209,44 @@ class GeminiCitizenIdService
                 : 'Gemini chưa trả dữ liệu nhận diện CCCD.');
         }
 
+        return $this->decodeStructuredJsonText($text);
+    }
+
+    private function throwGeminiHttpError(int $status, string $message): never
+    {
+        if ($status === 401) {
+            throw new RuntimeException(
+                'Gemini không xác thực được API key hiện tại (HTTP 401). '
+                . 'Kiểm tra GEMINI_API_KEY trong .env hoặc trạng thái key trên Google AI Studio.'
+            );
+        }
+
+        throw new RuntimeException($message !== ''
+            ? 'Gemini API lỗi: ' . $message
+            : 'Gemini API không phản hồi hợp lệ (HTTP ' . $status . ').');
+    }
+
+    private function interactionOutputText(array $payload): string
+    {
+        $parts = [];
+
+        foreach ((array) ($payload['steps'] ?? []) as $step) {
+            if (($step['type'] ?? null) !== 'model_output') {
+                continue;
+            }
+
+            foreach ((array) ($step['content'] ?? []) as $content) {
+                if (($content['type'] ?? null) === 'text' && is_string($content['text'] ?? null)) {
+                    $parts[] = $content['text'];
+                }
+            }
+        }
+
+        return trim(implode("\n", $parts));
+    }
+
+    private function decodeStructuredJsonText(string $text): array
+    {
         $text = trim($text);
         if (str_starts_with($text, '```')) {
             $text = preg_replace('/^```(?:json)?\s*|\s*```$/', '', $text) ?? $text;
@@ -140,6 +259,27 @@ class GeminiCitizenIdService
         }
 
         return $raw;
+    }
+
+    private function normalizeJsonSchemaForInteractions(array $schema): array
+    {
+        $normalized = [];
+
+        foreach ($schema as $key => $value) {
+            if ($key === 'type' && is_string($value)) {
+                $normalized[$key] = strtolower($value);
+                continue;
+            }
+
+            if (is_array($value)) {
+                $normalized[$key] = $this->normalizeJsonSchemaForInteractions($value);
+                continue;
+            }
+
+            $normalized[$key] = $value;
+        }
+
+        return $normalized;
     }
 
     private function normalizeScanResult(array $raw): array

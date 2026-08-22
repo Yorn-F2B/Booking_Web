@@ -7,6 +7,10 @@ use App\Models\User;
 use App\Models\Staff;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class StaffController extends Controller
 {
@@ -19,7 +23,9 @@ class StaffController extends Controller
 
     public function create()
     {
-        return view('admin.pages.staffs.create');
+        $managerExists = User::query()->where('role', 'manager')->exists();
+
+        return view('admin.pages.staffs.create', compact('managerExists'));
     }
 
     public function store(Request $request)
@@ -34,51 +40,54 @@ class StaffController extends Controller
             'birthday' => 'nullable|date',
             'gender' => 'nullable|in:male,female,other',
             'address' => 'nullable',
-            'position' => 'nullable|in:Quản lý,Trưởng lễ tân,Lễ tân,Trưởng buồng phòng,Buồng phòng',
+            'position' => 'required|in:Quản lý,Trưởng lễ tân,Lễ tân,Trưởng buồng phòng,Buồng phòng',
             'salary' => 'nullable|numeric|min:0',
             'hire_date' => 'nullable|date',
             'work_status' => 'nullable|in:working,resigned,temporary_leave',
+            'avatar' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         ]);
 
-        $role = match ($data['position'] ?? null) {
-            'Quản lý' => 'manager',
-            'Trưởng lễ tân' => 'receptionist_lead',
-            'Lễ tân' => 'receptionist',
-            'Trưởng buồng phòng' => 'housekeeping_supervisor',
-            'Buồng phòng' => 'housekeeping',
-            default => 'customer',
-        };
-
-        $user = User::create([
-            'name' => $data['full_name'],
-            'email' => $data['email'],
-            'password' => Hash::make($data['password']),
-            'role' => $role,
-            'status' => 'active',
-        ]);
-
+        $role = $this->roleForPosition($data['position']);
+        $this->guardSingletonLeadershipRole($role);
+        $workStatus = $data['work_status'] ?? 'working';
         $avatarPath = null;
 
         if ($request->hasFile('avatar')) {
-
-            $avatarPath = $request->file('avatar')
-                ->store('staffs', 'public');
+            $avatarPath = $request->file('avatar')->store('staffs', 'public');
         }
 
-        Staff::create([
-            'user_id' => $user->id,
-            'full_name' => $data['full_name'],
-            'phone' => $data['phone'] ?? null,
-            'cccd' => $data['cccd'] ?? null,
-            'birthday' => $data['birthday'] ?? null,
-            'gender' => $data['gender'] ?? null,
-            'address' => $data['address'] ?? null,
-            'position' => $data['position'] ?? null,
-            'salary' => $data['salary'] ?? 0,
-            'hire_date' => $data['hire_date'] ?? null,
-            'work_status' => $data['work_status'] ?? 'working',
-            'avatar' => $avatarPath,
-        ]);
+        try {
+            DB::transaction(function () use ($data, $role, $workStatus, $avatarPath): void {
+                $user = User::create([
+                    'name' => $data['full_name'],
+                    'email' => mb_strtolower(trim($data['email'])),
+                    'password' => Hash::make($data['password']),
+                    'role' => $role,
+                    'status' => $workStatus === 'working' ? 'active' : 'inactive',
+                ]);
+
+                Staff::create([
+                    'user_id' => $user->id,
+                    'full_name' => $data['full_name'],
+                    'phone' => $data['phone'] ?? null,
+                    'cccd' => $data['cccd'] ?? null,
+                    'birthday' => $data['birthday'] ?? null,
+                    'gender' => $data['gender'] ?? null,
+                    'address' => $data['address'] ?? null,
+                    'position' => $data['position'],
+                    'salary' => $data['salary'] ?? 0,
+                    'hire_date' => $data['hire_date'] ?? null,
+                    'work_status' => $workStatus,
+                    'avatar' => $avatarPath,
+                ]);
+            });
+        } catch (Throwable $e) {
+            if ($avatarPath) {
+                Storage::disk('public')->delete($avatarPath);
+            }
+            report($e);
+            return back()->withInput()->with('error', 'Không thể tạo nhân viên. Vui lòng kiểm tra dữ liệu và thử lại.');
+        }
 
         return redirect()->route('staffs.index')
             ->with('success', 'Thêm nhân viên thành công');
@@ -94,8 +103,12 @@ class StaffController extends Controller
     public function edit(Staff $staff)
     {
         $staff->load('user');
+        $managerExists = User::query()
+            ->where('role', 'manager')
+            ->where('id', '!=', (int) $staff->user_id)
+            ->exists();
 
-        return view('admin.pages.staffs.edit', compact('staff'));
+        return view('admin.pages.staffs.edit', compact('staff', 'managerExists'));
     }
 
     public function update(Request $request, Staff $staff)
@@ -144,7 +157,7 @@ class StaffController extends Controller
                 'nullable',
             ],
 
-            'position' => 'nullable|in:Quản lý,Trưởng lễ tân,Lễ tân,Trưởng buồng phòng,Buồng phòng',
+            'position' => 'required|in:Quản lý,Trưởng lễ tân,Lễ tân,Trưởng buồng phòng,Buồng phòng',
 
             'salary' => [
                 'nullable',
@@ -192,45 +205,61 @@ class StaffController extends Controller
             'avatar.max' => 'Ảnh không được vượt quá 2MB',
         ]);
 
-        $avatarPath = $staff->avatar;
+        $oldAvatarPath = $staff->avatar;
+        $newAvatarPath = null;
+        $avatarPath = $oldAvatarPath;
 
         if ($request->hasFile('avatar')) {
-            $avatarPath = $request->file('avatar')->store('staffs', 'public');
+            $newAvatarPath = $request->file('avatar')->store('staffs', 'public');
+            $avatarPath = $newAvatarPath;
         }
 
-        $staff->update([
-            'full_name' => $data['full_name'],
-            'phone' => $data['phone'] ?? null,
-            'cccd' => $data['cccd'] ?? null,
-            'birthday' => $data['birthday'] ?? null,
-            'gender' => $data['gender'] ?? null,
-            'address' => $data['address'] ?? null,
-            'position' => $data['position'] ?? null,
-            'salary' => $data['salary'] ?? 0,
-            'hire_date' => $data['hire_date'] ?? null,
-            'work_status' => $data['work_status'] ?? 'working',
-            'avatar' => $avatarPath,
-        ]);
+        $role = $this->roleForPosition($data['position']);
+        $this->guardSingletonLeadershipRole($role, (int) $staff->user_id);
+        $workStatus = $data['work_status'] ?? 'working';
 
-        if ($staff->user) {
-            $role = match ($data['position'] ?? null) {
-                'Quản lý' => 'manager',
-                'Trưởng lễ tân', 'Lễ tân' => 'receptionist',
-                'Trưởng buồng phòng', 'Buồng phòng' => 'housekeeping',
-                default => 'customer',
-            };
+        try {
+            DB::transaction(function () use ($staff, $data, $avatarPath, $role, $workStatus): void {
+                $staff->update([
+                    'full_name' => $data['full_name'],
+                    'phone' => $data['phone'] ?? null,
+                    'cccd' => $data['cccd'] ?? null,
+                    'birthday' => $data['birthday'] ?? null,
+                    'gender' => $data['gender'] ?? null,
+                    'address' => $data['address'] ?? null,
+                    'position' => $data['position'],
+                    'salary' => $data['salary'] ?? 0,
+                    'hire_date' => $data['hire_date'] ?? null,
+                    'work_status' => $workStatus,
+                    'avatar' => $avatarPath,
+                ]);
 
-            $updateUserData = [
-                'name' => $data['full_name'],
-                'email' => $data['email'],
-                'role' => $role,
-            ];
+                $user = User::whereKey($staff->user_id)->lockForUpdate()->firstOrFail();
+                $oldEmail = (string) $user->email;
+                $newEmail = mb_strtolower(trim($data['email']));
 
-            if (!empty($data['password'])) {
-                $updateUserData['password'] = Hash::make($data['password']);
+                $user->name = $data['full_name'];
+                $user->email = $newEmail;
+                $user->role = $role;
+                $user->status = $workStatus === 'working' ? 'active' : 'inactive';
+                if (strcasecmp($oldEmail, $newEmail) !== 0) {
+                    $user->email_verified_at = null;
+                }
+                if (!empty($data['password'])) {
+                    $user->password = Hash::make($data['password']);
+                }
+                $user->save();
+            });
+        } catch (Throwable $e) {
+            if ($newAvatarPath) {
+                Storage::disk('public')->delete($newAvatarPath);
             }
+            report($e);
+            return back()->withInput()->with('error', 'Không thể cập nhật nhân viên. Vui lòng thử lại.');
+        }
 
-            $staff->user->update($updateUserData);
+        if ($newAvatarPath && $oldAvatarPath && $oldAvatarPath !== $newAvatarPath) {
+            Storage::disk('public')->delete($oldAvatarPath);
         }
 
         return redirect()->route('staffs.index')
@@ -238,13 +267,53 @@ class StaffController extends Controller
     }
     public function destroy(Staff $staff)
     {
-        if ($staff->user) {
-            $staff->user->delete();
-        }
+        $avatarPath = $staff->avatar;
 
-        $staff->delete();
+        DB::transaction(function () use ($staff): void {
+            $user = User::whereKey($staff->user_id)->lockForUpdate()->first();
+            if ($user) {
+                // User dùng soft delete để giữ nguyên khóa ngoại/lịch sử phân công.
+                $user->delete();
+            }
+            $staff->delete();
+        });
+
+        if ($avatarPath) {
+            Storage::disk('public')->delete($avatarPath);
+        }
 
         return redirect()->route('staffs.index')
             ->with('success', 'Xóa nhân viên thành công');
+    }
+
+    private function guardSingletonLeadershipRole(string $role, ?int $exceptUserId = null): void
+    {
+        if (!in_array($role, ['super_admin', 'manager'], true)) {
+            return;
+        }
+
+        $exists = User::query()
+            ->where('role', $role)
+            ->when($exceptUserId, fn ($query) => $query->where('id', '!=', $exceptUserId))
+            ->exists();
+
+        if ($exists) {
+            $label = $role === 'super_admin' ? 'Super Admin' : 'Quản lý';
+            throw ValidationException::withMessages([
+                'position' => "Khách sạn chỉ được có 1 {$label}. Hãy cập nhật tài khoản hiện có thay vì tạo thêm.",
+            ]);
+        }
+    }
+
+    private function roleForPosition(string $position): string
+    {
+        return match ($position) {
+            'Quản lý' => 'manager',
+            'Trưởng lễ tân' => 'receptionist_lead',
+            'Lễ tân' => 'receptionist',
+            'Trưởng buồng phòng' => 'housekeeping_supervisor',
+            'Buồng phòng' => 'housekeeping',
+            default => throw new \InvalidArgumentException('Chức vụ nhân viên không hợp lệ.'),
+        };
     }
 }

@@ -5,10 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use RuntimeException;
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, SoftDeletes;
 
     protected $fillable = [
         'name',
@@ -33,6 +35,26 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'booking_locked_until' => 'datetime',
         ];
+    }
+
+
+    protected static function booted(): void
+    {
+        static::saving(function (User $user): void {
+            if (!in_array($user->role, ['super_admin', 'manager'], true)) {
+                return;
+            }
+
+            $duplicate = static::query()
+                ->where('role', $user->role)
+                ->when($user->exists, fn ($query) => $query->where('id', '!=', $user->getKey()))
+                ->exists();
+
+            if ($duplicate) {
+                $label = $user->role === 'super_admin' ? 'Super Admin' : 'Quản lý';
+                throw new RuntimeException("Khách sạn chỉ được có 1 {$label}.");
+            }
+        });
     }
 
     public function getAuthPassword()
@@ -146,6 +168,11 @@ class User extends Authenticatable
     public function assignedChatConversations()
     {
         return $this->hasMany(ChatConversation::class, 'assigned_staff_id');
+    }
+
+    public function chatPresence()
+    {
+        return $this->hasOne(ChatStaffPresence::class, 'user_id');
     }
 
 }

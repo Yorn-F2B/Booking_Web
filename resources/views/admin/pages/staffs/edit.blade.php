@@ -114,15 +114,15 @@
                         </label>
 
                         <select name="gender" class="form-select">
-                            <option value="male" {{ $staff->gender == 'male' ? 'selected' : '' }}>
+                            <option value="male" {{ old('gender', $staff->gender) == 'male' ? 'selected' : '' }}>
                                 Nam
                             </option>
 
-                            <option value="female" {{ $staff->gender == 'female' ? 'selected' : '' }}>
+                            <option value="female" {{ old('gender', $staff->gender) == 'female' ? 'selected' : '' }}>
                                 Nữ
                             </option>
 
-                            <option value="other" {{ $staff->gender == 'other' ? 'selected' : '' }}>
+                            <option value="other" {{ old('gender', $staff->gender) == 'other' ? 'selected' : '' }}>
                                 Khác
                             </option>
                         </select>
@@ -151,21 +151,18 @@
                             Chức vụ
                         </label>
 
-                        <select name="position" class="form-select">
+                        <select name="position" class="form-select @error('position') is-invalid @enderror" required>
                             <option value="">— Chọn chức vụ —</option>
-
-                            <option value="Quản lý" {{ old('position', $staff->position) == 'Quản lý' ? 'selected' : '' }}>
-                                Quản lý
+                            <option value="Quản lý" {{ old('position', $staff->position) == 'Quản lý' ? 'selected' : '' }} {{ ($managerExists ?? false) ? 'disabled' : '' }}>
+                                Quản lý{{ ($managerExists ?? false) ? ' (đã có)' : '' }}
                             </option>
-
-                            <option value="Lễ tân" {{ old('position', $staff->position) == 'Lễ tân' ? 'selected' : '' }}>
-                                Lễ tân
-                            </option>
-
-                            <option value="Buồng phòng" {{ old('position', $staff->position) == 'Buồng phòng' ? 'selected' : '' }}>
-                                Buồng phòng
-                            </option>
+                            <option value="Trưởng lễ tân" {{ old('position', $staff->position) == 'Trưởng lễ tân' ? 'selected' : '' }}>Trưởng lễ tân</option>
+                            <option value="Lễ tân" {{ old('position', $staff->position) == 'Lễ tân' ? 'selected' : '' }}>Lễ tân</option>
+                            <option value="Trưởng buồng phòng" {{ old('position', $staff->position) == 'Trưởng buồng phòng' ? 'selected' : '' }}>Trưởng buồng phòng</option>
+                            <option value="Buồng phòng" {{ old('position', $staff->position) == 'Buồng phòng' ? 'selected' : '' }}>Buồng phòng</option>
                         </select>
+                        @error('position')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        <div class="form-text">Chỉ có 1 Quản lý và 1 Super Admin toàn khách sạn; lễ tân, trưởng lễ tân, buồng phòng và trưởng buồng phòng có thể có nhiều người.</div>
                     </div>
 
                     <div class="col-md-6">
@@ -183,15 +180,15 @@
 
                         <select name="work_status" class="form-select">
 
-                            <option value="working" {{ $staff->work_status == 'working' ? 'selected' : '' }}>
+                            <option value="working" {{ old('work_status', $staff->work_status) == 'working' ? 'selected' : '' }}>
                                 Đang làm việc
                             </option>
 
-                            <option value="temporary_leave" {{ $staff->work_status == 'temporary_leave' ? 'selected' : '' }}>
+                            <option value="temporary_leave" {{ old('work_status', $staff->work_status) == 'temporary_leave' ? 'selected' : '' }}>
                                 Nghỉ tạm
                             </option>
 
-                            <option value="resigned" {{ $staff->work_status == 'resigned' ? 'selected' : '' }}>
+                            <option value="resigned" {{ old('work_status', $staff->work_status) == 'resigned' ? 'selected' : '' }}>
                                 Đã nghỉ
                             </option>
 

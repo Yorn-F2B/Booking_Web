@@ -13,18 +13,33 @@ class BookingRealtimeUpdated implements ShouldBroadcastNow
 {
     use Dispatchable, SerializesModels;
 
+    public ?int $actorUserId;
+
     public function __construct(
         public Booking $booking,
         public string $action = 'updated'
     ) {
+        $this->actorUserId = auth()->id();
     }
 
     public function broadcastOn(): array
     {
-        $channels = [
-            new PrivateChannel('admin.realtime'),
-            new PrivateChannel('admin.bookings'),
-        ];
+        $channels = [new PrivateChannel('admin.bookings.supervisors')];
+
+        $assignedStaffIds = $this->booking->activeStaffAssignments()
+            ->pluck('staff_id')
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($assignedStaffIds->isEmpty()) {
+            $channels[] = new PrivateChannel('admin.bookings.unassigned');
+        } else {
+            foreach ($assignedStaffIds as $staffId) {
+                $channels[] = new PrivateChannel('admin.bookings.staff.' . $staffId);
+            }
+        }
 
         if ($this->booking->customer_id) {
             $channels[] = new PrivateChannel('customer.' . $this->booking->customer_id);
@@ -63,6 +78,7 @@ class BookingRealtimeUpdated implements ShouldBroadcastNow
             'id' => $this->booking->id,
             'booking_code' => $this->booking->booking_code,
             'action' => $this->action,
+            'actor_user_id' => $this->actorUserId,
             'customer_id' => $this->booking->customer_id,
             'customer_name' => $customerName,
             'customer_phone' => $customer->phone ?? 'Chưa có SĐT',

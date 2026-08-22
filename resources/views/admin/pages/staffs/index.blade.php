@@ -21,14 +21,7 @@
                     <i class="bx bx-plus me-1"></i>Thêm nhân viên
                 </a>
             </div>
-
-            @if (session('success'))
-                <div class="alert alert-success">
-                    {{ session('success') }}
-                </div>
-            @endif
-
-            <div class="settings-section">
+<div class="settings-section">
                 <div class="table-responsive">
 
                     <table class="table table-hover align-middle mb-0">

@@ -58,8 +58,8 @@ class BookingCancellationService
 
                 $room->update([
                     'status' => $hasOtherActiveBooking ? 'reserved' : 'available',
-                    'status_from' => $hasOtherActiveBooking ? $room->status_from : null,
-                    'status_until' => $hasOtherActiveBooking ? $room->status_until : null,
+                    'status_from' => $hasOtherActiveBooking ? now('Asia/Ho_Chi_Minh') : null,
+                    'status_until' => null,
                 ]);
             }
 
@@ -90,7 +90,7 @@ class BookingCancellationService
 
                 $noShow90 = BookingLog::query()
                     ->whereHas('booking', fn ($q) => $q->where('customer_id', $locked->customer_id))
-                    ->whereIn('action', ['auto_cancel_no_show', 'cancel_no_show', 'late_arrival_cancelled'])
+                    ->whereIn('action', ['auto_cancel_no_show', 'cancel_no_show', 'late_arrival_cancelled', 'system_no_show_cancelled'])
                     ->where('created_at', '>=', now()->subDays(90))
                     ->count();
 

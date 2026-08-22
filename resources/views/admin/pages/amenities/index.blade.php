@@ -25,14 +25,7 @@
             </a>
 
         </div>
-
-        @if (session('success'))
-            <div class="alert alert-success">
-                {{ session('success') }}
-            </div>
-        @endif
-
-        <div class="settings-section">
+<div class="settings-section">
 
             <div class="table-responsive">
 

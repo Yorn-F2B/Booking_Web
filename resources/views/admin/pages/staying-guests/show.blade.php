@@ -32,7 +32,9 @@
             </div></div>
             <div class="col-lg-4"><div class="settings-section h-100">
                 <h5 class="fw-bold mb-3">Đại diện đoàn</h5>
-                @php($representative = $booking->guests->firstWhere('is_booking_representative', true))
+                @php
+                    $representative = $booking->guests->firstWhere('is_booking_representative', true);
+                @endphp
                 <div class="d-grid gap-2 small">
                     <div><span class="text-muted d-block">Họ tên</span><strong>{{ $representative?->full_name ?? 'Chưa chọn' }}</strong></div>
                     <div><span class="text-muted d-block">Giấy tờ</span><strong>{{ $representative?->display_document ?? '---' }}</strong></div>
@@ -50,7 +52,9 @@
         </div>
 
         @foreach($booking->bookingRooms as $bookingRoom)
-            @php($roomGuests = $booking->guests->where('booking_room_id', $bookingRoom->id))
+            @php
+                $roomGuests = $booking->guests->where('booking_room_id', $bookingRoom->id);
+            @endphp
             <div class="settings-section mb-3">
                 <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
                     <div>

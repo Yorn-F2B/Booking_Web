@@ -56,6 +56,30 @@ class BookingServicePricingService
         ];
     }
 
+    public function nightCountForNewService(Booking $booking): int
+    {
+        if ($booking->booking_type === 'hourly') {
+            return 1;
+        }
+
+        $checkInAt = $booking->check_in_at?->copy()
+            ?? \Carbon\Carbon::parse($booking->getRawOriginal('check_in_at'), 'Asia/Ho_Chi_Minh');
+        $checkOutAt = $booking->check_out_at?->copy()
+            ?? \Carbon\Carbon::parse($booking->getRawOriginal('check_out_at'), 'Asia/Ho_Chi_Minh');
+
+        $checkInDay = $checkInAt->timezone('Asia/Ho_Chi_Minh')->startOfDay();
+        $checkOutDay = $checkOutAt->timezone('Asia/Ho_Chi_Minh')->startOfDay();
+
+        if (!$booking->actual_check_in && $booking->status !== 'checked_in') {
+            return max(1, (int) $checkInDay->diffInDays($checkOutDay));
+        }
+
+        $today = now('Asia/Ho_Chi_Minh')->startOfDay();
+        $effectiveStart = $today->greaterThan($checkInDay) ? $today : $checkInDay;
+
+        return max(1, (int) $effectiveStart->diffInDays($checkOutDay, false));
+    }
+
     public function previewBookingItems(
         Booking $booking,
         int $newNightCount,
@@ -71,6 +95,9 @@ class BookingServicePricingService
 
         /** @var BookingServiceItem $item */
         foreach ($booking->serviceItems as $item) {
+            $isConfirmed = $item->billing_status === 'confirmed';
+            $oldItemTotal = $isConfirmed ? (float) $item->total : 0.0;
+
             if (in_array((int) $item->id, $excludedItemIds, true)) {
                 $lines[] = [
                     'item_id' => (int) $item->id,
@@ -85,19 +112,48 @@ class BookingServicePricingService
                     'billing_status' => $item->billing_status,
                     'billing_rule' => $this->resolveRule($item),
                     'billing_rule_label' => Service::billingRuleLabels()[$this->resolveRule($item)] ?? 'Một lần',
-                    'old_total' => (float) $item->total,
+                    'old_total' => $oldItemTotal,
                     'new_total' => 0,
-                    'difference' => 0 - (float) $item->total,
-                    'old_formula' => 'Dịch vụ tự thêm từ mã không còn hợp lệ.',
+                    'difference' => 0 - $oldItemTotal,
+                    'old_formula' => $isConfirmed
+                        ? $this->oldFormulaText($item)
+                        : 'Khoản này chưa được xác nhận nên chưa tính tiền.',
                     'new_formula' => 'Gỡ khỏi booking cùng mã ưu đãi.',
                     'will_remove' => true,
                     'will_reprice' => false,
                 ];
-                $oldTotal += (float) $item->total;
+                $oldTotal += $oldItemTotal;
                 continue;
             }
 
-            $oldItemTotal = (float) $item->total;
+            // Pending/cancelled/unused vẫn tồn tại để theo dõi nghiệp vụ nhưng
+            // không được chen vào subtotal khi booking được tính lại.
+            if (!$isConfirmed) {
+                $lines[] = [
+                    'item_id' => (int) $item->id,
+                    'service_id' => (int) $item->service_id,
+                    'scope' => $item->scope ?? 'booking',
+                    'booking_room_id' => $item->booking_room_id ? (int) $item->booking_room_id : null,
+                    'room_id_snapshot' => $item->room_id_snapshot ? (int) $item->room_id_snapshot : null,
+                    'name' => $item->name,
+                    'type' => $item->type,
+                    'unit_price' => (float) $item->unit_price,
+                    'base_quantity' => $this->resolveBaseQuantity($item),
+                    'billed_quantity' => 0,
+                    'billing_status' => $item->billing_status,
+                    'billing_rule' => $this->resolveRule($item),
+                    'billing_rule_label' => Service::billingRuleLabels()[$this->resolveRule($item)] ?? 'Một lần',
+                    'old_total' => 0,
+                    'new_total' => 0,
+                    'difference' => 0,
+                    'old_formula' => 'Chưa xác nhận/đã hủy nên không tính tiền.',
+                    'new_formula' => 'Chưa xác nhận/đã hủy nên không tính tiền.',
+                    'will_remove' => false,
+                    'will_reprice' => false,
+                ];
+                continue;
+            }
+
             $oldTotal += $oldItemTotal;
 
             [$itemRoomQuantity, $itemGuestCount] = $this->dimensionsForItem(
@@ -106,6 +162,7 @@ class BookingServicePricingService
                 $newRoomQuantity,
                 $newGuestCount
             );
+            $itemNightCount = $this->nightCountForItem($booking, $item, $newNightCount);
 
             if (!$this->canAutoReprice($item)) {
                 $newItemTotal = $oldItemTotal;
@@ -115,7 +172,7 @@ class BookingServicePricingService
                     $this->resolveRule($item),
                     $this->resolveBaseQuantity($item),
                     (float) $item->unit_price,
-                    $newNightCount,
+                    $itemNightCount,
                     $itemRoomQuantity,
                     $itemGuestCount
                 );
@@ -193,7 +250,7 @@ class BookingServicePricingService
                 $this->resolveRule($item),
                 $this->resolveBaseQuantity($item),
                 (float) $item->unit_price,
-                $newNightCount,
+                $this->nightCountForItem($booking, $item, $newNightCount),
                 $itemRoomQuantity,
                 $itemGuestCount
             );
@@ -245,8 +302,27 @@ class BookingServicePricingService
 
     private function dimensionsForItem(Booking $booking, BookingServiceItem $item, int $bookingRoomQuantity, int $bookingGuestCount): array
     {
+        $snapshotLocked = $this->snapshotLocked($booking);
+
         if (($item->scope ?? 'booking') !== 'room' || !$item->booking_room_id) {
-            return [max(1, $bookingRoomQuantity), max(1, $bookingGuestCount)];
+            $roomQuantity = max(1, $bookingRoomQuantity);
+            $guestCount = max(1, $bookingGuestCount);
+
+            if ($snapshotLocked) {
+                if ((int) ($item->rooms_snapshot ?? 0) > 0) {
+                    $roomQuantity = max(1, (int) $item->rooms_snapshot);
+                }
+
+                if ((int) ($item->people_snapshot ?? 0) > 0) {
+                    $guestCount = max(1, (int) $item->people_snapshot);
+                }
+            }
+
+            return [$roomQuantity, $guestCount];
+        }
+
+        if ($snapshotLocked && (int) ($item->people_snapshot ?? 0) > 0) {
+            return [1, max(1, (int) $item->people_snapshot)];
         }
 
         $guestCount = $booking->guests->where('booking_room_id', $item->booking_room_id)->count();
@@ -258,6 +334,20 @@ class BookingServicePricingService
         }
 
         return [1, max(1, $guestCount)];
+    }
+
+    private function nightCountForItem(Booking $booking, BookingServiceItem $item, int $newNightCount): int
+    {
+        if ($this->snapshotLocked($booking) && (int) ($item->nights_snapshot ?? 0) > 0) {
+            return max(1, (int) $item->nights_snapshot);
+        }
+
+        return max(1, $newNightCount);
+    }
+
+    private function snapshotLocked(Booking $booking): bool
+    {
+        return (bool) $booking->actual_check_in || $booking->status === 'checked_in';
     }
 
     private function canAutoReprice(BookingServiceItem $item): bool

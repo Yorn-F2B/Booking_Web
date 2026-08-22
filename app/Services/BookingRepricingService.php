@@ -43,7 +43,20 @@ class BookingRepricingService
         $newNightCount = max(1, $newCheckInAt->copy()->startOfDay()->diffInDays($newCheckOutAt->copy()->startOfDay()));
         $newRoomQuantity = max(1, $booking->bookingRooms->count());
         $newGuestCount = max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0));
-        $newRoomTotal = round(max(0, $newOneNightRoomTotal) * $newNightCount, 0);
+        if ($booking->booking_type === 'hourly') {
+            $durationMinutes = max(1, $newCheckInAt->diffInMinutes($newCheckOutAt));
+            $hourly = app(StayPricingPolicyService::class)->shortStay(
+                max(0, $newOneNightRoomTotal),
+                1,
+                $durationMinutes,
+                $booking
+            );
+            $newRoomBaseTotal = round((float) $hourly['amount'], 0);
+        } else {
+            $newRoomBaseTotal = round(max(0, $newOneNightRoomTotal) * $newNightCount, 0);
+        }
+        $newRoomSurchargeTotal = round((float) $booking->bookingRooms->sum('surcharge'), 0);
+        $newRoomTotal = round($newRoomBaseTotal + $newRoomSurchargeTotal, 0);
 
         $excludedItemIds = [];
         $promotionPreview = [];
@@ -143,11 +156,11 @@ class BookingRepricingService
         // Cọc chỉ dựa trên tiền phòng sau phần giảm tiền/nâng hạng có thể quy về phòng.
         // Dịch vụ và phụ thu phát sinh không làm tăng ngưỡng cọc trước check-in.
         $roomDiscountForDeposit = min(
-            $newRoomTotal,
+            $newRoomBaseTotal,
             (float) $promotionPreview['money_discount_total']
                 + (float) $promotionPreview['room_upgrade_discount_total']
         );
-        $requiredDeposit = round(max(0, $newRoomTotal - $roomDiscountForDeposit) * 0.30, 0);
+        $requiredDeposit = round(max(0, $newRoomBaseTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate($booking), 0);
         $depositShortfall = max(0, round($requiredDeposit - $paidTotal, 0));
 
         return [
@@ -164,6 +177,8 @@ class BookingRepricingService
                 'night_count' => $newNightCount,
                 'room_quantity' => $newRoomQuantity,
                 'room_total' => $newRoomTotal,
+                'room_base_total' => $newRoomBaseTotal,
+                'room_surcharge_total' => $newRoomSurchargeTotal,
                 'service_total' => (float) $servicePreview['new_total'],
                 'inspection_total' => $approvedInspectionTotal,
                 'subtotal' => $newSubtotal,
@@ -680,11 +695,24 @@ class BookingRepricingService
 
     private function currentRoomTotal(Booking $booking): float
     {
+        $surchargeTotal = (float) $booking->bookingRooms->sum('surcharge');
+
+        if ($booking->booking_type === 'hourly' && $booking->check_in_at && $booking->check_out_at) {
+            $oneNightRoomTotal = (float) $booking->bookingRooms->sum('price_at_booking');
+            $durationMinutes = max(
+                1,
+                Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')
+                    ->diffInMinutes(Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh'))
+            );
+            $hourly = app(StayPricingPolicyService::class)->shortStay($oneNightRoomTotal, 1, $durationMinutes, $booking);
+
+            return max(0, round((float) $hourly['amount'] + $surchargeTotal, 0));
+        }
+
         $nightCount = $this->nightCount($booking->check_in_at, $booking->check_out_at);
         $total = (float) $booking->bookingRooms->sum(
             fn ($bookingRoom) => (float) $bookingRoom->price_at_booking * $nightCount
-                + (float) $bookingRoom->surcharge
-        );
+        ) + $surchargeTotal;
 
         return max(0, round($total, 0));
     }

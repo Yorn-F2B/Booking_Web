@@ -42,7 +42,11 @@ return [
                 'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
             ],
             'client_options' => [
-                // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
+                // Realtime không được phép treo request nghiệp vụ khi Reverb tắt/lỗi.
+                // Reverb chạy local nên 0.25s connect + 0.75s tổng request là dư dả;
+                // nếu thất bại Realtime::safeDispatch sẽ ghi log và nghiệp vụ vẫn hoàn tất.
+                'connect_timeout' => (float) env('REVERB_CONNECT_TIMEOUT', 0.25),
+                'timeout' => (float) env('REVERB_HTTP_TIMEOUT', 0.75),
             ],
         ],
 

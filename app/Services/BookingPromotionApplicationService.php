@@ -91,20 +91,10 @@ class BookingPromotionApplicationService
             throw new \RuntimeException('Mã ' . $soloCode . ' chỉ được dùng một mình.');
         }
 
-        $typeLimits = [
-            Promotion::TYPE_NORMAL => 1,
-            Promotion::TYPE_EVENT => 1,
-            Promotion::TYPE_CONDITIONAL => 1,
-            Promotion::TYPE_SUPPORT => null,
-        ];
-        $typeLabels = [
-            Promotion::TYPE_NORMAL => 'mã thường',
-            Promotion::TYPE_EVENT => 'mã sự kiện',
-            Promotion::TYPE_CONDITIONAL => 'mã điều kiện',
-            Promotion::TYPE_SUPPORT => 'mã hỗ trợ',
-        ];
-
-        foreach ($typeLimits as $type => $limit) {
+        // Dùng chung đúng một nguồn giới hạn với PromotionService/UI. Tránh trường hợp
+        // màn sửa booking cho chọn khác với màn tạo hoặc với lúc backend áp mã.
+        foreach (app(PromotionService::class)->selectionRules() as $type => $rule) {
+            $limit = $rule['limit'] ?? null;
             if ($ignoreCombinationRules || $limit === null) {
                 continue;
             }
@@ -115,7 +105,8 @@ class BookingPromotionApplicationService
             $newCount = $promotions->where('promotion_type', $type)->count();
 
             if ($existingCount + $newCount > $limit) {
-                throw new \RuntimeException('Mỗi booking chỉ được có tối đa ' . $limit . ' ' . $typeLabels[$type] . '.');
+                $label = mb_strtolower((string) ($rule['label'] ?? 'mã cùng loại'));
+                throw new \RuntimeException('Mỗi booking chỉ được có tối đa ' . $limit . ' ' . $label . '.');
             }
         }
 
@@ -216,8 +207,10 @@ class BookingPromotionApplicationService
             $bookingSubtotal = (float) $booking->estimated_total + $currentDiscount;
         }
 
+        // Chỉ dịch vụ đã xác nhận mới là khoản tài chính và được phép
+        // tham gia điều kiện/tính ưu đãi. Pending không được coi như đã mua.
         $allConfirmedServices = $booking->serviceItems
-            ->reject(fn ($item) => in_array($item->billing_status, ['unused', 'cancelled'], true));
+            ->where('billing_status', 'confirmed');
         $serviceCollection = $scopeRoom
             ? $allConfirmedServices->where('booking_room_id', $scopeRoom->id)
             : $allConfirmedServices;

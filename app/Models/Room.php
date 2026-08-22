@@ -94,16 +94,7 @@ class Room extends Model
                 }
 
                 $bookingQuery
-                    ->where(function (Builder $activeBooking) {
-                        $activeBooking->whereIn('status', ['confirmed', 'checked_in', 'inspection_requested'])
-                            ->orWhere(function (Builder $pendingBooking) {
-                                $pendingBooking->where('status', 'pending')
-                                    ->where(function (Builder $validHold) {
-                                        $validHold->whereNotNull('payment_expires_at')
-                                            ->where('payment_expires_at', '>', now('Asia/Ho_Chi_Minh'));
-                                    });
-                            });
-                    })
+                    ->activeForOperations()
                     ->where('check_in_at', '<', $checkOutWithBufferAtString)
                     ->whereRaw(
                         'DATE_ADD(check_out_at, INTERVAL COALESCE(cleaning_buffer_minutes, 0) MINUTE) > ?',
@@ -148,14 +139,7 @@ class Room extends Model
                 }
 
                 $bookingQuery
-                    ->where(function (Builder $activeBooking) {
-                        $activeBooking->whereIn('status', ['confirmed', 'checked_in', 'inspection_requested'])
-                            ->orWhere(function (Builder $pendingBooking) {
-                                $pendingBooking->where('status', 'pending')
-                                    ->whereNotNull('payment_expires_at')
-                                    ->where('payment_expires_at', '>', now('Asia/Ho_Chi_Minh'));
-                            });
-                    })
+                    ->activeForOperations()
                     ->where('check_in_at', '<', $checkOutAtString)
                     ->where('check_out_at', '>', $checkInAtString);
             })

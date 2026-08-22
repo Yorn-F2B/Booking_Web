@@ -19,6 +19,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use App\Services\PromotionService;
 use App\Services\StayPricingPolicyService;
 use App\Models\Promotion;
@@ -29,16 +31,12 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use App\Services\BookingCodeGenerator;
 use App\Services\BookingIdentityGuard;
+use App\Services\BookingServicePricingService;
+use App\Services\HotelPolicyService;
 
 
 class BookingCreateController extends Controller
 {
-    private const DEFAULT_CLEANING_BUFFER_MINUTES = Booking::DEFAULT_CLEANING_BUFFER_MINUTES;
-    private const PRIORITY_CLEANING_START_TIME = Booking::PRIORITY_CLEANING_START_TIME;
-    private const EARLY_CHECK_IN_TIME = Booking::EARLY_CHECK_IN_TIME;
-    private const OVERNIGHT_CHECK_IN_TIME = Booking::STANDARD_CHECK_IN_TIME;
-    private const OVERNIGHT_CHECK_OUT_TIME = Booking::STANDARD_CHECK_OUT_TIME;
-
     public function create()
     {
         $roomCategories = RoomCategory::where('status', 'active')
@@ -131,7 +129,8 @@ class BookingCreateController extends Controller
             'customer_name' => 'required|string|max:150',
             'customer_phone' => 'required|string|max:20',
             'customer_cccd' => 'required|regex:/^[0-9]{12}$/',
-            'customer_birthday' => 'required|date|before_or_equal:' . now()->subYears(18)->toDateString(),
+            'customer_birthday' => 'required|date|before_or_equal:' . now('Asia/Ho_Chi_Minh')->subYears(max(0, (int) app(HotelPolicyService::class)->get('booking.min_age', 18)))->toDateString(),
+            'customer_gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
             'customer_email' => 'nullable|required_if:payment_method,vnpay|email|max:150',
             'customer_address' => 'nullable|string|max:255',
 
@@ -171,7 +170,7 @@ class BookingCreateController extends Controller
             'customer_cccd.required' => 'Vui lòng nhập CCCD người đứng tên booking.',
             'customer_cccd.regex' => 'CCCD phải gồm đúng 12 chữ số.',
             'customer_birthday.required' => 'Vui lòng nhập ngày sinh người đứng tên booking.',
-            'customer_birthday.before_or_equal' => 'Người đứng tên booking phải đủ 18 tuổi.',
+            'customer_birthday.before_or_equal' => 'Người đứng tên booking phải đủ ' . max(0, (int) app(HotelPolicyService::class)->get('booking.min_age', 18)) . ' tuổi.',
             'booking_mode.required' => 'Vui lòng chọn hình thức tạo booking.',
             'booking_mode.in' => 'Hình thức tạo booking không hợp lệ.',
             'booking_type.required' => 'Vui lòng chọn loại lưu trú.',
@@ -218,7 +217,12 @@ class BookingCreateController extends Controller
             && $request->boolean('prefer_adjacent_rooms')
             && $roomQuantity >= 2;
 
-        $serviceItems = $this->prepareServiceItems($data['services'] ?? []);
+        $serviceItems = $this->prepareServiceItems(
+            $data['services'] ?? [],
+            $nightCount,
+            $roomQuantity,
+            max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0))
+        );
         $serviceItemTotal = collect($serviceItems)->sum('total');
 
         $availableCountForSelectedPeriod = null;
@@ -417,6 +421,7 @@ class BookingCreateController extends Controller
                     'check_out_at' => $checkOutAt,
                     'night_count' => $nightCount,
                     'room_quantity' => $roomQuantity,
+                    'guest_count' => max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0)),
                 ],
                 'admin',
                 $data['promotion_note'] ?? null
@@ -434,14 +439,18 @@ class BookingCreateController extends Controller
             $subtotalAmount = (float) $promotionResult['subtotal_amount'];
             $moneyDiscountAmount = (float) ($promotionResult['money_discount_total'] ?? 0);
             $serviceDiscountAmount = (float) ($promotionResult['service_discount_total'] ?? 0);
+            $roomUpgradeDiscountAmount = (float) ($promotionResult['room_upgrade_discount_total'] ?? 0);
             $discountAmount = (float) $promotionResult['discount_total'];
             $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
+            $roomDiscountForDeposit = min($roomTotal, $moneyDiscountAmount + $roomUpgradeDiscountAmount);
+            $requiredDepositAmount = round(max(0, $roomTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(), 0);
             $initialPaymentAmount = $this->resolveInitialPaymentAmount(
                 $paymentMethod,
                 $paymentType,
                 $customPaymentAmount,
                 $estimatedTotal,
-                0
+                0,
+                $requiredDepositAmount
             );
             $depositAmount = in_array($paymentMethod, ['cash', 'bank_transfer'], true)
                 ? $initialPaymentAmount
@@ -468,7 +477,8 @@ class BookingCreateController extends Controller
                 'check_out_date' => $checkOutAt->toDateString(),
                 'check_in_at' => $checkInAt,
                 'check_out_at' => $checkOutAt,
-                'cleaning_buffer_minutes' => self::DEFAULT_CLEANING_BUFFER_MINUTES,
+                'cleaning_buffer_minutes' => max(0, (int) app(HotelPolicyService::class)->get('booking.cleaning_buffer_minutes', Booking::DEFAULT_CLEANING_BUFFER_MINUTES)),
+                'policy_snapshot' => app(HotelPolicyService::class)->snapshot(),
                 'adult_count' => $data['adult_count'],
                 'child_count' => $data['child_count'] ?? 0,
                 'room_quantity' => $roomQuantity,
@@ -477,6 +487,7 @@ class BookingCreateController extends Controller
                 'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
                 'deposit_amount' => $depositAmount,
+                'required_deposit_amount' => $requiredDepositAmount,
                 'payment_status' => $depositAmount >= $estimatedTotal && $estimatedTotal > 0 ? 'paid' : ($depositAmount > 0 ? 'partial' : 'unpaid'),
                 'status' => $paymentMethod === 'vnpay' ? 'pending' : 'confirmed',
                 // Ở ngay vẫn phải hoàn tất quy trình check-in tại trang chi tiết:
@@ -690,11 +701,11 @@ class BookingCreateController extends Controller
         float $temporaryTotal
     ): void {
         if (!in_array($paymentMethod, ['cash', 'bank_transfer', 'vnpay'], true)) {
-            throw new \Exception('Booking bắt buộc thanh toán cọc 30%.');
+            throw new \Exception('Booking bắt buộc thanh toán cọc ' . $this->currentDepositPercentLabel() . '.');
         }
 
         if ($paymentType !== 'deposit_30') {
-            throw new \Exception('Chỉ hỗ trợ mức cọc 30% khi tạo booking.');
+            throw new \Exception('Khi tạo booking, hệ thống thu mức cọc theo chính sách hiện tại (' . $this->currentDepositPercentLabel() . ').');
         }
 
         if ($temporaryTotal <= 0) {
@@ -707,7 +718,8 @@ class BookingCreateController extends Controller
         ?string $paymentType,
         float $customPaymentAmount,
         float $estimatedTotal,
-        float $currentPaid = 0
+        float $currentPaid = 0,
+        ?float $requiredDepositTarget = null
     ): float {
         if ($paymentMethod === 'none' || $estimatedTotal <= 0) {
             return 0;
@@ -716,7 +728,9 @@ class BookingCreateController extends Controller
         $remaining = max(0, $estimatedTotal - $currentPaid);
 
         if ($paymentType === 'deposit_30') {
-            $depositTarget = round($estimatedTotal * 0.3, 0);
+            $depositTarget = $requiredDepositTarget !== null
+                ? max(0, round($requiredDepositTarget, 0))
+                : round($estimatedTotal * app(HotelPolicyService::class)->depositRate(), 0);
 
             return max(0, min($depositTarget - $currentPaid, $remaining));
         }
@@ -783,7 +797,7 @@ class BookingCreateController extends Controller
             'Tạo giao dịch VNPay khi tạo booking: '
             . number_format($amount, 0, ',', '.')
             . 'đ ('
-            . 'cọc 30%'
+            . 'cọc ' . $this->depositPercentLabel($booking)
             . '). Mã giao dịch: '
             . $payment->txn_ref
             . '.'
@@ -888,12 +902,12 @@ class BookingCreateController extends Controller
             }
 
             $checkInAt = Carbon::parse(
-                $data['check_in_date'] . ' ' . self::OVERNIGHT_CHECK_IN_TIME,
+                $data['check_in_date'] . ' ' . $this->standardCheckInTime(),
                 'Asia/Ho_Chi_Minh'
             );
 
             $checkOutAt = Carbon::parse(
-                $data['check_out_date'] . ' ' . self::OVERNIGHT_CHECK_OUT_TIME,
+                $data['check_out_date'] . ' ' . $this->standardCheckOutTime(),
                 'Asia/Ho_Chi_Minh'
             );
 
@@ -937,13 +951,15 @@ class BookingCreateController extends Controller
 
             $durationMinutes = $checkInAt->diffInMinutes($checkOutAt);
 
-            if ($durationMinutes < 30) {
-                throw new \Exception('Thời gian ở theo giờ phải tối thiểu 30 phút.');
+            $minimumHourlyMinutes = max(1, (int) app(HotelPolicyService::class)->get('stay.short_stay_min_minutes', 30));
+            if ($durationMinutes < $minimumHourlyMinutes) {
+                throw new \Exception('Thời gian ở theo giờ phải tối thiểu ' . $minimumHourlyMinutes . ' phút.');
             }
 
             $pricingPolicy = app(StayPricingPolicyService::class);
 
-            if ($durationMinutes > 12 * 60) {
+            $overnightThresholdMinutes = max(60, (int) app(HotelPolicyService::class)->get('stay.short_stay_to_overnight_hours', 12) * 60);
+            if ($durationMinutes > $overnightThresholdMinutes) {
                 $longStay = $pricingPolicy->longStay(
                     $checkInAt,
                     $checkOutAt,
@@ -981,9 +997,9 @@ class BookingCreateController extends Controller
                 'Asia/Ho_Chi_Minh'
             );
 
-            // Qua đêm luôn trả phòng lúc 12:00 của ngày trả đã chọn.
+            // Qua đêm trả phòng theo giờ check-out tiêu chuẩn hiện hành.
             $checkOutAt = Carbon::parse(
-                $data['check_out_date'] . ' ' . self::OVERNIGHT_CHECK_OUT_TIME,
+                $data['check_out_date'] . ' ' . $this->standardCheckOutTime(),
                 'Asia/Ho_Chi_Minh'
             );
 
@@ -998,7 +1014,7 @@ class BookingCreateController extends Controller
             $policyFeeAmount = $policy['extra_fee_amount'];
             $policyExtraPercent = $policy['extra_percent'];
             $policyFeeNote = $policy['policy_text']
-                . ' Khách ở ' . $nightCount . ' đêm và trả phòng lúc 12:00 ngày '
+                . ' Khách ở ' . $nightCount . ' đêm và trả phòng lúc ' . substr($this->standardCheckOutTime(), 0, 5) . ' ngày '
                 . $checkOutAt->format('d/m/Y') . '.';
         } else {
             throw new \Exception('Hình thức booking không hợp lệ.');
@@ -1026,7 +1042,7 @@ class BookingCreateController extends Controller
         $policy = app(StayPricingPolicyService::class)->earlyCheckIn($checkInAt, $baseRoomTotal);
 
         return [
-            'check_out_at' => $checkInAt->copy()->addDay()->setTime(12, 0, 0),
+            'check_out_at' => $checkInAt->copy()->addDay()->setTimeFromTimeString($this->standardCheckOutTime()),
             'night_count' => 1,
             'extra_percent' => $policy['percent'] / 100,
             'extra_fee_amount' => $policy['amount'],
@@ -1069,10 +1085,10 @@ class BookingCreateController extends Controller
         Carbon $checkOutAt,
         $availableRooms
     ): ?string {
-        $cleaningBufferMinutes = self::DEFAULT_CLEANING_BUFFER_MINUTES;
+        $cleaningBufferMinutes = max(0, (int) app(HotelPolicyService::class)->get('booking.cleaning_buffer_minutes', Booking::DEFAULT_CLEANING_BUFFER_MINUTES));
         $cleaningUntil = $checkOutAt->copy()->addMinutes($cleaningBufferMinutes);
-        $overnightStartAt = $checkInAt->copy()->setTimeFromTimeString(self::OVERNIGHT_CHECK_IN_TIME);
-        $overnightEndAt = $overnightStartAt->copy()->addDay()->setTimeFromTimeString(self::OVERNIGHT_CHECK_OUT_TIME);
+        $overnightStartAt = $checkInAt->copy()->setTimeFromTimeString($this->standardCheckInTime());
+        $overnightEndAt = $overnightStartAt->copy()->addDay()->setTimeFromTimeString($this->standardCheckOutTime());
 
         if (!$cleaningUntil->greaterThan($overnightStartAt)) {
             return null;
@@ -1092,7 +1108,7 @@ class BookingCreateController extends Controller
             . $checkOutAt->format('d/m/Y H:i')
             . ', cộng ' . $cleaningBufferMinutes . ' phút dọn phòng sẽ chiếm phòng đến '
             . $cleaningUntil->format('d/m/Y H:i')
-            . ', vượt mốc check-in cam kết 14:00. '
+            . ', vượt mốc check-in cam kết ' . substr($this->standardCheckInTime(), 0, 5) . '. '
             . 'Sau khi giữ ' . $roomQuantity . ' phòng theo giờ, hạng '
             . $roomCategory->name . ' còn ' . $overnightAvailableAfterHourly
             . ' phòng có thể bán qua đêm trong khung '
@@ -1166,14 +1182,7 @@ class BookingCreateController extends Controller
 
         $candidates = Booking::query()
             ->whereNull('deleted_at')
-            ->where(function ($active) {
-                $active->whereIn('status', ['confirmed', 'checked_in', 'inspection_requested'])
-                    ->orWhere(function ($pending) {
-                        $pending->where('status', 'pending')
-                            ->whereNotNull('payment_expires_at')
-                            ->where('payment_expires_at', '>', now('Asia/Ho_Chi_Minh'));
-                    });
-            })
+            ->activeForOperations()
             ->where('check_in_at', '<', $checkOut)
             ->where('check_out_at', '>', $checkIn)
             ->where(function ($identity) use ($cccd) {
@@ -1216,45 +1225,90 @@ class BookingCreateController extends Controller
 
     private function createOrUpdateCustomer(array $data)
     {
-        $nameParts = preg_split('/\s+/', trim($data['customer_name']));
+        $fullName = trim((string) ($data['customer_name'] ?? ''));
+        $nameParts = preg_split('/\s+/', $fullName) ?: [];
         $firstName = array_pop($nameParts);
         $lastName = implode(' ', $nameParts);
         $cccd = preg_replace('/\D+/', '', (string) ($data['customer_cccd'] ?? ''));
-        $normalizedName = $this->normalizeCustomerIdentityName((string) $data['customer_name']);
+        $phone = trim((string) ($data['customer_phone'] ?? ''));
+        $email = Str::lower(trim((string) ($data['customer_email'] ?? '')));
+        $normalizedName = $this->normalizeCustomerIdentityName($fullName);
 
         $existingCustomer = null;
-        if ($cccd !== '' && $normalizedName !== '') {
+        if ($cccd !== '') {
             $existingCustomer = Customer::query()
-                ->whereNull('deleted_at')
                 ->whereRaw(
                     "REPLACE(REPLACE(REPLACE(cccd, ' ', ''), '-', ''), '.', '') = ?",
                     [$cccd]
                 )
-                ->get()
-                ->first(function (Customer $candidate) use ($normalizedName) {
-                    $candidateName = trim((string) $candidate->last_name . ' ' . (string) $candidate->first_name);
-                    return $this->normalizeCustomerIdentityName($candidateName) === $normalizedName;
-                });
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingCustomer) {
+                $candidateName = trim((string) $existingCustomer->last_name . ' ' . (string) $existingCustomer->first_name);
+                if ($normalizedName !== '' && $this->normalizeCustomerIdentityName($candidateName) !== $normalizedName) {
+                    throw ValidationException::withMessages([
+                        'customer_cccd' => 'CCCD này đã thuộc hồ sơ khách "' . $candidateName . '". Vui lòng kiểm tra lại họ tên/CCCD thay vì tạo hồ sơ trùng.',
+                    ]);
+                }
+            }
+        }
+
+        // DB đang đặt unique cho phone/email. Báo lỗi nghiệp vụ rõ ràng trước khi để
+        // MySQL ném duplicate-key khó hiểu, đồng thời không tự gộp hai người chỉ vì
+        // dùng chung thông tin liên hệ.
+        $conflictingPhone = $phone !== ''
+            ? Customer::query()->where('phone', $phone)
+                ->when($existingCustomer, fn ($q) => $q->whereKeyNot($existingCustomer->id))
+                ->first()
+            : null;
+        if ($conflictingPhone) {
+            throw ValidationException::withMessages([
+                'customer_phone' => 'Số điện thoại này đã thuộc một hồ sơ khách khác. Vui lòng kiểm tra lại thông tin khách.',
+            ]);
+        }
+
+        $conflictingEmail = $email !== ''
+            ? Customer::query()->whereRaw('LOWER(email) = ?', [$email])
+                ->when($existingCustomer, fn ($q) => $q->whereKeyNot($existingCustomer->id))
+                ->first()
+            : null;
+        if ($conflictingEmail) {
+            throw ValidationException::withMessages([
+                'customer_email' => 'Email này đã thuộc một hồ sơ khách khác. Vui lòng kiểm tra lại thông tin khách.',
+            ]);
         }
 
         $attributes = [
-            'first_name' => $firstName ?: $data['customer_name'],
+            'first_name' => $firstName ?: $fullName,
             'last_name' => $lastName,
-            'phone' => $data['customer_phone'],
-            'cccd' => $data['customer_cccd'] ?? null,
-            'email' => $data['customer_email'] ?? null,
+            'phone' => $phone,
+            'cccd' => $cccd ?: null,
             'birthday' => $data['customer_birthday'] ?? null,
-            'address' => $data['customer_address'] ?? null,
-            'status' => 'active',
         ];
 
+        if (!empty($data['customer_gender'])) {
+            $attributes['gender'] = $data['customer_gender'];
+        }
+        if ($email !== '') {
+            $attributes['email'] = $email;
+        }
+        if (trim((string) ($data['customer_address'] ?? '')) !== '') {
+            $attributes['address'] = trim((string) $data['customer_address']);
+        }
+
         if ($existingCustomer) {
+            // Không tự gỡ blacklist và không xóa email/địa chỉ cũ chỉ vì form để trống.
             $existingCustomer->fill($attributes)->save();
             return $existingCustomer;
         }
 
-        // Không gộp khách chỉ vì trùng email hoặc số điện thoại: đây có thể là người đặt hộ.
-        return Customer::create($attributes);
+        // Khách mới: bổ sung các trường nullable còn thiếu để snapshot nhất quán.
+        $attributes['gender'] = $attributes['gender'] ?? null;
+        $attributes['email'] = $attributes['email'] ?? null;
+        $attributes['address'] = $attributes['address'] ?? null;
+
+        return Customer::create($attributes + ['status' => 'active']);
     }
 
     private function normalizeCustomerIdentityName(string $name): string
@@ -1723,16 +1777,72 @@ class BookingCreateController extends Controller
 
     public function storeSuggestion(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
+            'selected_room_ids' => 'required|array|min:1',
+            'selected_room_ids.*' => 'required|integer|distinct|exists:rooms,id',
+
+            'customer_name' => 'required|string|max:150',
+            'customer_phone' => 'required|string|max:20',
+            'customer_cccd' => 'required|regex:/^[0-9]{12}$/',
+            'customer_birthday' => 'required|date|before_or_equal:' . now('Asia/Ho_Chi_Minh')->subYears(max(0, (int) app(HotelPolicyService::class)->get('booking.min_age', 18)))->toDateString(),
+            'customer_gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
+            'customer_email' => 'nullable|required_if:payment_method,vnpay|email|max:150',
+            'customer_address' => 'nullable|string|max:255',
+
+            'booking_mode' => 'required|in:advance,walk_in',
+            'booking_type' => 'required|in:overnight,hourly',
+            'room_category_id' => 'required|exists:room_categories,id',
+            'check_in_date' => 'required|date|after_or_equal:today',
+            'check_out_date' => 'nullable|date',
+            'check_in_time' => 'nullable|date_format:H:i',
+            'check_out_time' => 'nullable|date_format:H:i',
+            'allow_late_checkout' => 'nullable|boolean',
+            'confirm_low_stock' => 'nullable|boolean',
+            'confirm_adjacent_fallback' => 'nullable|boolean',
+
+            'adult_count' => 'required|integer|min:1',
+            'child_count' => 'nullable|integer|min:0',
+            'room_quantity' => 'required|integer|min:1',
+            'prefer_adjacent_rooms' => 'nullable|boolean',
+
+            'deposit_amount' => 'nullable|numeric|min:0',
             'payment_method' => 'required|in:cash,bank_transfer,vnpay',
             'payment_type' => 'required|in:deposit_30',
             'confirm_counter_payment' => 'nullable',
+            'note' => 'nullable|string|max:1000',
+
+            'services' => 'nullable|array',
+            'services.*.service_id' => 'nullable|exists:services,id',
+            'services.*.quantity' => 'nullable|integer|min:1',
+            'services.*.note' => 'nullable|string|max:1000',
+
+            'promotion_codes' => 'nullable|array',
+            'promotion_codes.*' => 'nullable|string|max:50',
+            'promotion_note' => 'nullable|string|max:1000',
         ], [
+            'selected_room_ids.required' => 'Không tìm thấy phương án phòng đã chọn.',
+            'selected_room_ids.*.distinct' => 'Phương án phòng bị trùng phòng, vui lòng chọn lại.',
+            'customer_name.required' => 'Vui lòng nhập họ tên khách hàng.',
+            'customer_phone.required' => 'Vui lòng nhập số điện thoại khách hàng.',
+            'customer_cccd.required' => 'Vui lòng nhập CCCD người đứng tên booking.',
+            'customer_cccd.regex' => 'CCCD phải gồm đúng 12 chữ số.',
+            'customer_birthday.required' => 'Vui lòng nhập ngày sinh người đứng tên booking.',
+            'customer_birthday.before_or_equal' => 'Người đứng tên booking phải đủ ' . max(0, (int) app(HotelPolicyService::class)->get('booking.min_age', 18)) . ' tuổi.',
+            'booking_mode.required' => 'Vui lòng chọn hình thức tạo booking.',
+            'booking_type.required' => 'Vui lòng chọn loại lưu trú.',
+            'room_category_id.required' => 'Vui lòng chọn hạng phòng.',
+            'check_in_date.required' => 'Vui lòng chọn ngày nhận phòng.',
+            'check_in_date.after_or_equal' => 'Ngày nhận phòng không được nhỏ hơn hôm nay.',
             'payment_method.required' => 'Booking bắt buộc phải chọn phương thức thanh toán.',
-            'payment_type.required' => 'Booking bắt buộc chọn cọc 30%.',
+            'payment_type.required' => 'Booking bắt buộc chọn cọc theo chính sách hiện tại (' . $this->currentDepositPercentLabel() . ').',
+            'customer_email.required_if' => 'Thanh toán VNPay bắt buộc phải có email khách để gửi đường dẫn thanh toán.',
         ]);
 
-        $selectedRoomIds = $request->selected_room_ids ?? [];
+        $selectedRoomIds = collect($validated['selected_room_ids'])
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
 
         if (empty($selectedRoomIds)) {
             return redirect()
@@ -1802,7 +1912,12 @@ class BookingCreateController extends Controller
             return (float) ($room->category->price ?? $roomCategory->price);
         }) * $policyExtraPercent, 0);
 
-        $serviceItems = $this->prepareServiceItems($request->services ?? []);
+        $serviceItems = $this->prepareServiceItems(
+            $request->services ?? [],
+            $nightCount,
+            $roomQuantity,
+            max(1, (int) $request->adult_count + (int) ($request->child_count ?? 0) + (int) ($request->baby_count ?? 0))
+        );
         $serviceItemTotal = collect($serviceItems)->sum('total');
 
         $subtotalAmount = $roomTotal + $policyFeeAmount + $serviceItemTotal;
@@ -1848,6 +1963,8 @@ class BookingCreateController extends Controller
                 'customer_name' => $request->customer_name,
                 'customer_phone' => $request->customer_phone,
                 'customer_cccd' => $request->customer_cccd,
+                'customer_birthday' => $request->customer_birthday,
+                'customer_gender' => $request->customer_gender,
                 'customer_email' => $request->customer_email,
                 'customer_address' => $request->customer_address,
             ]);
@@ -1866,6 +1983,7 @@ class BookingCreateController extends Controller
                     'check_out_at' => $checkOutAt,
                     'night_count' => $nightCount,
                     'room_quantity' => $roomQuantity,
+                    'guest_count' => max(1, (int) $request->adult_count + (int) ($request->child_count ?? 0) + (int) ($request->baby_count ?? 0)),
                 ],
                 'admin',
                 $request->promotion_note
@@ -1883,14 +2001,18 @@ class BookingCreateController extends Controller
             $subtotalAmount = (float) $promotionResult['subtotal_amount'];
             $moneyDiscountAmount = (float) ($promotionResult['money_discount_total'] ?? 0);
             $serviceDiscountAmount = (float) ($promotionResult['service_discount_total'] ?? 0);
+            $roomUpgradeDiscountAmount = (float) ($promotionResult['room_upgrade_discount_total'] ?? 0);
             $discountAmount = (float) $promotionResult['discount_total'];
             $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
+            $roomDiscountForDeposit = min($roomTotal, $moneyDiscountAmount + $roomUpgradeDiscountAmount);
+            $requiredDepositAmount = round(max(0, $roomTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(), 0);
             $initialPaymentAmount = $this->resolveInitialPaymentAmount(
                 $paymentMethod,
                 $paymentType,
                 $customPaymentAmount,
                 $estimatedTotal,
-                0
+                0,
+                $requiredDepositAmount
             );
             $depositAmount = in_array($paymentMethod, ['cash', 'bank_transfer'], true)
                 ? $initialPaymentAmount
@@ -1911,7 +2033,8 @@ class BookingCreateController extends Controller
                 'booking_type' => $bookingType,
                 'booking_mode' => $bookingMode,
                 'booking_source' => 'reception',
-                'cleaning_buffer_minutes' => self::DEFAULT_CLEANING_BUFFER_MINUTES,
+                'cleaning_buffer_minutes' => max(0, (int) app(HotelPolicyService::class)->get('booking.cleaning_buffer_minutes', Booking::DEFAULT_CLEANING_BUFFER_MINUTES)),
+                'policy_snapshot' => app(HotelPolicyService::class)->snapshot(),
                 'check_in_date' => $checkInAt->toDateString(),
                 'check_out_date' => $checkOutAt->toDateString(),
                 'check_in_at' => $checkInAt,
@@ -1924,6 +2047,7 @@ class BookingCreateController extends Controller
                 'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
                 'deposit_amount' => $depositAmount,
+                'required_deposit_amount' => $requiredDepositAmount,
                 'payment_status' => $depositAmount >= $estimatedTotal && $estimatedTotal > 0 ? 'paid' : ($depositAmount > 0 ? 'partial' : 'unpaid'),
                 'status' => $paymentMethod === 'vnpay' ? 'pending' : 'confirmed',
                 'note' => $request->note,
@@ -2057,15 +2181,25 @@ class BookingCreateController extends Controller
     {
         BookingServiceItem::create([
             'booking_id' => $booking->id,
+            'scope' => $item['scope'] ?? 'booking',
+            'booking_room_id' => $item['booking_room_id'] ?? null,
+            'room_id_snapshot' => $item['room_id_snapshot'] ?? null,
+            'source_type' => $item['source_type'] ?? 'manual',
+            'source_id' => $item['source_id'] ?? null,
             'service_id' => $item['service_id'],
             'name' => $item['name'],
             'type' => $item['type'],
+            'billing_rule_snapshot' => $item['billing_rule_snapshot'] ?? Service::BILLING_ONCE,
             'unit_price' => $item['unit_price'],
+            'base_quantity' => $item['base_quantity'] ?? $item['quantity'],
             'quantity' => $item['quantity'],
             'used_quantity' => $item['used_quantity'],
+            'nights_snapshot' => $item['nights_snapshot'] ?? 1,
+            'rooms_snapshot' => $item['rooms_snapshot'] ?? 1,
+            'people_snapshot' => $item['people_snapshot'] ?? 1,
             'billing_status' => $item['billing_status'],
             'total' => $item['total'],
-            'note' => $item['note'],
+            'note' => $item['note'] ?? null,
         ]);
     }
 
@@ -2107,7 +2241,7 @@ class BookingCreateController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user || $user->role !== 'receptionist') {
+        if (!$user || !in_array($user->role, ['receptionist', 'receptionist_lead'], true)) {
             return;
         }
 
@@ -2135,9 +2269,14 @@ class BookingCreateController extends Controller
         ]);
     }
 
-    private function prepareServiceItems(array $items): array
-    {
+    private function prepareServiceItems(
+        array $items,
+        int $nightCount,
+        int $roomQuantity,
+        int $guestCount
+    ): array {
         $preparedItems = [];
+        $pricingService = app(BookingServicePricingService::class);
 
         foreach ($items as $item) {
             if (empty($item['service_id'])) {
@@ -2154,19 +2293,31 @@ class BookingCreateController extends Controller
                 continue;
             }
 
-            $quantity = max(1, (int) ($item['quantity'] ?? 1));
+            $baseQuantity = max(1, (int) ($item['quantity'] ?? 1));
             $unitPrice = (float) $service->price;
-            $total = $unitPrice * $quantity;
+            $snapshot = $pricingService->snapshotForService(
+                $service,
+                $baseQuantity,
+                $unitPrice,
+                max(1, $nightCount),
+                max(1, $roomQuantity),
+                max(1, $guestCount)
+            );
 
             $preparedItems[] = [
                 'service_id' => $service->id,
                 'name' => $service->name,
                 'type' => $service->type,
+                'billing_rule_snapshot' => $snapshot['billing_rule_snapshot'],
                 'unit_price' => $unitPrice,
-                'quantity' => $quantity,
-                'used_quantity' => $quantity,
+                'base_quantity' => $snapshot['base_quantity'],
+                'quantity' => $snapshot['quantity'],
+                'used_quantity' => $snapshot['used_quantity'],
+                'nights_snapshot' => $snapshot['nights_snapshot'],
+                'rooms_snapshot' => $snapshot['rooms_snapshot'],
+                'people_snapshot' => $snapshot['people_snapshot'],
                 'billing_status' => 'confirmed',
-                'total' => $total,
+                'total' => $snapshot['total'],
                 'note' => $item['note'] ?? null,
             ];
         }
@@ -2189,8 +2340,8 @@ class BookingCreateController extends Controller
         $bookingType = $bookingMode === 'advance' ? 'overnight' : $data['booking_type'];
 
         if ($bookingMode === 'advance') {
-            $checkInAt = Carbon::parse($data['check_in_date'] . ' ' . self::OVERNIGHT_CHECK_IN_TIME, 'Asia/Ho_Chi_Minh');
-            $checkOutAt = Carbon::parse($data['check_out_date'] . ' ' . self::OVERNIGHT_CHECK_OUT_TIME, 'Asia/Ho_Chi_Minh');
+            $checkInAt = Carbon::parse($data['check_in_date'] . ' ' . $this->standardCheckInTime(), 'Asia/Ho_Chi_Minh');
+            $checkOutAt = Carbon::parse($data['check_out_date'] . ' ' . $this->standardCheckOutTime(), 'Asia/Ho_Chi_Minh');
         } elseif ($bookingType === 'hourly') {
             if (empty($data['check_in_time']) || empty($data['check_out_time'])) {
                 return response()->json(['categories' => []]);
@@ -2204,7 +2355,7 @@ class BookingCreateController extends Controller
             }
 
             $checkInAt = Carbon::parse($data['check_in_date'] . ' ' . $data['check_in_time'] . ':00', 'Asia/Ho_Chi_Minh');
-            $checkOutAt = Carbon::parse($data['check_out_date'] . ' ' . self::OVERNIGHT_CHECK_OUT_TIME, 'Asia/Ho_Chi_Minh');
+            $checkOutAt = Carbon::parse($data['check_out_date'] . ' ' . $this->standardCheckOutTime(), 'Asia/Ho_Chi_Minh');
         }
 
         if ($checkOutAt->lessThanOrEqualTo($checkInAt)) {
@@ -2273,10 +2424,11 @@ class BookingCreateController extends Controller
 
         $durationMinutes = $checkInAt->diffInMinutes($checkOutAt);
 
-        if ($durationMinutes < 30) {
+        $minimumShortStayMinutes = max(1, (int) app(HotelPolicyService::class)->get('stay.short_stay_min_minutes', 30));
+        if ($durationMinutes < $minimumShortStayMinutes) {
             return response()->json([
                 'blocked' => true,
-                'message' => 'Thời gian ở theo giờ phải tối thiểu 30 phút.',
+                'message' => 'Thời gian ở theo giờ phải tối thiểu ' . $minimumShortStayMinutes . ' phút.',
             ]);
         }
 
@@ -2287,7 +2439,7 @@ class BookingCreateController extends Controller
             ]);
         }
 
-        $occupiedUntil = $checkOutAt->copy()->addMinutes(self::DEFAULT_CLEANING_BUFFER_MINUTES);
+        $occupiedUntil = $checkOutAt->copy()->addMinutes(max(0, (int) app(HotelPolicyService::class)->get('booking.cleaning_buffer_minutes', Booking::DEFAULT_CLEANING_BUFFER_MINUTES)));
         $requestedQuantity = (int) $data['room_quantity'];
 
         $availableForSelectedPeriod = $this->countAvailableRooms(
@@ -2304,8 +2456,8 @@ class BookingCreateController extends Controller
             $durationMinutes
         );
 
-        $overnightStart = $checkInAt->copy()->setTimeFromTimeString(self::OVERNIGHT_CHECK_IN_TIME);
-        $overnightEnd = $overnightStart->copy()->addDay()->setTimeFromTimeString(self::OVERNIGHT_CHECK_OUT_TIME);
+        $overnightStart = $checkInAt->copy()->setTimeFromTimeString($this->standardCheckInTime());
+        $overnightEnd = $overnightStart->copy()->addDay()->setTimeFromTimeString($this->standardCheckOutTime());
         $affectsOvernight = $occupiedUntil->greaterThan($overnightStart);
 
         $overnightAvailable = $this->countAvailableRooms(
@@ -2346,13 +2498,13 @@ class BookingCreateController extends Controller
                 . ' chỉ còn '
                 . $remainingAfterHourly
                 . ' phòng có thể bán qua đêm.'
-                : 'Thông tin: Ca ở ngay theo giờ này có đi qua mốc check-in qua đêm 14:00, nhưng hạng '
+                : 'Thông tin: Ca ở ngay theo giờ này có đi qua mốc check-in qua đêm ' . substr($this->standardCheckInTime(), 0, 5) . ', nhưng hạng '
                 . $roomCategory->name
                 . ' vẫn còn '
                 . $remainingAfterHourly
                 . ' phòng dự phòng qua đêm nên chưa cần cảnh báo.';
         } else {
-            $message = 'Khung giờ này không ảnh hưởng mốc check-in qua đêm 14:00.';
+            $message = 'Khung giờ này không ảnh hưởng mốc check-in qua đêm ' . substr($this->standardCheckInTime(), 0, 5) . '.';
         }
 
         return response()->json([
@@ -2381,4 +2533,27 @@ class BookingCreateController extends Controller
             'message' => $message,
         ]);
     }
+    private function standardCheckInTime(): string
+    {
+        return (string) app(HotelPolicyService::class)->get('stay.standard_check_in_time', '14:00') . ':00';
+    }
+
+    private function standardCheckOutTime(): string
+    {
+        return (string) app(HotelPolicyService::class)->get('stay.standard_check_out_time', '12:00') . ':00';
+    }
+
+
+    private function currentDepositPercentLabel(): string
+    {
+        $percent = (float) app(HotelPolicyService::class)->get('payment.deposit_percent', 30);
+        return rtrim(rtrim(number_format($percent, 2, '.', ''), '0'), '.') . '%';
+    }
+
+    private function depositPercentLabel(Booking $booking): string
+    {
+        $percent = (float) app(HotelPolicyService::class)->forBooking($booking, 'payment.deposit_percent', 30);
+        return rtrim(rtrim(number_format($percent, 2, '.', ''), '0'), '.') . '%';
+    }
+
 }

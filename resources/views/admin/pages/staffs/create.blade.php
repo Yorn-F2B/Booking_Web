@@ -135,12 +135,16 @@
                         <label class="form-label small fw-semibold">Chức vụ</label>
                         <select name="position" class="form-select">
                             <option value="">— Chọn chức vụ —</option>
-                            <option value="Quản lý" {{ old('position') == 'Quản lý' ? 'selected' : '' }}>Quản lý</option>
+                            <option value="Quản lý" {{ old('position') == 'Quản lý' ? 'selected' : '' }} {{ ($managerExists ?? false) ? 'disabled' : '' }}>
+                                Quản lý{{ ($managerExists ?? false) ? ' (đã có)' : '' }}
+                            </option>
                             <option value="Trưởng lễ tân" {{ old('position') == 'Trưởng lễ tân' ? 'selected' : '' }}>Trưởng lễ tân</option>
                             <option value="Lễ tân" {{ old('position') == 'Lễ tân' ? 'selected' : '' }}>Lễ tân</option>
                             <option value="Trưởng buồng phòng" {{ old('position') == 'Trưởng buồng phòng' ? 'selected' : '' }}>Trưởng buồng phòng</option>
                             <option value="Buồng phòng" {{ old('position') == 'Buồng phòng' ? 'selected' : '' }}>Buồng phòng</option>
                         </select>
+                        @error('position')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+                        <div class="form-text">Chỉ có 1 Quản lý và 1 Super Admin toàn khách sạn; các vị trí còn lại có thể tạo nhiều nhân viên để chia ca.</div>
                     </div>
 
                     <div class="col-md-6">

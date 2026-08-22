@@ -3,6 +3,15 @@
 @section('title', 'Liên Hệ & Hỗ Trợ - MCuong Hotel')
 
 @section('content')
+    @php
+        $contactPolicy = app(\App\Services\HotelPolicyService::class);
+        $contactCheckIn = substr((string) $contactPolicy->get('stay.standard_check_in_time', '14:00'), 0, 5);
+        $contactCheckOut = substr((string) $contactPolicy->get('stay.standard_check_out_time', '12:00'), 0, 5);
+        $contactEarlyFree = substr((string) $contactPolicy->get('stay.early_checkin_free_from', '12:00'), 0, 5);
+        $contactCancelCutoff = substr((string) $contactPolicy->get('booking.direct_cancel_cutoff_time', '14:00'), 0, 5);
+        $contactDepositPercent = (float) $contactPolicy->get('payment.deposit_percent', 30);
+        $contactDepositLabel = rtrim(rtrim(number_format($contactDepositPercent, 2, '.', ''), '0'), '.') . '%';
+    @endphp
     <!-- Premium Hero Section -->
     <section class="hero-section position-relative d-flex align-items-center" style="background-image: url('https://images.pexels.com/photos/3315291/pexels-photo-3315291.jpeg'); background-position: center 30%; min-height: 60vh; background-attachment: fixed;">
         <div class="hero-overlay" style="background: linear-gradient(135deg, rgba(10,25,49,0.95) 0%, rgba(20,50,90,0.6) 100%);"></div>
@@ -169,7 +178,7 @@
                             </h2>
                             <div id="faq1" class="accordion-collapse collapse show" data-bs-parent="#accordionFAQ">
                                 <div class="accordion-body px-4 pb-4 pt-1 text-muted small lh-lg">
-                                    Tại MCuong Hotel, <strong>thời gian nhận phòng linh hoạt từ 13:00 đến 14:00</strong> nếu phòng đã sẵn sàng và <strong>thời gian trả phòng trước 12:00</strong>. Nếu quý khách có nhu cầu nhận phòng sớm hơn hoặc trả phòng muộn hơn, vui lòng báo trước với lễ tân (dịch vụ này có thể phát sinh phụ phí tùy thuộc vào tình trạng phòng trống).
+                                    Tại MCuong Hotel, <strong>giờ nhận phòng tiêu chuẩn là {{ $contactCheckIn }}</strong> và <strong>giờ trả phòng tiêu chuẩn là {{ $contactCheckOut }}</strong>. Khách có thể nhận phòng từ {{ $contactEarlyFree }} đến trước {{ $contactCheckIn }} mà không phụ thu nếu phòng đã sẵn sàng. Nhận sớm hơn {{ $contactEarlyFree }} hoặc trả phòng muộn có thể phát sinh phụ thu theo khung giờ và tình trạng phòng.
                                 </div>
                             </div>
                         </div>
@@ -239,7 +248,7 @@
                             </h2>
                             <div id="faq6" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                                 <div class="accordion-body px-4 pb-4 pt-1 text-muted small lh-lg">
-                                    Khách có thể hủy đơn trước giờ G theo trạng thái booking. Khi hủy hoặc không đến nhận phòng, toàn bộ tiền cọc 30% đã thanh toán không được hoàn lại và không được bảo lưu.
+                                    Khách có thể tự hủy booking trước {{ $contactCancelCutoff }} ngày nhận phòng khi đơn vẫn còn hiệu lực và chưa check-in. Từ {{ $contactCancelCutoff }} trở đi, booking được xử lý theo luồng đến muộn/no-show của khách sạn. Khi khách chủ động hủy hoặc không đến nhận phòng, số tiền đã thanh toán không được hoàn lại và không được bảo lưu.
                                 </div>
                             </div>
                         </div>
@@ -253,7 +262,7 @@
                             </h2>
                             <div id="faq7" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                                 <div class="accordion-body px-4 pb-4 pt-1 text-muted small lh-lg">
-                                    MCuong Hotel có tầng hầm để xe rộng rãi dành cho ô tô và xe máy. Dịch vụ đỗ xe hoàn toàn <strong>miễn phí</strong> đối với tất cả khách lưu trú. Nhân viên an ninh và Bellman sẽ hỗ trợ quý khách đậu xe và khuân vác hành lý an toàn.
+                                    MCuong Hotel có khu vực đỗ xe dành cho khách lưu trú. Phí gửi xe (nếu có) được tính theo loại dịch vụ và thời gian sử dụng, đồng thời được hiển thị trong booking trước khi xác nhận. Quý khách có thể liên hệ lễ tân để được hướng dẫn vị trí đỗ xe.
                                 </div>
                             </div>
                         </div>
@@ -281,7 +290,7 @@
                             </h2>
                             <div id="faq9" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                                 <div class="accordion-body px-4 pb-4 pt-1 text-muted small lh-lg">
-                                    Chúng tôi chấp nhận thanh toán bằng Tiền mặt (VND, USD), Chuyển khoản ngân hàng, Quét mã VNPay/Momo, và các loại thẻ tín dụng/ghi nợ quốc tế (Visa, MasterCard, JCB, Amex).
+                                    Hệ thống hiện hỗ trợ thanh toán bằng <strong>tiền mặt tại quầy</strong>, <strong>chuyển khoản tại quầy</strong> và <strong>VNPay</strong>. Trạng thái thanh toán được cập nhật dựa trên các giao dịch đã ghi nhận thành công.
                                 </div>
                             </div>
                         </div>
@@ -295,7 +304,7 @@
                             </h2>
                             <div id="faq10" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                                 <div class="accordion-body px-4 pb-4 pt-1 text-muted small lh-lg">
-                                    Để đảm bảo cho các dịch vụ phát sinh (như sử dụng Minibar, Spa, Nhà hàng...), khách sạn sẽ yêu cầu khoản đặt cọc <strong>1,000,000 VNĐ / phòng / đêm</strong>. Quý khách có thể cọc bằng tiền mặt hoặc quẹt thẻ tín dụng giữ chỗ (pre-auth). Số tiền này sẽ được hoàn trả đầy đủ khi quý khách làm thủ tục trả phòng nếu không có phát sinh.
+                                    Khi xác nhận booking, khách cần thanh toán mức cọc tối thiểu <strong>{{ $contactDepositLabel }} tiền phòng theo giá trị booking hiện hành</strong>. Phần dịch vụ và phụ thu phát sinh được đối soát riêng. Nếu khách chủ động hủy booking, khoản đã thanh toán không được hoàn lại hoặc bảo lưu theo chính sách hủy của khách sạn.
                                 </div>
                             </div>
                         </div>

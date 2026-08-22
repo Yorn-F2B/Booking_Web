@@ -6,6 +6,7 @@ use App\Models\Booking;
 
 use App\Http\Controllers\Controller;
 use App\Models\RoomCategory;
+use App\Services\HotelPolicyService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -19,6 +20,8 @@ class RoomAvailabilityController extends Controller
     public function index(Request $request)
     {
         $now = now(self::TIMEZONE)->startOfMinute();
+        $policies = app(HotelPolicyService::class);
+        $cleaningBufferMinutes = max(0, (int) $policies->get('booking.cleaning_buffer_minutes', self::DEFAULT_CLEANING_BUFFER_MINUTES));
         $roundedNow = $this->roundUpTime($now->copy(), 15);
         $defaultCheckOutAt = $roundedNow->copy()->addHours(self::DEFAULT_LOOKUP_DURATION_HOURS);
 
@@ -39,7 +42,7 @@ class RoomAvailabilityController extends Controller
             'check_out_time' => $request->input('check_out_time', $defaultCheckOutAt->format('H:i')),
             'check_in_at' => null,
             'check_out_at' => null,
-            'cleaning_buffer_minutes' => self::DEFAULT_CLEANING_BUFFER_MINUTES,
+            'cleaning_buffer_minutes' => $cleaningBufferMinutes,
             'quick_booking_type' => 'hourly',
             'quick_booking_mode' => 'walk_in',
         ];
@@ -50,7 +53,7 @@ class RoomAvailabilityController extends Controller
             'rounded_now_time' => $roundedNow->format('H:i'),
             'default_checkout_date' => $defaultCheckOutAt->toDateString(),
             'default_checkout_time' => $defaultCheckOutAt->format('H:i'),
-            'cleaning_buffer_minutes' => self::DEFAULT_CLEANING_BUFFER_MINUTES,
+            'cleaning_buffer_minutes' => $cleaningBufferMinutes,
         ];
 
         if (!$hasSearch) {
@@ -142,7 +145,7 @@ class RoomAvailabilityController extends Controller
             ->orderBy('price')
             ->get();
 
-        $quickBookingType = $this->guessQuickBookingType($checkInAt, $checkOutAt);
+        $quickBookingType = $this->guessQuickBookingType($checkInAt, $checkOutAt, $policies);
 
         $searchData = [
             'searched' => true,
@@ -152,7 +155,7 @@ class RoomAvailabilityController extends Controller
             'check_out_time' => $checkOutAt->format('H:i'),
             'check_in_at' => $checkInAt,
             'check_out_at' => $checkOutAt,
-            'cleaning_buffer_minutes' => self::DEFAULT_CLEANING_BUFFER_MINUTES,
+            'cleaning_buffer_minutes' => $cleaningBufferMinutes,
             'quick_booking_type' => $quickBookingType,
             'quick_booking_mode' => $quickBookingType === 'overnight' ? 'advance' : 'walk_in',
         ];
@@ -174,10 +177,12 @@ class RoomAvailabilityController extends Controller
         return $time->minute($roundedMinute);
     }
 
-    private function guessQuickBookingType(Carbon $checkInAt, Carbon $checkOutAt): string
+    private function guessQuickBookingType(Carbon $checkInAt, Carbon $checkOutAt, HotelPolicyService $policies): string
     {
-        $isStandardOvernight = $checkInAt->format('H:i') === '14:00'
-            && $checkOutAt->format('H:i') === '12:00'
+        $standardCheckIn = (string) $policies->get('stay.standard_check_in_time', '14:00');
+        $standardCheckOut = (string) $policies->get('stay.standard_check_out_time', '12:00');
+        $isStandardOvernight = $checkInAt->format('H:i') === $standardCheckIn
+            && $checkOutAt->format('H:i') === $standardCheckOut
             && $checkOutAt->copy()->startOfDay()->greaterThan($checkInAt->copy()->startOfDay());
 
         return $isStandardOvernight ? 'overnight' : 'hourly';

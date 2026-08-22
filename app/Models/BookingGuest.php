@@ -17,6 +17,11 @@ class BookingGuest extends Model
         'guest_type',
         'document_type',
         'document_number',
+        'document_exception_acknowledged',
+        'document_exception_reason',
+        'document_exception_acknowledged_at',
+        'document_exception_acknowledged_by',
+        'document_exception_acknowledged_by_name',
         'cccd',
         'birthday',
         'gender',
@@ -42,6 +47,8 @@ class BookingGuest extends Model
         'actual_check_in_at' => 'datetime',
         'actual_check_out_at' => 'datetime',
         'is_booking_representative' => 'boolean',
+        'document_exception_acknowledged' => 'boolean',
+        'document_exception_acknowledged_at' => 'datetime',
     ];
 
     public function booking()

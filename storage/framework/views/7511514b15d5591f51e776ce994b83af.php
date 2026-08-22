@@ -1,6 +1,14 @@
 <?php $__env->startSection('title', 'Chi tiết đơn phòng'); ?>
 
 <?php $__env->startSection('content'); ?>
+    <?php
+        $detailPolicy = app(\App\Services\HotelPolicyService::class);
+        $detailDepositPercent = (float) $detailPolicy->forBooking($booking, 'payment.deposit_percent', 30);
+        $detailDepositLabel = rtrim(rtrim(number_format($detailDepositPercent, 2, '.', ''), '0'), '.') . '%';
+        $detailCheckIn = substr((string) $detailPolicy->forBooking($booking, 'stay.standard_check_in_time', '14:00'), 0, 5);
+        $detailCheckOut = substr((string) $detailPolicy->forBooking($booking, 'stay.standard_check_out_time', '12:00'), 0, 5);
+        $detailEarlyFree = substr((string) $detailPolicy->forBooking($booking, 'stay.early_checkin_free_from', '12:00'), 0, 5);
+    ?>
 
     <section class="page-header">
         <div class="container">
@@ -24,21 +32,7 @@
                 </a>
             </div>
 
-            <?php if(session('success')): ?>
-                <div class="alert alert-success">
-                    <?php echo e(session('success')); ?>
-
-                </div>
-            <?php endif; ?>
-
-            <?php if(session('error')): ?>
-                <div class="alert alert-danger">
-                    <?php echo e(session('error')); ?>
-
-                </div>
-            <?php endif; ?>
-
-            <?php if($errors->any()): ?>
+<?php if($errors->any()): ?>
                 <div class="alert alert-danger">
                     <div class="fw-semibold mb-1">Vui lòng kiểm tra lại thông tin.</div>
                     <ul class="mb-0">
@@ -51,7 +45,7 @@
 
             <?php if($booking->status == 'pending' && $booking->payment_status == 'unpaid'): ?>
                 <?php
-                    $deposit30Amount = round((float) $booking->estimated_total * 0.3);
+                    $deposit30Amount = app(\App\Services\BookingFinancialService::class)->requiredDeposit($booking);
                     $fullAmount = (float) $booking->estimated_total;
                     $selectedPaymentType = old('payment_type', $defaultPaymentType ?? 'deposit_30');
                 ?>
@@ -86,26 +80,34 @@
                             <?php endif; ?>
                         </div>
 
-                        <form action="<?php echo e(route('payment.vnpay.create', $booking->id)); ?>" method="POST" style="min-width: 280px;">
-                            <?php echo csrf_field(); ?>
+                        <div style="min-width: 280px;">
+                            <a href="<?php echo e(route('bookings.edit-before-payment', $booking)); ?>" class="btn btn-outline-primary w-100 mb-2">
+                                <i class="bx bx-edit-alt me-1"></i>
+                                Chỉnh sửa đơn trước thanh toán
+                            </a>
 
-                            <div class="border rounded-3 p-3 bg-white mb-2">
+                            <form action="<?php echo e(route('payment.vnpay.create', $booking->id)); ?>" method="POST">
+                                <?php echo csrf_field(); ?>
+
+                                <div class="border rounded-3 p-3 bg-white mb-2">
                                 <div class="form-check mb-2">
                                     <input class="form-check-input" type="radio" name="payment_type"
                                         id="continueDeposit30" value="deposit_30"
                                         <?php echo e($selectedPaymentType == 'deposit_30' ? 'checked' : ''); ?>>
                                     <label class="form-check-label" for="continueDeposit30">
-                                        Cọc 30%
+                                        Cọc <?php echo e($detailDepositLabel); ?>
+
                                         <strong><?php echo e(number_format($deposit30Amount, 0, ',', '.')); ?>đ</strong>
                                     </label>
                                 </div>
                             </div>
 
-                            <button type="submit" class="btn btn-primary w-100">
-                                <i class="bx bx-credit-card me-1"></i>
-                                Tiếp tục thanh toán VNPay
-                            </button>
-                        </form>
+                                <button type="submit" class="btn btn-primary w-100">
+                                    <i class="bx bx-credit-card me-1"></i>
+                                    Tiếp tục thanh toán VNPay
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             <?php endif; ?>
@@ -175,7 +177,7 @@
                                         <td>
                                             <?php echo e(date('d/m/Y', strtotime($booking->check_in_date))); ?>
 
-                                            <div class="small text-muted">Nhận phòng linh hoạt 13:00–14:00 nếu phòng đã sẵn sàng</div>
+                                            <div class="small text-muted">Nhận phòng linh hoạt <?php echo e($detailEarlyFree); ?>–<?php echo e($detailCheckIn); ?> nếu phòng đã sẵn sàng</div>
                                         </td>
                                     </tr>
 
@@ -184,7 +186,7 @@
                                         <td>
                                             <?php echo e(date('d/m/Y', strtotime($booking->check_out_date))); ?>
 
-                                            <div class="small text-muted">Trả phòng trước 12:00</div>
+                                            <div class="small text-muted">Trả phòng theo giờ chuẩn <?php echo e($detailCheckOut); ?></div>
                                         </td>
                                     </tr>
 
@@ -654,8 +656,7 @@
                         <?php if($canRequestRoomIssue): ?>
                             <div class="modal fade" id="roomIssueModal" tabindex="-1" aria-hidden="true">
                                 <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-                                    <div class="modal-content border-0 shadow">
-                                        <form action="<?php echo e(route('bookings.room-issues.store', $booking)); ?>" method="POST" enctype="multipart/form-data" id="userRoomIssueForm">
+                                    <form action="<?php echo e(route('bookings.room-issues.store', $booking)); ?>" method="POST" enctype="multipart/form-data" id="userRoomIssueForm" class="modal-content border-0 shadow">
                                             <?php echo csrf_field(); ?>
                                             <div class="modal-header">
                                                 <div>
@@ -740,8 +741,7 @@
                                                     Xác nhận gửi quản lý (<span id="userSelectedRoomCount">0</span> yêu cầu)
                                                 </button>
                                             </div>
-                                        </form>
-                                    </div>
+                                    </form>
                                 </div>
                             </div>
 
@@ -842,14 +842,36 @@
 
 
 
-                    <?php if($canUseLateArrivalFlow ?? false): ?>
+                    <?php if(($canUseLateArrivalFlow ?? false) || !empty($latestLateArrivalRequest)): ?>
+                        <?php
+                            $lateStatus = $latestLateArrivalRequest?->status;
+                            $lateStatusLabel = match ($lateStatus) {
+                                'pending' => 'Đang xử lý',
+                                'approved' => 'Đã duyệt',
+                                'rejected' => 'Đã từ chối',
+                                default => null,
+                            };
+                            $lateStatusClass = match ($lateStatus) {
+                                'approved' => 'bg-success',
+                                'rejected' => 'bg-danger',
+                                default => 'bg-warning text-dark',
+                            };
+                            $lateButtonText = !$latestLateArrivalRequest
+                                ? 'Báo đến muộn'
+                                : ($lateStatus === 'pending' ? 'Cập nhật yêu cầu' : 'Xem chi tiết');
+                            $lateButtonRoute = $latestLateArrivalRequest && $lateStatus !== 'pending'
+                                ? route('bookings.customer-requests.show', $booking)
+                                : route('bookings.customer-requests.create', $booking);
+                        ?>
                         <div class="settings-section mb-4" id="late-arrival-request">
                             <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
-                                <h4 class="mb-0">Đến muộn</h4>
-                                <a class="btn btn-primary" href="<?php echo e(route('bookings.customer-requests.create', $booking)); ?>">
-                                    <?php echo e(now('Asia/Ho_Chi_Minh')->hour >= 18 ? 'Cập nhật thời gian check-in' : 'Báo đến muộn'); ?>
-
-                                </a>
+                                <div>
+                                    <h4 class="mb-1">Đến muộn</h4>
+                                    <?php if($lateStatusLabel): ?>
+                                        <span class="badge <?php echo e($lateStatusClass); ?>"><?php echo e($lateStatusLabel); ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                <a class="btn btn-primary" href="<?php echo e($lateButtonRoute); ?>"><?php echo e($lateButtonText); ?></a>
                             </div>
                         </div>
                     <?php endif; ?>
@@ -927,7 +949,7 @@
         });
     </script>
 
-<?php if (! $__env->hasRenderedOnce('74e6d64c-a12d-4f1a-a395-f4ff3b2679df')): $__env->markAsRenderedOnce('74e6d64c-a12d-4f1a-a395-f4ff3b2679df'); ?>
+<?php if (! $__env->hasRenderedOnce('d1583ed0-1615-4a50-abe9-1e9fa52f237b')): $__env->markAsRenderedOnce('d1583ed0-1615-4a50-abe9-1e9fa52f237b'); ?>
 <div class="modal fade" id="cancelBookingPolicyModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow">
     <div class="modal-header">
@@ -971,7 +993,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 : 'Xác nhận hủy đơn';
             document.getElementById('cancelModeMessage').textContent = requestMode
                 ? 'Mã xác nhận sẽ được gửi về email.'
-                : 'Hủy đơn sẽ mất toàn bộ tiền cọc 30% đã thanh toán. Khoản này không được hoàn lại và không được bảo lưu.';
+                : 'Hủy đơn sẽ mất toàn bộ khoản đã thanh toán, bao gồm tiền cọc ' + <?php echo json_encode($detailDepositLabel, 15, 512) ?> + '. Khoản này không được hoàn lại và không được bảo lưu.';
             document.getElementById('cancelPolicyLabel').textContent = form.dataset.policy || 'Theo chính sách hủy';
             document.getElementById('cancelPaid').textContent = formatMoney(form.dataset.paid);
             document.getElementById('cancelForfeit').textContent = formatMoney(form.dataset.forfeit);

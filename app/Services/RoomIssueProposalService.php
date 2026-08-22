@@ -10,7 +10,7 @@ use Illuminate\Support\Collection;
 
 class RoomIssueProposalService
 {
-    public const HOLD_MINUTES = 30;
+    public const HOLD_MINUTES = 30; // fallback
 
     /**
      * Tạo hoặc làm mới phương án cho toàn bộ nhóm sự cố.
@@ -29,7 +29,8 @@ class RoomIssueProposalService
         $booking->loadMissing(['bookingRooms.room.category']);
 
         $now = now('Asia/Ho_Chi_Minh');
-        $expiresAt = $now->copy()->addMinutes(self::HOLD_MINUTES);
+        $holdMinutes = max(5, (int) app(HotelPolicyService::class)->forBooking($booking, 'room_issue.proposal_hold_minutes', self::HOLD_MINUTES));
+        $expiresAt = $now->copy()->addMinutes($holdMinutes);
         $usedTargetRoomIds = [];
         $items = [];
 

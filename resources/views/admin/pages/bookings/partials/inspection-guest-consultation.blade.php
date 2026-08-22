@@ -3,21 +3,19 @@
         'housekeeping_report' => 'Buồng phòng đang kiểm tra',
         'guest_consultation' => 'Cần trao đổi với khách',
         'housekeeping_recheck' => 'Buồng phòng đang kiểm tra lại',
-        'admin_approval' => 'Khách đã đồng ý · chờ admin xác nhận',
         'completed' => 'Đã hoàn tất',
     ];
     $stageClasses = [
         'housekeeping_report' => 'bg-secondary',
         'guest_consultation' => 'bg-primary',
         'housekeeping_recheck' => 'bg-warning text-dark',
-        'admin_approval' => 'bg-info text-dark',
         'completed' => 'bg-success',
     ];
 @endphp
 
 <div class="mb-3">
     <div class="alert alert-warning">
-        <strong>Chưa thể check-out.</strong> Mọi khoản minibar, mất đồ hoặc hư hại phải được khách xem lại. Nếu khách chưa đồng ý, buồng phòng kiểm tra lại và lễ tân tiếp tục trao đổi cho tới khi khách chấp nhận kết quả hiện tại; sau đó admin mới xác nhận cuối.
+        <strong>Chưa thể check-out.</strong> Mọi khoản minibar, mất đồ hoặc hư hại phải được khách xem lại. Nếu khách chưa đồng ý, buồng phòng kiểm tra lại và lễ tân tiếp tục trao đổi; khi kết quả buồng phòng khớp với ý kiến khách thì phiếu tự hoàn tất.
     </div>
 
     @foreach ($booking->roomInspections as $inspection)
@@ -72,6 +70,13 @@
                                             <td>
                                                 <strong>{{ $item->name }}</strong>
                                                 <div class="small text-muted">{{ $item->type === 'minibar' ? 'Minibar / đồ dùng' : 'Hư hại / mất đồ' }}</div>
+                                                @if (($item->detection_source ?? 'initial') === 'supplemental')
+                                                    <span class="badge bg-warning text-dark mt-1">Phát hiện bổ sung</span>
+                                                    <div class="small text-muted mt-1">
+                                                        {{ $item->detector->name ?? 'Buồng phòng' }} · {{ $item->detected_at?->format('d/m H:i') ?? $item->created_at?->format('d/m H:i') }}
+                                                        @if($item->detection_version) · Lần #{{ $item->detection_version }} @endif
+                                                    </div>
+                                                @endif
                                                 @if ($item->guest_response_note && $item->guest_response !== 'accepted')
                                                     <div class="small text-danger mt-1"><strong>Khách đã phản hồi trước:</strong> {{ $item->guest_response_note }}</div>
                                                 @endif
@@ -172,22 +177,8 @@
                             @if($item->guest_response_note)<div class="small text-muted">Ghi chú: {{ $item->guest_response_note }}</div>@endif
                         </div>
                     @endforeach
-                @elseif ($stage === 'admin_approval')
-                    <div class="alert alert-info mb-2"><strong>Khách đã đồng ý toàn bộ kết quả hiện tại.</strong> Đang chờ admin xác nhận các khoản được cộng vào hóa đơn.</div>
-                    @foreach ($inspection->items as $item)
-                        <div class="d-flex justify-content-between border-bottom py-2 gap-3">
-                            <div>
-                                <strong>{{ $item->name }}</strong>
-                                <div class="small text-muted">
-                                    {{ (int) $item->quantity }} {{ $item->unit ?: 'đơn vị' }} × {{ number_format((float) $item->price, 0, ',', '.') }}đ
-                                    @if ($item->recheck_note) · {{ $item->recheck_note }} @endif
-                                </div>
-                            </div>
-                            <strong class="{{ (float) $item->total > 0 ? 'text-danger' : 'text-success' }}">{{ number_format((float) $item->total, 0, ',', '.') }}đ</strong>
-                        </div>
-                    @endforeach
                 @elseif ($stage === 'completed')
-                    <div class="alert alert-success mb-0">Admin đã xác nhận. Tổng phí kiểm tra phòng được duyệt: <strong>{{ number_format((float)$inspection->approved_total,0,',','.') }}đ</strong>.</div>
+                    <div class="alert alert-success mb-0">Kết quả đã thống nhất và phiếu đã hoàn tất. Tổng phí kiểm tra phòng được chốt: <strong>{{ number_format((float)$inspection->approved_total,0,',','.') }}đ</strong>.</div>
                 @else
                     <div class="alert alert-secondary mb-0">Buồng phòng đang thực hiện kiểm tra ban đầu.</div>
                 @endif
@@ -219,17 +210,19 @@
 }
 .guest-quantity-control {
     display: grid;
-    grid-template-columns: 38px minmax(56px, 1fr) 38px;
-    gap: 5px;
+    grid-template-columns: 30px minmax(44px, 54px) 30px;
+    gap: 0;
     align-items: stretch;
     width: 100%;
+    max-width: 114px;
     min-width: 0;
+    margin: 0 auto;
 }
 .guest-quantity-control .guest-claimed-quantity {
-    min-width: 76px;
-    height: 46px;
-    padding: 6px 8px;
-    font-size: 18px;
+    min-width: 0;
+    height: 34px;
+    padding: 4px 5px;
+    font-size: 15px;
     font-weight: 700;
     line-height: 1.2;
     text-align: center;
@@ -244,15 +237,61 @@
     -webkit-text-fill-color: #495057;
 }
 .guest-quantity-control .guest-quantity-step {
-    height: 46px;
+    height: 34px;
+    min-width: 0;
     padding: 0;
-    font-size: 22px;
+    font-size: 17px;
     font-weight: 700;
     line-height: 1;
 }
-@media (max-width: 1199.98px) {
-    .guest-consultation-table { min-width: 920px; table-layout: auto; }
-    .guest-consultation-table .guest-quantity-cell { min-width: 150px; }
+.guest-quantity-control .guest-claimed-quantity::-webkit-outer-spin-button,
+.guest-quantity-control .guest-claimed-quantity::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.guest-quantity-control .guest-claimed-quantity {
+    -moz-appearance: textfield;
+    appearance: textfield;
+    border-radius: 0;
+}
+@media (max-width: 991.98px) {
+    .guest-consultation-table,
+    .guest-consultation-table tbody,
+    .guest-consultation-table tr,
+    .guest-consultation-table td {
+        display: block;
+        width: 100%;
+        min-width: 0 !important;
+    }
+    .guest-consultation-table { table-layout: auto; }
+    .guest-consultation-table thead { display: none; }
+    .guest-consultation-table tr {
+        border: 1px solid #dee2e6;
+        border-radius: 10px;
+        margin-bottom: 12px;
+        overflow: hidden;
+    }
+    .guest-consultation-table td {
+        border-width: 0 0 1px 0;
+        padding: 10px 12px;
+    }
+    .guest-consultation-table td:last-child { border-bottom: 0; }
+    .guest-consultation-table td::before {
+        display: block;
+        margin-bottom: 5px;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .02em;
+    }
+    .guest-consultation-table td:nth-child(1)::before { content: 'Hạng mục'; }
+    .guest-consultation-table td:nth-child(2)::before { content: 'Kết quả hiện tại'; }
+    .guest-consultation-table td:nth-child(3)::before { content: 'Khách xác nhận'; }
+    .guest-consultation-table td:nth-child(4)::before { content: 'Số lượng khách xác nhận'; }
+    .guest-consultation-table td:nth-child(5)::before { content: 'Ghi chú'; }
+    .guest-quantity-control { margin-left: 0; }
+    .guest-quantity-cell .small { text-align: left !important; }
 }
 </style>
 

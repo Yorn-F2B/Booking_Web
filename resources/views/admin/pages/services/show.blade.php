@@ -43,15 +43,9 @@
                     <label class="text-muted small">Loại</label>
 
                     <div>
-                        @if ($service->type == 'service')
-                            <span class="badge bg-primary">Dịch vụ</span>
-                        @elseif ($service->type == 'minibar_order')
-                            <span class="badge bg-info text-dark">Minibar gọi thêm</span>
-                        @elseif ($service->type == 'minibar')
-                            <span class="badge bg-warning text-dark">Minibar</span>
-                        @else
-                            <span class="badge bg-danger">Phí hư hại</span>
-                        @endif
+                        <span class="badge {{ $service->type === 'service' ? 'bg-primary' : ($service->type === 'minibar_order' ? 'bg-info text-dark' : 'bg-warning text-dark') }}">
+                            {{ $service->type_label }}
+                        </span>
                     </div>
 
                 </div>

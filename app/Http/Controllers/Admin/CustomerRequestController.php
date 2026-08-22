@@ -19,6 +19,7 @@ class CustomerRequestController extends Controller
     {
         $items = CustomerRequest::with(['booking', 'reviewer'])
             ->where('type', 'late_arrival')
+            ->whereHas('booking', fn ($query) => $query->visibleToOperationsUser(Auth::user()))
             ->latest('id');
 
         if ($request->filled('booking')) {
@@ -36,6 +37,7 @@ class CustomerRequestController extends Controller
     public function show(CustomerRequest $customerRequest)
     {
         abort_unless($customerRequest->type === 'late_arrival', 404);
+        $this->guardCanAccessBooking($customerRequest->booking);
         $customerRequest->load(['booking.bookingRooms.room', 'attachments', 'reviewer']);
 
         $details = (array) ($customerRequest->details ?? []);
@@ -51,6 +53,7 @@ class CustomerRequestController extends Controller
     public function approve(Request $request, CustomerRequest $customerRequest)
     {
         abort_unless($customerRequest->type === 'late_arrival', 404);
+        $this->guardCanAccessBooking($customerRequest->booking);
         abort_unless($customerRequest->status === 'pending', 422, 'Yêu cầu này đã được xử lý.');
 
         $data = $request->validate([
@@ -59,7 +62,7 @@ class CustomerRequestController extends Controller
         ]);
         $this->guardLatestAcknowledged($customerRequest, (int) $data['version']);
         $booking = $customerRequest->booking;
-        $cutoff = Carbon::parse($booking->check_in_date . ' 18:00:00', 'Asia/Ho_Chi_Minh');
+        $cutoff = Carbon::parse($booking->check_in_date . ' ' . $booking->lateArrivalCutoffTime(), 'Asia/Ho_Chi_Minh');
         $arrival = Carbon::parse($customerRequest->expected_arrival_at, 'Asia/Ho_Chi_Minh');
 
         $customerRequest->update([
@@ -88,6 +91,7 @@ class CustomerRequestController extends Controller
     public function reject(Request $request, CustomerRequest $customerRequest)
     {
         abort_unless($customerRequest->type === 'late_arrival', 404);
+        $this->guardCanAccessBooking($customerRequest->booking);
         abort_unless($customerRequest->status === 'pending', 422, 'Yêu cầu này đã được xử lý.');
 
         $data = $request->validate([
@@ -108,6 +112,7 @@ class CustomerRequestController extends Controller
     public function receptionistNote(Request $request, CustomerRequest $customerRequest)
     {
         abort_unless($customerRequest->type === 'late_arrival', 404);
+        $this->guardCanAccessBooking($customerRequest->booking);
         $data = $request->validate(['receptionist_note' => ['required', 'string', 'max:2000']]);
         $customerRequest->update(['receptionist_note' => $data['receptionist_note']]);
 
@@ -116,6 +121,7 @@ class CustomerRequestController extends Controller
 
     public function sendGuestForm(Request $request, Booking $booking)
     {
+        $this->guardCanAccessBooking($booking);
         abort_unless(in_array($booking->status, ['pending', 'confirmed'], true), 422, 'Booking hiện không thể gửi form đến muộn.');
 
 
@@ -128,7 +134,9 @@ class CustomerRequestController extends Controller
         }
 
         $data = $request->validate(['email' => ['required', 'email']]);
-        $expires = now()->addHours(24);
+        $formExpireMinutes = max(5, (int) app(\App\Services\HotelPolicyService::class)
+            ->forBooking($booking, 'stay.late_arrival_form_expire_minutes', 1440));
+        $expires = now()->addMinutes($formExpireMinutes);
         $url = URL::temporarySignedRoute(
             'guest-customer-requests.form',
             $expires,
@@ -143,6 +151,7 @@ class CustomerRequestController extends Controller
     public function acknowledge(Request $request, CustomerRequest $customerRequest)
     {
         abort_unless($customerRequest->type === 'late_arrival', 404);
+        $this->guardCanAccessBooking($customerRequest->booking);
         abort_unless($customerRequest->status === 'pending', 422, 'Yêu cầu này đã được xử lý.');
 
         $data = $request->validate(['version' => ['required', 'integer', 'min:1']]);
@@ -163,6 +172,7 @@ class CustomerRequestController extends Controller
     public function updates(CustomerRequest $customerRequest)
     {
         abort_unless($customerRequest->type === 'late_arrival', 404);
+        $this->guardCanAccessBooking($customerRequest->booking);
         $details = (array) ($customerRequest->details ?? []);
 
         return response()->json([
@@ -186,8 +196,16 @@ class CustomerRequestController extends Controller
     public function attachment(CustomerRequest $customerRequest, $attachment)
     {
         abort_unless($customerRequest->type === 'late_arrival', 404);
+        $this->guardCanAccessBooking($customerRequest->booking);
         $file = $customerRequest->attachments()->findOrFail($attachment);
+        $path = storage_path('app/public/' . ltrim((string) $file->file_path, '/'));
+        abort_unless(is_file($path), 404, 'Tệp đính kèm không còn tồn tại.');
 
-        return response()->file(storage_path('app/public/' . $file->file_path));
+        return response()->file($path);
+    }
+
+    private function guardCanAccessBooking(?Booking $booking): void
+    {
+        abort_unless($booking && $booking->canBeHandledBy(Auth::user()), 403, 'Bạn không được phân công xử lý booking này.');
     }
 }

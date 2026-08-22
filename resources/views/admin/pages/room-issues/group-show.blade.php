@@ -1,3 +1,7 @@
+@php
+    $roomIssueHoldMinutes = max(5, (int) app(\App\Services\HotelPolicyService::class)
+        ->forBooking($booking ?? null, 'room_issue.proposal_hold_minutes', 30));
+@endphp
 @extends('layouts.admin')
 
 @section('title', 'Xử lý nhóm sự cố phòng')
@@ -71,24 +75,31 @@
         padding: 13px 14px;
     }
     .status-card { border-left: 4px solid #2563eb; }
-    .promo-scroll {
-        max-height: 300px;
-        overflow-y: auto;
-        border: 1px solid #dfe5ec;
-        border-radius: 12px;
-    }
+    .promo-picker { border: 1px solid #dfe5ec; border-radius: 14px; overflow: hidden; background: #fff; }
+    .promo-picker-head { padding: 10px 11px; border-bottom: 1px solid #e9edf2; background: #f8fafc; }
+    .promo-picker-tools { display: flex; gap: 8px; align-items: center; }
+    .promo-picker-tools .form-control { min-width: 0; }
+    .promo-selected-count { white-space: nowrap; font-size: 11px; font-weight: 800; color: #315c8a; background: #eaf3ff; border-radius: 999px; padding: 5px 8px; }
+    .promo-scroll { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; }
     .promo-row {
         display: grid;
-        grid-template-columns: 24px 125px 1fr auto;
+        grid-template-columns: 22px minmax(0, 1fr) auto;
         gap: 10px;
         align-items: center;
-        padding: 10px 12px;
+        padding: 11px;
         border-bottom: 1px solid #edf0f4;
         cursor: pointer;
+        transition: background .15s ease, border-color .15s ease;
     }
     .promo-row:last-child { border-bottom: 0; }
     .promo-row:hover { background: #f8fafc; }
-    .promo-row:has(input:checked) { background: #eef6ff; }
+    .promo-row:has(input:checked) { background: #eef6ff; box-shadow: inset 3px 0 0 #3b82f6; }
+    .promo-main { min-width: 0; }
+    .promo-code { display: block; font-weight: 850; color: #10233f; overflow-wrap: anywhere; }
+    .promo-name { display: block; margin-top: 2px; font-size: 11px; color: #6d788b; line-height: 1.35; overflow-wrap: anywhere; }
+    .promo-value { align-self: center; white-space: nowrap; font-size: 12px; font-weight: 850; color: #1769c2; background: #eff6ff; border-radius: 999px; padding: 5px 8px; }
+    .promo-no-result { padding: 18px 12px; text-align: center; font-size: 12px; color: #7a8699; display: none; }
+    @media (max-width: 1200px) { .promo-row { grid-template-columns: 22px minmax(0,1fr); } .promo-value { grid-column: 2; justify-self: start; margin-top: -4px; } }
     .priority-flow {
         display: flex;
         gap: 8px;
@@ -111,15 +122,31 @@
         box-shadow: 0 8px 22px rgba(22, 163, 74, .12);
     }
     .finalize-panel {
-        position: sticky;
-        top: 86px;
+        position: relative;
+        scroll-margin-top: 92px;
         border: 2px solid #22a447 !important;
         box-shadow: 0 12px 30px rgba(22, 163, 74, .16);
+        overflow: visible;
+    }
+    .finalize-action-box {
+        position: sticky;
+        top: 82px;
+        z-index: 20;
+        margin-bottom: 14px;
+        padding: 12px;
+        border: 1px solid #b9ddc2;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, .98);
+        box-shadow: 0 8px 22px rgba(15, 94, 45, .12);
+        backdrop-filter: blur(4px);
     }
     .finalize-button {
-        min-height: 54px;
-        font-size: 1.02rem;
+        min-height: 50px;
+        font-size: .96rem;
         font-weight: 800;
+    }
+    @media (max-width: 1199.98px) {
+        .finalize-action-box { position: static; }
     }
 </style>
 
@@ -143,15 +170,7 @@
             </span>
         </div>
 
-        @if (session('success'))
-            <div class="alert alert-success">{{ session('success') }}</div>
-        @endif
-
-        @if (session('error'))
-            <div class="alert alert-danger">{{ session('error') }}</div>
-        @endif
-
-        <div id="roomIssueLiveUpdate" class="alert alert-danger d-none position-sticky" style="top:8px;z-index:1030;">
+<div id="roomIssueLiveUpdate" class="alert alert-danger d-none position-sticky" style="top:8px;z-index:1030;">
             <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
                 <div><strong>Có cập nhật mới từ lễ tân hoặc khách.</strong> Tải lại trước khi xác nhận để tránh dùng phương án cũ.</div>
                 <button type="button" class="btn btn-danger btn-sm" onclick="window.location.reload()">Tải lại cập nhật</button>
@@ -356,7 +375,9 @@
                                 <strong>Mã bù đắp đang được giữ theo từng phòng:</strong>
                                 <div class="small mt-1">
                                     @foreach ($issues as $issue)
-                                        @php($codes = $selectedPromotionCodesByIssue->get((int) $issue->id, collect()))
+                                        @php
+                                            $codes = $selectedPromotionCodesByIssue->get((int) $issue->id, collect());
+                                        @endphp
                                         <div>
                                             Phòng {{ $issue->currentRoom?->room_number ?? '---' }}:
                                             {{ $codes->isEmpty() ? 'không chọn mã' : $codes->implode(', ') }}
@@ -373,7 +394,7 @@
                             @elseif ($leaderStatus === 'pending')
                                 Tạo phương án và gửi lễ tân
                             @else
-                                Gửi lại đầy đủ phương án và làm mới giữ phòng 30 phút
+                                Gửi lại đầy đủ phương án và làm mới giữ phòng {{ $roomIssueHoldMinutes }} phút
                             @endif
                         </button>
                     </form>
@@ -414,8 +435,6 @@
                         <input type="hidden" name="issue_promotion_codes_present" value="1">
                         <input type="hidden" name="guest_response_snapshot" value="{{ $guestResponseSnapshot }}">
 
-                        <div class="alert alert-success py-2 fw-semibold">
-                        </div>
                         <h5 class="fw-bold mb-2">Xác nhận cuối</h5>
                         <p class="small text-muted">
                             Lễ tân đã ghi nhận lựa chọn của khách cho từng phòng. Quản lý kiểm tra lại rồi thực hiện đồng thời.
@@ -425,9 +444,28 @@
                             Mỗi phòng lỗi có mã riêng. Giá phòng mới được tính thật; mã hỗ trợ chỉ bù cho đúng phòng này. Phần chênh chưa được mã bù sẽ do khách thanh toán.
                         </p>
 
+                        <div class="finalize-action-box">
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <i class="bx bx-check-shield text-success fs-4"></i>
+                                <strong>Hoàn tất xử lý</strong>
+                            </div>
+                            <label class="form-label fw-semibold mb-1">Ghi chú xác nhận cuối</label>
+                            <textarea name="admin_note" class="form-control" rows="2" required>{{ old('admin_note', $leader->admin_note) }}</textarea>
+
+                            <button class="btn btn-success finalize-button w-100 mt-2">
+                                <i class="bx bx-check-shield me-1"></i>
+                                Xác nhận và thực hiện toàn bộ phương án
+                            </button>
+                            <div class="small text-muted mt-2">Có thể chọn mã bù đắp ở các thẻ phía dưới trước khi xác nhận.</div>
+                        </div>
+
+                        <div class="small fw-semibold text-muted mb-2">Mã bù đắp theo từng phòng</div>
+
                         <div class="d-grid gap-3 mb-3">
                             @foreach ($issues as $issue)
-                                @php($issueCodes = $selectedPromotionCodesByIssue->get((int) $issue->id, collect()))
+                                @php
+                                    $issueCodes = $selectedPromotionCodesByIssue->get((int) $issue->id, collect());
+                                @endphp
                                 <div class="border rounded-3 p-3 bg-white">
                                     <div class="d-flex justify-content-between gap-2 flex-wrap mb-2">
                                         <div>
@@ -454,41 +492,51 @@
                                     @endif
 
                                     @if ($promotions->isNotEmpty())
-                                        <div class="promo-scroll">
-                                            @foreach ($promotions as $promotion)
-                                                <label class="promo-row">
-                                                    <input
-                                                        type="checkbox"
-                                                        class="form-check-input room-issue-promotion-checkbox"
-                                                        name="issue_promotion_codes[{{ $issue->id }}][]"
-                                                        value="{{ $promotion->code }}"
-                                                    >
-                                                    <strong>{{ $promotion->code }}</strong>
-                                                    <span>{{ $promotion->name }}</span>
-                                                    <span class="text-primary fw-semibold">
-                                                        @if ($promotion->discount_type === 'percent')
-                                                            {{ rtrim(rtrim(number_format((float) $promotion->discount_value, 2, ',', '.'), '0'), ',') }}%
-                                                        @else
-                                                            {{ number_format((float) $promotion->discount_value, 0, ',', '.') }}đ
-                                                        @endif
-                                                    </span>
-                                                </label>
-                                            @endforeach
+                                        <div class="small text-muted mb-2">
+                                            Không giới hạn số mã ở bước bồi thường sự cố. Hệ thống đã tự ẩn các mã khách này từng sử dụng trước đây.
+                                        </div>
+                                        <div class="promo-picker" data-promo-picker>
+                                            <div class="promo-picker-head">
+                                                <div class="promo-picker-tools">
+                                                    <div class="input-group input-group-sm flex-grow-1">
+                                                        <span class="input-group-text bg-white"><i class="bx bx-search"></i></span>
+                                                        <input type="search" class="form-control" placeholder="Tìm mã hoặc tên ưu đãi..." data-promo-search>
+                                                    </div>
+                                                    <span class="promo-selected-count" data-promo-count>0 đã chọn</span>
+                                                </div>
+                                            </div>
+                                            <div class="promo-scroll">
+                                                @foreach ($promotions as $promotion)
+                                                    <label class="promo-row" data-promo-row data-promo-text="{{ mb_strtolower($promotion->code . ' ' . $promotion->name) }}">
+                                                        <input
+                                                            type="checkbox"
+                                                            class="form-check-input room-issue-promotion-checkbox"
+                                                            name="issue_promotion_codes[{{ $issue->id }}][]"
+                                                            value="{{ $promotion->code }}"
+                                                        >
+                                                        <span class="promo-main">
+                                                            <span class="promo-code">{{ $promotion->code }}</span>
+                                                            <span class="promo-name">{{ $promotion->name }}</span>
+                                                        </span>
+                                                        <span class="promo-value">
+                                                            @if ($promotion->discount_type === 'percent')
+                                                                {{ rtrim(rtrim(number_format((float) $promotion->discount_value, 2, ',', '.'), '0'), ',') }}%
+                                                            @else
+                                                                {{ number_format((float) $promotion->discount_value, 0, ',', '.') }}đ
+                                                            @endif
+                                                        </span>
+                                                    </label>
+                                                @endforeach
+                                                <div class="promo-no-result" data-promo-empty>Không tìm thấy mã phù hợp.</div>
+                                            </div>
                                         </div>
                                     @else
-                                        <div class="alert alert-light border mb-0">Phòng này hiện không có mã đủ điều kiện.</div>
+                                        <div class="alert alert-light border mb-0">Không còn mã đủ điều kiện hoặc khách đã dùng hết các mã phù hợp trước đó.</div>
                                     @endif
                                 </div>
                             @endforeach
                         </div>
 
-                        <label class="form-label fw-semibold">Ghi chú xác nhận cuối</label>
-                        <textarea name="admin_note" class="form-control" rows="4" required>{{ old('admin_note', $leader->admin_note) }}</textarea>
-
-                        <button class="btn btn-success btn-lg finalize-button w-100 mt-3">
-                            <i class="bx bx-check-shield me-1"></i>
-                            Xác nhận và thực hiện toàn bộ phương án
-                        </button>
                     </form>
                 @elseif ($leaderStatus === 'waiting_guest_confirmation')
                     <div class="settings-section">
@@ -499,7 +547,9 @@
                             <div class="small mb-2">
                                 <strong>Mã đã lưu theo phòng:</strong>
                                 @foreach ($issues as $issue)
-                                    @php($codes = $selectedPromotionCodesByIssue->get((int) $issue->id, collect()))
+                                    @php
+                                            $codes = $selectedPromotionCodesByIssue->get((int) $issue->id, collect());
+                                        @endphp
                                     <div>Phòng {{ $issue->currentRoom?->room_number ?? '---' }}: {{ $codes->isEmpty() ? 'không có' : $codes->implode(', ') }}</div>
                                 @endforeach
                             </div>
@@ -511,7 +561,7 @@
                 @elseif ($leaderStatus === 'guest_requested_change')
                     <div class="settings-section">
                         <div class="alert alert-warning mb-0">
-                            Khách muốn trao đổi lại. Bấm gửi lại để lễ tân vẫn thấy đầy đủ phương án đổi phòng/nâng hạng và giữ nguyên sửa gấp; phòng đang giữ sẽ được làm mới thêm 30 phút.
+                            Khách muốn trao đổi lại. Bấm gửi lại để lễ tân vẫn thấy đầy đủ phương án đổi phòng/nâng hạng và giữ nguyên sửa gấp; phòng đang giữ sẽ được làm mới thêm {{ $roomIssueHoldMinutes }} phút.
                         </div>
                     </div>
                 @endif
@@ -531,6 +581,35 @@ window.addEventListener('booking:updated', function (event) {
 });
 
 document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('[data-promo-picker]').forEach(function (picker) {
+        const search = picker.querySelector('[data-promo-search]');
+        const rows = Array.from(picker.querySelectorAll('[data-promo-row]'));
+        const count = picker.querySelector('[data-promo-count]');
+        const empty = picker.querySelector('[data-promo-empty]');
+
+        const refresh = function () {
+            const term = (search?.value || '').trim().toLocaleLowerCase('vi');
+            let visible = 0;
+            let selected = 0;
+            rows.forEach(function (row) {
+                const checkbox = row.querySelector('input[type="checkbox"]');
+                if (checkbox?.checked) selected += 1;
+                const haystack = (row.dataset.promoText || '').toLocaleLowerCase('vi');
+                const show = term === '' || haystack.includes(term);
+                row.hidden = !show;
+                if (show) visible += 1;
+            });
+            if (count) count.textContent = selected + ' đã chọn';
+            if (empty) empty.style.display = visible === 0 ? 'block' : 'none';
+        };
+
+        search?.addEventListener('input', refresh);
+        picker.addEventListener('change', function (event) {
+            if (event.target.matches('.room-issue-promotion-checkbox')) refresh();
+        });
+        refresh();
+    });
+
     const proposalForm = document.getElementById('roomIssueProposalForm');
     if (!proposalForm) {
         return;

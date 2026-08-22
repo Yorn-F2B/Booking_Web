@@ -12,9 +12,11 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\HotelReviewController;
 use App\Http\Controllers\CustomerRequestController;
 use App\Models\HotelReview;
+use App\Models\Promotion;
 use App\Http\Controllers\RoomIssueRequestController;
 use App\Http\Controllers\GuestBookingLookupController;
 use App\Http\Controllers\CitizenIdScanController;
+use App\Services\HotelPolicyService;
 
 /*
 |--------------------------------------------------------------------------
@@ -30,7 +32,8 @@ Route::get('/', function () {
         ->get();
 
     $now = Carbon::now('Asia/Ho_Chi_Minh');
-    $todayCheckInDeadline = $now->copy()->setTime(14, 0, 0);
+    $standardCheckInTime = (string) app(HotelPolicyService::class)->get('stay.standard_check_in_time', '14:00');
+    $todayCheckInDeadline = Carbon::parse($now->toDateString() . ' ' . $standardCheckInTime, 'Asia/Ho_Chi_Minh');
 
     $onlineBookingClosedToday = $now->greaterThanOrEqualTo($todayCheckInDeadline);
 
@@ -63,6 +66,25 @@ Route::get('/', function () {
         'average' => round((float) HotelReview::approved()->avg('rating'), 1),
     ];
 
+    $publicPromotions = Promotion::query()
+        ->where('status', 'active')
+        ->where('is_public', true)
+        ->where('user_can_apply', true)
+        // Không đưa mã dữ liệu thử nghiệm ra trang công khai khi demo/vận hành.
+        ->where('code', 'not like', 'DEMO%')
+        ->where(function ($query) use ($now) {
+            $query->whereNull('valid_from')->orWhere('valid_from', '<=', $now);
+        })
+        ->where(function ($query) use ($now) {
+            $query->whereNull('valid_to')->orWhere('valid_to', '>=', $now);
+        })
+        ->where(function ($query) {
+            $query->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit');
+        })
+        ->latest()
+        ->take(3)
+        ->get();
+
     return view('user.pages.home', compact(
         'featuredRoomCategories',
         'minOnlineCheckInDate',
@@ -71,7 +93,9 @@ Route::get('/', function () {
         'maxAdultCapacity',
         'maxChildCapacity',
         'approvedHotelReviews',
-        'hotelReviewStats'
+        'hotelReviewStats',
+        'publicPromotions',
+        'standardCheckInTime'
     ));
 })->name('home');
 
@@ -91,7 +115,7 @@ Route::middleware('auth')->get('/dashboard', function () {
 
     return match ($role) {
         'super_admin' => redirect()->route('admin.dashboard'),
-        'manager' => redirect()->route('admin.rooms.index'),
+        'manager' => redirect()->route('admin.bookings.index'),
         'receptionist_lead', 'receptionist' => redirect()->route('admin.bookings.index'),
         'housekeeping_supervisor', 'housekeeping' => redirect()->route('admin.housekeeping.index'),
         default => redirect()->route('home'),
@@ -111,7 +135,7 @@ Route::get('/about', function () {
 Route::get('/rooms', [RoomController::class, 'index'])->name('rooms');
 Route::get('/rooms/{roomCategory}', [RoomController::class, 'show'])->name('rooms.show');
 
-Route::middleware('auth')->get('/booking-history', [BookingController::class, 'history'])
+Route::middleware(['auth', 'role:customer'])->get('/booking-history', [BookingController::class, 'history'])
     ->name('bookings.history');
 
 Route::get('/contact', function () {
@@ -137,6 +161,7 @@ Route::post('/tra-cuu-booking/xac-thuc', [GuestBookingLookupController::class, '
 Route::get('/tra-cuu-booking/chi-tiet/{token}', [GuestBookingLookupController::class, 'show'])
     ->name('guest-bookings.show');
 Route::post('/tra-cuu-booking/chi-tiet/{token}/huy', [GuestBookingLookupController::class, 'cancel'])
+    ->middleware('throttle:10,10')
     ->name('guest-bookings.cancel');
 Route::get('/tra-cuu-booking/da-huy', [GuestBookingLookupController::class, 'cancelled'])
     ->name('guest-bookings.cancelled');
@@ -170,15 +195,19 @@ Route::get('/yeu-cau-booking/{booking}/tep/{attachment}', [CustomerRequestContro
 */
 
 Route::get('/chat/messages', [ChatController::class, 'messages'])
+    ->middleware('throttle:60,1')
     ->name('chat.messages');
 
 Route::post('/chat/send', [ChatController::class, 'send'])
+    ->middleware('throttle:20,1')
     ->name('chat.send');
 
 Route::post('/chat/close', [ChatController::class, 'close'])
+    ->middleware('throttle:30,1')
     ->name('chat.close');
 
 Route::get('/chat/attachments/{attachment}/download', [ChatController::class, 'download'])
+    ->middleware('throttle:60,1')
     ->name('chat.attachments.download');
 
 /*
@@ -187,7 +216,7 @@ Route::get('/chat/attachments/{attachment}/download', [ChatController::class, 'd
 |--------------------------------------------------------------------------
 */
 
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'role:customer'])->group(function () {
     Route::get('/user-settings', [UserSettingController::class, 'index'])
         ->name('user.settings');
 
@@ -204,7 +233,7 @@ Route::middleware('auth')->group(function () {
 |--------------------------------------------------------------------------
 */
 
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'role:customer'])->group(function () {
     // Đã bỏ nghiệp vụ tiền bảo lưu khi hủy phòng.
 
     Route::get('/profile', [ProfileController::class, 'edit'])
@@ -237,6 +266,12 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/booking-history/{booking}/services', [BookingController::class, 'storeCustomerService'])
         ->name('bookings.services.store');
+
+
+    Route::get('/booking-history/{booking}/edit-before-payment', [BookingController::class, 'editBeforePayment'])
+        ->name('bookings.edit-before-payment');
+    Route::patch('/booking-history/{booking}/edit-before-payment', [BookingController::class, 'updateBeforePayment'])
+        ->name('bookings.update-before-payment');
 
     Route::get('/booking-history/{booking}/review', [HotelReviewController::class, 'create'])
         ->name('bookings.reviews.create');
@@ -282,7 +317,7 @@ Route::get('/payment/vnpay/ipn', [VnpayController::class, 'ipn'])
 Route::get('/payment/vnpay/admin-request/{payment}', [VnpayController::class, 'payRequest'])
     ->name('payment.vnpay.admin-request');
 
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'role:customer'])->group(function () {
     Route::post('/payment/vnpay/{booking}', [VnpayController::class, 'create'])
         ->name('payment.vnpay.create');
 });
@@ -290,7 +325,7 @@ Route::middleware('auth')->group(function () {
 Route::get('/bookings/confirm', [BookingController::class, 'confirm'])
     ->name('bookings.confirm');
 
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'role:customer'])->group(function () {
     Route::post('/bookings', [BookingController::class, 'store'])
         ->name('bookings.store');
 });

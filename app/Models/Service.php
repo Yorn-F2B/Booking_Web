@@ -66,6 +66,50 @@ class Service extends Model
         ];
     }
 
+
+    public static function serviceCatalogTypes(): array
+    {
+        return [
+            self::TYPE_SERVICE,
+            self::TYPE_MINIBAR,
+            self::TYPE_MINIBAR_ORDER,
+        ];
+    }
+
+    public static function surchargeCatalogTypes(): array
+    {
+        return [
+            self::TYPE_DAMAGE_FEE,
+            self::TYPE_OCCUPANCY_FEE,
+            self::TYPE_POLICY_VIOLATION_FEE,
+            self::TYPE_EARLY_CHECKIN_FEE,
+            self::TYPE_LATE_CHECKOUT_FEE,
+            self::TYPE_EXTENSION_FEE,
+            self::TYPE_EXTRA_GUEST_FEE,
+            self::TYPE_MANUAL_FEE,
+        ];
+    }
+
+    public static function serviceTypeLabels(): array
+    {
+        return array_intersect_key(self::typeLabels(), array_flip(self::serviceCatalogTypes()));
+    }
+
+    public static function surchargeTypeLabels(): array
+    {
+        return array_intersect_key(self::typeLabels(), array_flip(self::surchargeCatalogTypes()));
+    }
+
+    public function isServiceCatalog(): bool
+    {
+        return in_array($this->type, self::serviceCatalogTypes(), true);
+    }
+
+    public function isSurchargeCatalog(): bool
+    {
+        return in_array($this->type, self::surchargeCatalogTypes(), true);
+    }
+
     public static function billingRuleLabels(): array
     {
         return [

@@ -10,7 +10,9 @@ use App\Models\Service;
 use App\Models\StaffFloorAssignment;
 use App\Models\StaffRoomAssignment;
 use App\Services\RoomInspectionWorkflowService;
+use App\Services\RoomInspectionFinalizationService;
 use App\Support\Realtime;
+use App\Support\HousekeepingWorkScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -49,6 +51,7 @@ class FloorInspectionController extends Controller
             'inspector',
             'items.guestResponder',
             'items.rechecker',
+            'items.detector',
             'revisions.changer',
         ]);
 
@@ -71,7 +74,8 @@ class FloorInspectionController extends Controller
     public function report(
         Request $request,
         RoomInspection $roomInspection,
-        RoomInspectionWorkflowService $workflow
+        RoomInspectionWorkflowService $workflow,
+        RoomInspectionFinalizationService $finalizer
     ) {
         $this->guardCanHandleInspection($roomInspection);
 
@@ -153,6 +157,10 @@ class FloorInspectionController extends Controller
                         'admin_note' => null,
                         'guest_response' => 'pending',
                         'recheck_decision' => 'not_required',
+                        'detection_source' => 'initial',
+                        'detected_by' => Auth::id(),
+                        'detected_at' => now('Asia/Ho_Chi_Minh'),
+                        'detection_version' => max(0, (int) $inspection->version) + 1,
                     ]);
 
                     $createdItems->push($item);
@@ -194,6 +202,10 @@ class FloorInspectionController extends Controller
                         'admin_note' => null,
                         'guest_response' => 'pending',
                         'recheck_decision' => 'not_required',
+                        'detection_source' => 'initial',
+                        'detected_by' => Auth::id(),
+                        'detected_at' => now('Asia/Ho_Chi_Minh'),
+                        'detection_version' => max(0, (int) $inspection->version) + 1,
                     ]);
 
                     $createdItems->push($item);
@@ -205,7 +217,7 @@ class FloorInspectionController extends Controller
             $hasChargeItems = $createdItems->isNotEmpty();
             $nextStage = $hasChargeItems
                 ? RoomInspection::STAGE_GUEST_CONSULTATION
-                : RoomInspection::STAGE_ADMIN_APPROVAL;
+                : RoomInspection::STAGE_COMPLETED;
 
             $inspection->update([
                 'inspected_by' => Auth::id(),
@@ -240,7 +252,7 @@ class FloorInspectionController extends Controller
             $summary = 'Buồng phòng gửi kết quả kiểm tra phòng '
                 . ($inspection->room->room_number ?? '---')
                 . ': ' . implode('. ', $parts)
-                . ($hasChargeItems ? '. Chờ lễ tân trao đổi với khách.' : '. Không có khoản phí; chờ admin xác nhận.');
+                . ($hasChargeItems ? '. Chờ lễ tân trao đổi với khách.' : '. Không phát sinh khoản cần đối chiếu; hoàn tất kiểm tra.');
 
             $changes = [[
                 'item_id' => null,
@@ -257,14 +269,23 @@ class FloorInspectionController extends Controller
 
             $this->addBookingLog($inspection->booking, 'inspection_reported', $summary);
 
+            if (!$hasChargeItems) {
+                $finalizer->finalize(
+                    $inspection,
+                    $workflow,
+                    Auth::id(),
+                    'Buồng phòng xác nhận phòng không phát sinh minibar, mất đồ hoặc hư hại; phiếu được hoàn tất ngay.'
+                );
+            }
+
             DB::commit();
-            Realtime::inspection($inspection->id, 'inspection_reported');
+            Realtime::inspection($inspection->id, $hasChargeItems ? 'inspection_reported' : 'inspection_completed');
 
             return redirect()
                 ->route('admin.floor-inspections.index')
                 ->with('success', $hasChargeItems
-                    ? 'Đã gửi kết quả. Lễ tân cần trao đổi từng khoản với khách trước khi admin duyệt.'
-                    : 'Đã gửi kết quả không phát sinh phí. Phiếu chuyển thẳng sang admin xác nhận.');
+                    ? 'Đã gửi kết quả. Lễ tân cần trao đổi từng khoản với khách; khi hai bên thống nhất, phiếu sẽ tự hoàn tất.'
+                    : 'Đã gửi kết quả không phát sinh phí. Phiếu đã hoàn tất ngay.');
         } catch (ValidationException $e) {
             DB::rollBack();
             throw $e;
@@ -275,10 +296,182 @@ class FloorInspectionController extends Controller
         }
     }
 
-    public function recheck(
+    public function supplementalReport(
         Request $request,
         RoomInspection $roomInspection,
         RoomInspectionWorkflowService $workflow
+    ) {
+        $this->guardCanHandleInspection($roomInspection);
+
+        $data = $request->validate([
+            'supplemental_damage_service_ids' => 'nullable|array',
+            'supplemental_damage_service_ids.*' => 'exists:services,id',
+            'supplemental_damage_quantities' => 'nullable|array',
+            'supplemental_damage_quantities.*' => 'nullable|integer|min:1|max:999',
+            'supplemental_minibar_service_ids' => 'nullable|array',
+            'supplemental_minibar_service_ids.*' => 'exists:services,id',
+            'supplemental_minibar_quantities' => 'nullable|array',
+            'supplemental_minibar_quantities.*' => 'nullable|integer|min:1|max:999',
+            'supplemental_note' => 'required|string|max:1000',
+        ], [
+            'supplemental_note.required' => 'Vui lòng ghi rõ lý do phát hiện bổ sung sau lần kiểm tra trước.',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            $inspection = RoomInspection::whereKey($roomInspection->id)
+                ->lockForUpdate()
+                ->with(['items', 'booking', 'room'])
+                ->firstOrFail();
+
+            if (!$inspection->booking || $inspection->booking->status !== 'inspection_requested') {
+                throw new \RuntimeException('Booking đã hoàn tất checkout hoặc không còn ở bước kiểm tra trước checkout nên không thể khai báo phát hiện bổ sung.');
+            }
+
+            if ($inspection->workflow_stage === RoomInspection::STAGE_HOUSEKEEPING_REPORT) {
+                throw new \RuntimeException('Phiếu vẫn đang ở lần kiểm tra ban đầu. Hãy ghi nhận trực tiếp trong báo cáo ban đầu thay vì tạo phát hiện bổ sung.');
+            }
+
+            $damageIds = array_values(array_unique(array_map('intval', $data['supplemental_damage_service_ids'] ?? [])));
+            $minibarIds = array_values(array_unique(array_map('intval', $data['supplemental_minibar_service_ids'] ?? [])));
+
+            if (empty($damageIds) && empty($minibarIds)) {
+                throw ValidationException::withMessages([
+                    'supplemental_damage_service_ids' => 'Vui lòng chọn ít nhất một hạng mục minibar, mất đồ hoặc hư hại mới phát hiện.',
+                ]);
+            }
+
+            $damageServices = Service::query()
+                ->whereIn('id', $damageIds)
+                ->where('type', Service::TYPE_DAMAGE_FEE)
+                ->where('status', 'active')
+                ->get()
+                ->keyBy('id');
+
+            $minibarServices = Service::query()
+                ->whereIn('id', $minibarIds)
+                ->where('type', Service::TYPE_MINIBAR)
+                ->where('status', 'active')
+                ->get()
+                ->keyBy('id');
+
+            if ($damageServices->count() !== count($damageIds) || $minibarServices->count() !== count($minibarIds)) {
+                throw ValidationException::withMessages([
+                    'supplemental_damage_service_ids' => 'Có hạng mục không đúng loại hoặc đã ngừng hoạt động. Vui lòng tải lại trang và chọn lại.',
+                ]);
+            }
+
+            $nextVersion = max(0, (int) $inspection->version) + 1;
+            $detectedAt = now('Asia/Ho_Chi_Minh');
+            $note = trim((string) $data['supplemental_note']);
+            $createdItems = collect();
+            $changes = [];
+
+            $createItem = function (Service $service, string $type, int $quantity) use (
+                $inspection,
+                $workflow,
+                $nextVersion,
+                $detectedAt,
+                $note,
+                &$changes,
+                $createdItems
+            ) {
+                $lineTotal = (float) $service->price * $quantity;
+                $item = RoomInspectionItem::create([
+                    'room_inspection_id' => $inspection->id,
+                    'service_id' => $service->id,
+                    'type' => $type,
+                    'name' => $service->name,
+                    'unit' => $service->unit,
+                    'price' => $service->price,
+                    'quantity' => $quantity,
+                    'total' => $lineTotal,
+                    'original_total' => $lineTotal,
+                    'status' => 'pending',
+                    'admin_note' => null,
+                    'guest_response' => 'pending',
+                    'recheck_decision' => 'not_required',
+                    'detection_source' => 'supplemental',
+                    'detected_by' => Auth::id(),
+                    'detected_at' => $detectedAt,
+                    'detection_version' => $nextVersion,
+                ]);
+
+                $createdItems->push($item);
+                $changes[] = [
+                    'item_id' => $item->id,
+                    'event_type' => 'inspection_supplemental_detected',
+                    'summary' => 'Phát hiện bổ sung “' . $item->name . '” x' . $quantity
+                        . ' sau lần kiểm tra trước: ' . number_format($lineTotal, 0, ',', '.') . 'đ. ' . $note,
+                    'before' => null,
+                    'after' => $workflow->itemSnapshot($item),
+                ];
+            };
+
+            foreach ($damageIds as $serviceId) {
+                $quantity = max(1, (int) (($data['supplemental_damage_quantities'] ?? [])[$serviceId] ?? 1));
+                $createItem($damageServices->get($serviceId), Service::TYPE_DAMAGE_FEE, $quantity);
+            }
+
+            foreach ($minibarIds as $serviceId) {
+                $quantity = max(1, (int) (($data['supplemental_minibar_quantities'] ?? [])[$serviceId] ?? 1));
+                $createItem($minibarServices->get($serviceId), 'minibar', $quantity);
+            }
+
+            // Dòng cũ được giữ nguyên hoàn toàn. Chỉ nối thêm dòng mới và mở lại quy trình xử lý.
+            $inspection->load('items');
+            $nextStage = $inspection->workflow_stage === RoomInspection::STAGE_HOUSEKEEPING_RECHECK
+                ? RoomInspection::STAGE_HOUSEKEEPING_RECHECK
+                : RoomInspection::STAGE_GUEST_CONSULTATION;
+
+            $inspection->update([
+                'status' => 'reported',
+                'workflow_stage' => $nextStage,
+                'has_damage' => (bool) $inspection->has_damage || $createdItems->contains(fn ($item) => $item->type === 'damage_fee'),
+                'minibar_total' => (float) $inspection->items->where('type', 'minibar')->sum('total'),
+                'damage_total' => (float) $inspection->items->where('type', 'damage_fee')->sum('total'),
+                'approved_total' => (float) $inspection->items->where('status', 'approved')->sum('total'),
+            ]);
+
+            $summary = 'Buồng phòng phát hiện bổ sung sau lần kiểm tra trước tại phòng '
+                . ($inspection->room->room_number ?? '---') . ': '
+                . $createdItems->map(fn ($item) => $item->name . ' x' . $item->quantity . ' = '
+                    . number_format((float) $item->total, 0, ',', '.') . 'đ')->implode('; ')
+                . '. Lý do/căn cứ: ' . $note
+                . '. Các khoản cũ được giữ nguyên; booking tiếp tục bị chặn checkout cho đến khi khoản mới được xử lý.';
+
+            $workflow->advanceVersion(
+                $inspection,
+                'inspection_supplemental_detected',
+                $summary,
+                $changes,
+                Auth::id()
+            );
+
+            $this->addBookingLog($inspection->booking, 'inspection_supplemental_detected', $summary);
+
+            DB::commit();
+            Realtime::inspection($inspection->id, 'inspection_supplemental_detected');
+
+            return redirect()
+                ->route('admin.floor-inspections.show', $inspection->id)
+                ->with('success', 'Đã ghi nhận phát hiện bổ sung thành dòng mới. Lịch sử cũ được giữ nguyên và checkout tiếp tục bị chặn đến khi xử lý xong.');
+        } catch (ValidationException $e) {
+            DB::rollBack();
+            throw $e;
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return back()->withInput()->with('error', 'Không thể ghi nhận phát hiện bổ sung: ' . $e->getMessage());
+        }
+    }
+
+    public function recheck(
+        Request $request,
+        RoomInspection $roomInspection,
+        RoomInspectionWorkflowService $workflow,
+        RoomInspectionFinalizationService $finalizer
     ) {
         $this->guardCanHandleInspection($roomInspection);
 
@@ -411,7 +604,7 @@ class FloorInspectionController extends Controller
             $inspection->update([
                 'workflow_stage' => $hasPendingGuestReview
                     ? RoomInspection::STAGE_GUEST_CONSULTATION
-                    : RoomInspection::STAGE_ADMIN_APPROVAL,
+                    : RoomInspection::STAGE_COMPLETED,
                 'minibar_total' => (float) $inspection->items->where('type', 'minibar')->sum('total'),
                 'damage_total' => (float) $inspection->items->where('type', 'damage_fee')->sum('total'),
             ]);
@@ -424,20 +617,29 @@ class FloorInspectionController extends Controller
                 $summary .= ' Các khoản còn khác ý kiến khách cần lễ tân trao đổi lại: '
                     . implode(', ', $needsGuestReview) . '.';
             } else {
-                $summary .= ' Tất cả kết quả đã khớp với ý kiến khách; chuyển admin xác nhận cuối.';
+                $summary .= ' Tất cả kết quả đã khớp với ý kiến khách; phiếu được hoàn tất ngay.';
             }
 
             $workflow->advanceVersion($inspection, 'housekeeping_recheck', $summary, $changes, Auth::id());
             $this->addBookingLog($inspection->booking, 'inspection_rechecked', $summary);
 
+            if (!$hasPendingGuestReview) {
+                $finalizer->finalize(
+                    $inspection,
+                    $workflow,
+                    Auth::id(),
+                    'Buồng phòng kiểm tra lại và kết quả đã khớp với số lượng khách xác nhận; phiếu được hoàn tất.'
+                );
+            }
+
             DB::commit();
-            Realtime::inspection($inspection->id, 'inspection_rechecked');
+            Realtime::inspection($inspection->id, $hasPendingGuestReview ? 'inspection_rechecked' : 'inspection_completed');
 
             return redirect()
                 ->route('admin.floor-inspections.index')
                 ->with('success', $hasPendingGuestReview
                     ? 'Đã cập nhật. Chỉ các khoản còn lệch với ý kiến khách được chuyển lại lễ tân.'
-                    : 'Đã cập nhật. Kết quả đã khớp với khách và được chuyển sang admin xác nhận cuối.');
+                    : 'Đã cập nhật. Kết quả đã khớp với khách và phiếu đã hoàn tất ngay.');
         } catch (ValidationException $e) {
             DB::rollBack();
             throw $e;
@@ -452,35 +654,11 @@ class FloorInspectionController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user || in_array($user->role, ['super_admin', 'manager', 'housekeeping_supervisor'], true)) {
-            return;
-        }
-
-        if ($user->role !== 'housekeeping') {
+        if ($user && !in_array($user->role, ['super_admin', 'manager', 'housekeeping_supervisor', 'housekeeping'], true)) {
             abort(403, 'Bạn không có quyền xem phiếu kiểm tra phòng.');
         }
 
-        $today = now('Asia/Ho_Chi_Minh')->toDateString();
-
-        $assignedFloorNumbers = StaffFloorAssignment::where('staff_id', $user->id)
-            ->whereDate('work_date', $today)
-            ->where('status', 'active')
-            ->pluck('floor_number')
-            ->toArray();
-
-        $assignedRoomIds = StaffRoomAssignment::where('staff_id', $user->id)
-            ->whereDate('work_date', $today)
-            ->whereIn('status', ['assigned', 'in_progress'])
-            ->pluck('room_id')
-            ->toArray();
-
-        $query->whereHas('room', function ($roomQuery) use ($assignedFloorNumbers, $assignedRoomIds) {
-            $roomQuery->whereIn('id', $assignedRoomIds);
-
-            if (!empty($assignedFloorNumbers)) {
-                $roomQuery->orWhereIn('floor_number', $assignedFloorNumbers);
-            }
-        });
+        HousekeepingWorkScope::applyToInspections($query, $user);
     }
 
     private function guardCanHandleInspection(RoomInspection $roomInspection): void
@@ -507,8 +685,7 @@ class FloorInspectionController extends Controller
 
         $assignedByFloor = StaffFloorAssignment::where('staff_id', $user->id)
             ->where('floor_number', $room?->floor_number)
-            ->whereDate('work_date', $today)
-            ->where('status', 'active')
+            ->effectiveOn($today)
             ->exists();
 
         abort_unless($assignedByRoom || $assignedByFloor, 403, 'Bạn không được phân công kiểm tra phòng này.');

@@ -7,14 +7,12 @@
         <span class="badge text-bg-warning fs-6"><?php echo e($pendingCount); ?> chờ duyệt</span>
     </div>
 
-    <?php if(session('success')): ?><div class="alert alert-success"><?php echo e(session('success')); ?></div><?php endif; ?>
-    <?php if(session('error')): ?><div class="alert alert-danger"><?php echo e(session('error')); ?></div><?php endif; ?>
-
-    <div class="settings-section mb-3">
+<div class="settings-section mb-3">
         <form method="GET" class="row g-2 align-items-end">
             <div class="col-md-6"><label class="form-label">Tìm kiếm</label><input name="search" value="<?php echo e($search); ?>" class="form-control" placeholder="Phòng, mã booking, nội dung sự cố..."></div>
             <div class="col-md-3"><label class="form-label">Trạng thái</label><select name="status" class="form-select">
-                <option value="pending" <?php if($status==='pending'): echo 'selected'; endif; ?>>Chờ duyệt</option>
+                <option value="pending" <?php if($status==='pending'): echo 'selected'; endif; ?>>Cần quản lý xử lý</option>
+                <option value="waiting_guest" <?php if($status==='waiting_guest'): echo 'selected'; endif; ?>>Đang chờ khách xác nhận</option>
                 <option value="approved" <?php if($status==='approved'): echo 'selected'; endif; ?>>Đã đổi phòng</option>
                 <option value="repair_only" <?php if($status==='repair_only'): echo 'selected'; endif; ?>>Không còn phòng - sửa gấp</option>
                 <option value="all" <?php if($status==='all'): echo 'selected'; endif; ?>>Tất cả</option>

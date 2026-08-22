@@ -9,15 +9,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use App\Services\HotelPolicyService;
 
 class RoomController extends Controller
 {
-    private const ONLINE_CHECK_IN_TIME = '14:00:00';
-    private const ONLINE_CHECK_OUT_TIME = '12:00:00';
-    private const ONLINE_CHECK_IN_LABEL = '14:00';
-    private const EARLY_CHECK_IN_LABEL = '13:00';
-    private const ONLINE_CHECK_OUT_LABEL = '12:00';
-
     public function index(Request $request)
     {
         $minOnlineCheckInDate = $this->getOnlineMinCheckInDate();
@@ -70,7 +65,7 @@ class RoomController extends Controller
         ], [
             'check_in_date.required_with' => 'Vui lòng chọn ngày nhận phòng.',
             'check_in_date.date' => 'Ngày nhận phòng không hợp lệ.',
-            'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . self::ONLINE_CHECK_IN_LABEL . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
+            'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . $this->standardCheckInLabel() . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
             'check_out_date.required_with' => 'Vui lòng chọn ngày trả phòng.',
             'check_out_date.date' => 'Ngày trả phòng không hợp lệ.',
             'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
@@ -99,11 +94,11 @@ class RoomController extends Controller
         $checkOutDate = $data['check_out_date'] ?? null;
 
         $checkInAt = $checkInDate
-            ? $checkInDate . ' ' . self::ONLINE_CHECK_IN_TIME
+            ? $checkInDate . ' ' . $this->standardCheckInTime()
             : null;
 
         $checkOutAt = $checkOutDate
-            ? $checkOutDate . ' ' . self::ONLINE_CHECK_OUT_TIME
+            ? $checkOutDate . ' ' . $this->standardCheckOutTime()
             : null;
 
         $hasFilter = $request->filled('check_in_date')
@@ -200,9 +195,9 @@ class RoomController extends Controller
             'searchData' => [
                 'check_in_date' => $checkInDate,
                 'check_out_date' => $checkOutDate,
-                'early_check_in_time' => self::EARLY_CHECK_IN_LABEL,
-                'check_in_time' => self::ONLINE_CHECK_IN_LABEL,
-                'check_out_time' => self::ONLINE_CHECK_OUT_LABEL,
+                'early_check_in_time' => $this->earlyCheckInFreeFromLabel(),
+                'check_in_time' => $this->standardCheckInLabel(),
+                'check_out_time' => $this->standardCheckOutLabel(),
                 'adult_count' => $data['adult_count'] ?? null,
                 'child_count' => $data['child_count'] ?? null,
                 'room_category_id' => $data['room_category_id'] ?? null,
@@ -232,8 +227,8 @@ class RoomController extends Controller
         $cursor = Carbon::parse($minOnlineCheckInDate, 'Asia/Ho_Chi_Minh');
         for ($i = 0; $i < 90; $i++) {
             $date = $cursor->copy()->addDays($i);
-            $checkInAt = $date->copy()->setTime(14, 0);
-            $checkOutAt = $date->copy()->addDay()->setTime(12, 0);
+            $checkInAt = $date->copy()->setTimeFromTimeString($this->standardCheckInTime());
+            $checkOutAt = $date->copy()->addDay()->setTimeFromTimeString($this->standardCheckOutTime());
             $hasRoom = $roomCategory->rooms()
                 ->bookableForPeriod($checkInAt, $checkOutAt)
                 ->exists();
@@ -250,7 +245,7 @@ class RoomController extends Controller
 
         $reviewStats = HotelReview::approved()
             ->where('room_category_id', $roomCategory->id)
-            ->selectRaw('COUNT(*) as review_count, AVG(rating) as average_rating, AVG(cleanliness_rating) as cleanliness_average, AVG(service_rating) as service_average, AVG(location_rating) as location_average, AVG(value_rating) as value_average')
+            ->selectRaw('COUNT(*) as review_count, AVG(rating) as average_rating, AVG(cleanliness_rating) as cleanliness_average, AVG(location_rating) as room_quality_average, AVG(staff_rating) as staff_average, AVG(service_rating) as service_average, AVG(comfort_rating) as comfort_average, AVG(value_rating) as value_average')
             ->first();
 
         return view('user.pages.room-detail', compact(
@@ -267,7 +262,7 @@ class RoomController extends Controller
     private function getOnlineMinCheckInDate(): string
     {
         $now = Carbon::now('Asia/Ho_Chi_Minh');
-        $todayCheckInDeadline = $now->copy()->setTimeFromTimeString(self::ONLINE_CHECK_IN_TIME);
+        $todayCheckInDeadline = $now->copy()->setTimeFromTimeString($this->standardCheckInTime());
 
         if ($now->greaterThanOrEqualTo($todayCheckInDeadline)) {
             return $now->copy()->addDay()->toDateString();
@@ -290,7 +285,32 @@ class RoomController extends Controller
         $now = Carbon::now('Asia/Ho_Chi_Minh');
 
         return $now->greaterThanOrEqualTo(
-            $now->copy()->setTimeFromTimeString(self::ONLINE_CHECK_IN_TIME)
+            $now->copy()->setTimeFromTimeString($this->standardCheckInTime())
         );
     }
+    private function standardCheckInLabel(): string
+    {
+        return (string) app(HotelPolicyService::class)->get('stay.standard_check_in_time', '14:00');
+    }
+
+    private function standardCheckOutLabel(): string
+    {
+        return (string) app(HotelPolicyService::class)->get('stay.standard_check_out_time', '12:00');
+    }
+
+    private function earlyCheckInFreeFromLabel(): string
+    {
+        return (string) app(HotelPolicyService::class)->get('stay.early_checkin_free_from', '12:00');
+    }
+
+    private function standardCheckInTime(): string
+    {
+        return $this->standardCheckInLabel() . ':00';
+    }
+
+    private function standardCheckOutTime(): string
+    {
+        return $this->standardCheckOutLabel() . ':00';
+    }
+
 }

@@ -10,14 +10,14 @@ class VnpayService
 {
     public function expireMinutes(): int
     {
-        $minutes = (int) config('vnpay.expire_minutes', 30);
+        $minutes = (int) app(HotelPolicyService::class)->get('payment.vnpay_expire_minutes', config('vnpay.expire_minutes', 30));
 
         return max(5, min(1440, $minutes));
     }
 
     public function adminRequestExpireMinutes(): int
     {
-        $minutes = (int) config('vnpay.admin_request_expire_minutes', 1440);
+        $minutes = (int) app(HotelPolicyService::class)->get('payment.admin_vnpay_expire_minutes', config('vnpay.admin_request_expire_minutes', 1440));
 
         return max(10, min(10080, $minutes));
     }

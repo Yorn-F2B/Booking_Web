@@ -25,6 +25,25 @@ class RoomIssueRequest extends Model
         'proposal_expires_at' => 'datetime',
     ];
 
+    public function scopeNeedsManagerAction($query)
+    {
+        return $query
+            ->where('status', 'pending')
+            ->whereIn('workflow_status', [
+                'pending',
+                'proposal_ready',
+                'guest_accepted',
+                'guest_requested_change',
+            ]);
+    }
+
+    public function scopeWaitingGuestConfirmation($query)
+    {
+        return $query
+            ->where('status', 'pending')
+            ->where('workflow_status', 'waiting_guest_confirmation');
+    }
+
     public function booking(){ return $this->belongsTo(Booking::class); }
     public function customer(){ return $this->belongsTo(Customer::class); }
     public function currentRoom(){ return $this->belongsTo(Room::class, 'current_room_id'); }

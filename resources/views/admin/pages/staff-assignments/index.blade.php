@@ -182,21 +182,18 @@
                         <h2>Phân công nhân sự</h2>
                     </div>
 
-                    <span class="badge bg-dark-subtle text-dark rounded-pill px-3 py-2">
-                        Hôm nay: {{ \Carbon\Carbon::parse($today)->format('d/m/Y') }}
-                    </span>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span class="badge bg-dark-subtle text-dark rounded-pill px-3 py-2">
+                            Hôm nay: {{ \Carbon\Carbon::parse($today)->format('d/m/Y') }}
+                        </span>
+                        <a href="{{ route('admin.staff-assignments.status') }}" class="btn btn-outline-primary btn-sm">
+                            <i class="bx bx-list-check me-1"></i> Tình trạng phân công
+                        </a>
+                    </div>
                 </div>
             </section>
 
-            @if (session('success'))
-                <div class="alert alert-success">{{ session('success') }}</div>
-            @endif
-
-            @if (session('error'))
-                <div class="alert alert-danger">{{ session('error') }}</div>
-            @endif
-
-            @if (!$canManageReceptionists && !$canManageHousekeeping)
+@if (!$canManageReceptionists && !$canManageHousekeeping)
                 <div class="assignment-empty">
                     Bạn chưa có quyền phân công nhân sự. Vui lòng liên hệ quản lý hoặc super admin nếu cần cấp quyền.
                 </div>
@@ -209,7 +206,7 @@
                                     <div>
                                         <h5 class="assignment-card-title">Lễ tân phụ trách booking</h5>
                                         <p class="assignment-card-desc">
-                                            Gán booking cho lễ tân phụ trách chính, check-in, check-out, thanh toán hoặc hỗ trợ.
+                                            Mỗi booking được giao cho một lễ tân chịu trách nhiệm toàn bộ quy trình từ tiếp nhận đến khi hoàn tất.
                                         </p>
                                     </div>
                                     <span class="assignment-icon primary">
@@ -228,7 +225,7 @@
                                     <a href="{{ route('admin.staff-assignments.receptionists') }}" class="btn btn-primary">
                                         <i class="bx bx-user-check me-1"></i> Gán lễ tân
                                     </a>
-                                    <span class="assignment-note">Lễ tân thường chỉ thấy booking được giao hoặc do mình tạo.</span>
+                                    <span class="assignment-note">Đổi người phụ trách sẽ bàn giao toàn bộ booking sang lễ tân mới.</span>
                                 </div>
                             </section>
                         </div>
@@ -241,7 +238,7 @@
                                     <div>
                                         <h5 class="assignment-card-title">Phân công buồng phòng</h5>
                                         <p class="assignment-card-desc">
-                                            Gán nhanh theo tầng hoặc giao trực tiếp từng phòng trên cùng một màn hình, tránh tách nút trùng trang.
+                                            Gán tầng làm phạm vi phụ trách lâu dài; giao trực tiếp từng phòng chỉ dùng cho nhiệm vụ tạm thời hoặc ngoại lệ.
                                         </p>
                                     </div>
                                     <span class="assignment-icon success">
@@ -251,7 +248,7 @@
 
                                 <div class="assignment-stat-grid">
                                     <div class="assignment-stat">
-                                        <span>Tầng được gán hôm nay</span>
+                                        <span>Phân công tầng đang hiệu lực</span>
                                         <strong>{{ $floorAssignmentCount }}</strong>
                                     </div>
                                     <div class="assignment-stat">
@@ -264,7 +261,7 @@
                                     <a href="{{ route('admin.staff-assignments.housekeeping', ['work_date' => $today]) }}" class="btn btn-success">
                                         <i class="bx bx-building-house me-1"></i> Gán buồng phòng
                                     </a>
-                                    <span class="assignment-note">Một trang xử lý cả gán theo tầng và gán theo phòng.</span>
+                                    <span class="assignment-note">Ca sáng 06:00–14:00 · Ca chiều 14:00–22:00 · Ca tối 22:00–06:00. Gán tầng chỉ dừng khi đổi phạm vi.</span>
                                 </div>
                             </section>
                         </div>

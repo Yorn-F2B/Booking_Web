@@ -74,6 +74,10 @@ class RoomInspectionWorkflowService
             'recheck_decision' => (string) ($item->recheck_decision ?? 'not_required'),
             'recheck_note' => $item->recheck_note,
             'admin_note' => $item->admin_note,
+            'detection_source' => (string) ($item->detection_source ?? 'initial'),
+            'detected_by' => $item->detected_by !== null ? (int) $item->detected_by : null,
+            'detected_at' => $item->detected_at?->toIso8601String(),
+            'detection_version' => $item->detection_version !== null ? (int) $item->detection_version : null,
         ];
     }
 

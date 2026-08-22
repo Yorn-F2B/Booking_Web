@@ -12,6 +12,7 @@ class StayingGuestController extends Controller
     public function index(Request $request)
     {
         $query = Booking::query()
+            ->visibleToOperationsUser(Auth::user())
             ->with([
                 'customer',
                 'bookingRooms.room',
@@ -74,12 +75,7 @@ class StayingGuestController extends Controller
     {
         $user = Auth::user();
 
-        abort_unless($user && in_array($user->role, [
-            'super_admin',
-            'manager',
-            'receptionist_lead',
-            'receptionist',
-        ], true), 403);
+        abort_unless($booking->canBeHandledBy($user), 403, 'Bạn không có quyền xử lý booking này.');
     }
 
 }

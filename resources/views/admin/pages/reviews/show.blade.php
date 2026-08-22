@@ -22,12 +22,7 @@
                     Quay lại
                 </a>
             </div>
-
-            @if (session('success'))
-                <div class="alert alert-success">{{ session('success') }}</div>
-            @endif
-
-            @if ($errors->any())
+@if ($errors->any())
                 <div class="alert alert-danger">
                     <ul class="mb-0">
                         @foreach ($errors->all() as $error)
@@ -56,30 +51,21 @@
                             <p class="mb-4">{{ $review->comment }}</p>
 
                             <div class="row g-2 mb-4 small">
-                                <div class="col-6 col-md-3">
-                                    <div class="border rounded-3 p-2 text-center">
-                                        <div class="text-muted">Vệ sinh</div>
-                                        <div class="fw-bold">{{ $review->cleanliness_rating }}/5</div>
+                                @foreach ([
+                                    ['Sạch sẽ', $review->cleanliness_rating],
+                                    ['Chất lượng / tiện nghi phòng', $review->room_quality_rating],
+                                    ['Nhân viên', $review->staff_rating],
+                                    ['Dịch vụ', $review->service_rating],
+                                    ['Thoải mái', $review->comfort_rating],
+                                    ['Giá trị', $review->value_rating],
+                                ] as [$label, $value])
+                                    <div class="col-6 col-md-4">
+                                        <div class="border rounded-3 p-2 text-center h-100">
+                                            <div class="text-muted">{{ $label }}</div>
+                                            <div class="fw-bold">{{ $value }}/5</div>
+                                        </div>
                                     </div>
-                                </div>
-                                <div class="col-6 col-md-3">
-                                    <div class="border rounded-3 p-2 text-center">
-                                        <div class="text-muted">Dịch vụ</div>
-                                        <div class="fw-bold">{{ $review->service_rating }}/5</div>
-                                    </div>
-                                </div>
-                                <div class="col-6 col-md-3">
-                                    <div class="border rounded-3 p-2 text-center">
-                                        <div class="text-muted">Vị trí</div>
-                                        <div class="fw-bold">{{ $review->location_rating }}/5</div>
-                                    </div>
-                                </div>
-                                <div class="col-6 col-md-3">
-                                    <div class="border rounded-3 p-2 text-center">
-                                        <div class="text-muted">Giá trị</div>
-                                        <div class="fw-bold">{{ $review->value_rating }}/5</div>
-                                    </div>
-                                </div>
+                                @endforeach
                             </div>
 
                             @if ($review->admin_reply)

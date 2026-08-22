@@ -21,8 +21,7 @@ class RoomRealtimeUpdated implements ShouldBroadcastNow
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('admin.realtime'),
-            new PrivateChannel('admin.rooms'),
+            new PrivateChannel('admin.rooms.operations'),
         ];
     }
 

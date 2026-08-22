@@ -59,22 +59,54 @@
     $canManageStaffAccounts = $isSuperAdmin;
     $canManageReceptionistAssignments = in_array($role, ['super_admin', 'manager', 'receptionist_lead'], true);
     $canManageHousekeepingAssignments = in_array($role, ['super_admin', 'manager', 'housekeeping_supervisor'], true);
-    $canApproveInspections = $isSuperAdmin || $isManager;
     $canManageRoomIssues = $isSuperAdmin || $isManager;
     $canApproveLateArrivals = $isSuperAdmin || $isManager;
-    $pendingBookingCount = $canUseFrontDesk
-        ? \App\Models\Booking::where('status', 'pending')->count()
+    $currentUser = auth()->user();
+
+    $pendingBookingCount = 0;
+    if ($canUseFrontDesk) {
+        $pendingBookingQuery = \App\Models\Booking::query()->where('status', 'pending');
+        if ($isReceptionist) {
+            $pendingBookingQuery->visibleToOperationsUser($currentUser);
+        }
+        $pendingBookingCount = $pendingBookingQuery->count();
+    }
+
+    $pendingRoomIssueCount = $canManageRoomIssues
+        ? \App\Models\RoomIssueRequest::query()
+            ->needsManagerAction()
+            ->distinct()
+            ->count('group_uuid')
         : 0;
-    $pendingRoomIssueCount = $canManageRoomIssues ? \App\Models\RoomIssueRequest::where('status', 'pending')->count() : 0;
-    $pendingInspectionApprovalCount = $canApproveInspections
-        ? \App\Models\RoomInspection::where('status', 'reported')
-            ->where('workflow_stage', 'admin_approval')
-            ->count()
-        : 0;
-    $pendingFloorInspectionCount = $canUseHousekeeping
-        ? \App\Models\RoomInspection::where('status', 'pending')->count()
-        : 0;
-    $pendingRoomRepairCount = $canUseHousekeeping ? \App\Models\RoomIssueRequest::whereIn('status', ['approved', 'repair_only'])->where('repair_status', 'waiting')->count() : 0;
+
+    $pendingHousekeepingCount = 0;
+    $pendingFloorInspectionCount = 0;
+    $pendingRoomRepairCount = 0;
+    if ($canUseHousekeeping) {
+        $cleaningQuery = \App\Models\Room::query()->where('status', 'cleaning');
+        \App\Support\HousekeepingWorkScope::applyToRooms($cleaningQuery, $currentUser);
+        $pendingHousekeepingCount = $cleaningQuery->count();
+
+        $inspectionQuery = \App\Models\RoomInspection::query()
+            ->where(function ($query) {
+                $query->where(function ($initial) {
+                    $initial->where('workflow_stage', \App\Models\RoomInspection::STAGE_HOUSEKEEPING_REPORT)
+                        ->whereIn('status', ['pending', 'rejected']);
+                })->orWhere(function ($recheck) {
+                    $recheck->where('workflow_stage', \App\Models\RoomInspection::STAGE_HOUSEKEEPING_RECHECK)
+                        ->where('status', 'reported');
+                });
+            });
+        \App\Support\HousekeepingWorkScope::applyToInspections($inspectionQuery, $currentUser);
+        $pendingFloorInspectionCount = $inspectionQuery->count();
+
+        $repairQuery = \App\Models\RoomIssueRequest::query()
+            ->whereIn('status', ['approved', 'repair_only'])
+            ->where('repair_status', 'waiting');
+        \App\Support\HousekeepingWorkScope::applyToIssues($repairQuery, $currentUser);
+        $pendingRoomRepairCount = $repairQuery->count();
+    }
+
     $pendingLateArrivalCount = $canApproveLateArrivals
         ? \App\Models\CustomerRequest::where('type', 'late_arrival')->where('status', 'pending')->count()
         : 0;
@@ -89,7 +121,6 @@
 
     $approvalsOpen = request()->routeIs([
         'admin.room-issues.*',
-        'admin.inspection-approvals.*',
         'admin.customer-requests.*',
     ]);
 
@@ -107,6 +138,7 @@
         'amenities.*',
         'admin.reviews.*',
         'admin.banned-words.*',
+        'admin.policies.*',
     ]);
 
     $staffOpen = request()->routeIs([
@@ -129,6 +161,13 @@
 ?>
 
 <style>
+    /* Dashboard là một mục menu bình thường; không ghim đè lên sidebar khi cuộn. */
+    .admin-dashboard-link {
+        position: static !important;
+        top: auto !important;
+        z-index: auto !important;
+    }
+
     .admin-nav-group {
         margin: 5px 9px
     }
@@ -206,6 +245,7 @@
     .admin-menu-count[hidden] {
         display: none !important
     }
+
 </style>
 
 <aside class="admin-sidebar" id="adminSidebar">
@@ -219,7 +259,7 @@
     <nav class="admin-nav">
         <?php if($isSuperAdmin): ?>
             <a href="<?php echo e(route('admin.dashboard')); ?>"
-                class="admin-nav-link <?php echo e(request()->routeIs('admin.dashboard') ? 'active' : ''); ?>">
+                class="admin-nav-link admin-dashboard-link <?php echo e(request()->routeIs('admin.dashboard') ? 'active' : ''); ?>">
                 <i class="bx bx-grid-alt"></i>
                 Tổng quan
             </a>
@@ -263,7 +303,7 @@
             </details>
         <?php endif; ?>
 
-        <?php if($canManageRoomIssues || $canApproveInspections || $canApproveLateArrivals): ?>
+        <?php if($canManageRoomIssues || $canApproveLateArrivals): ?>
             <details class="admin-nav-group" open>
                 <summary>
                     <i class="bx bx-check-shield"></i>
@@ -279,17 +319,6 @@
                         <span class="admin-menu-count"
                             data-realtime-menu-count="pending-room-issues"
                             <?php if($pendingRoomIssueCount < 1): ?> hidden <?php endif; ?>><?php echo e($pendingRoomIssueCount); ?></span>
-                    </a>
-                <?php endif; ?>
-
-                <?php if($canApproveInspections): ?>
-                    <a href="<?php echo e(route('admin.inspection-approvals.index')); ?>"
-                        class="admin-nav-link <?php echo e(request()->routeIs('admin.inspection-approvals.*') ? 'active' : ''); ?>">
-                        <i class="bx bx-check-circle"></i>
-                        Duyệt kiểm tra phòng
-                        <span class="admin-menu-count"
-                            data-realtime-menu-count="pending-inspection-approvals"
-                            <?php if($pendingInspectionApprovalCount < 1): ?> hidden <?php endif; ?>><?php echo e($pendingInspectionApprovalCount); ?></span>
                     </a>
                 <?php endif; ?>
 
@@ -318,6 +347,9 @@
                     class="admin-nav-link <?php echo e(request()->routeIs('admin.housekeeping.*') ? 'active' : ''); ?>">
                     <i class="bx bx-brush"></i>
                     Phòng cần dọn
+                    <span class="admin-menu-count is-warning"
+                        data-realtime-menu-count="pending-housekeeping"
+                        <?php if($pendingHousekeepingCount < 1): ?> hidden <?php endif; ?>><?php echo e($pendingHousekeepingCount); ?></span>
                 </a>
 
                 <a href="<?php echo e(route('admin.room-repairs.index')); ?>"
@@ -367,6 +399,12 @@
                     Dịch vụ
                 </a>
 
+                <a href="<?php echo e(route('surcharges.index')); ?>"
+                    class="admin-nav-link <?php echo e(request()->routeIs('surcharges.*') ? 'active' : ''); ?>">
+                    <i class="bx bx-receipt"></i>
+                    Phụ thu / phí phát sinh
+                </a>
+
                 <a href="<?php echo e(route('amenities.index')); ?>"
                     class="admin-nav-link <?php echo e(request()->routeIs('amenities.*') ? 'active' : ''); ?>">
                     <i class="bx bx-star"></i>
@@ -377,6 +415,12 @@
                     class="admin-nav-link <?php echo e(request()->routeIs('admin.promotions.*') ? 'active' : ''); ?>">
                     <i class="bx bx-purchase-tag"></i>
                     Khuyến mãi
+                </a>
+
+                <a href="<?php echo e(route('admin.policies.index')); ?>"
+                    class="admin-nav-link <?php echo e(request()->routeIs('admin.policies.*') ? 'active' : ''); ?>">
+                    <i class="bx bx-slider-alt"></i>
+                    Chính sách
                 </a>
 
                 <a href="<?php echo e(route('admin.banned-words.index')); ?>"

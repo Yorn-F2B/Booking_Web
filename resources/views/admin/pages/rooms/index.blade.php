@@ -621,6 +621,7 @@
                 grid-template-columns: 1fr
             }
         }
+            .catalog-table tbody tr.catalog-row-updated { background:#ecfdf5; box-shadow:inset 4px 0 0 #22a447; }
     </style>
 
     <div class="admin-wrapper room-management">
@@ -632,11 +633,7 @@
                 </div>
             </div>
 
-            @if(session('success'))
-            <div class="rm-alert rm-alert-success">{{ session('success') }}</div>@endif
-            @if(session('error'))
-            <div class="rm-alert rm-alert-error">{{ session('error') }}</div>@endif
-            @if($errors->any())
+@if($errors->any())
                 <div class="rm-alert rm-alert-error"><strong>Dữ liệu chưa hợp lệ:</strong> {{ $errors->first() }}</div>
             @endif
 
@@ -791,12 +788,12 @@
                         </thead>
                         <tbody>
                             @forelse($rooms as $room)
-                                <tr>
+                                <tr data-room-id="{{ $room->id }}" class="{{ (string) request('updated_room') === (string) $room->id ? 'catalog-row-updated' : '' }}">
                                     <td><strong>{{ $room->room_number }}</strong></td>
                                     <td>{{ $room->floor_number ?? '—' }}</td>
-                                    <td>{{ $room->category->name ?? '—' }}</td>
-                                    <td><span class="status-pill s-{{ $room->status }}"><i
-                                                class="rm-dot"></i>{{ $physicalStatusLabels[$room->status] ?? $room->status }}</span>
+                                    <td data-room-category>{{ $room->category->name ?? '—' }}</td>
+                                    <td><span class="status-pill s-{{ $room->status }}" data-room-status><i
+                                                class="rm-dot"></i><span data-room-status-label>{{ $physicalStatusLabels[$room->status] ?? $room->status }}</span></span>
                                     </td>
                                     <td>{{ $room->note ?: '—' }}</td>
                                     <td>
@@ -866,10 +863,12 @@
                                     value="{{ $category->id }}">{{ $category->name }}</option>@endforeach</select></div>
                             <div class="rm-modal-field"><label>Trạng thái vật lý</label><select id="edit_status" name="status">
                                     <option value="available">Sẵn sàng</option>
+                                    <option value="reserved">Đã giữ (hệ thống)</option>
+                                    <option value="occupied">Đang ở (hệ thống)</option>
                                     <option value="cleaning">Đang dọn</option>
                                     <option value="inspection">Chờ kiểm tra</option>
                                     <option value="maintenance">Bảo trì</option>
-                                </select></div>
+                                </select><small id="edit_status_hint" class="text-muted d-block mt-1"></small></div>
                         </div>
                         <div class="rm-modal-field"><label>Ghi chú</label><textarea id="edit_note" name="note"
                                 rows="3"></textarea></div>
@@ -902,7 +901,18 @@
                 document.getElementById('edit_room_number').value = room.room_number ?? '';
                 document.getElementById('edit_floor_number').value = room.floor_number ?? '';
                 document.getElementById('edit_room_category_id').value = room.room_category_id ?? '';
-                document.getElementById('edit_status').value = ['available', 'cleaning', 'inspection', 'maintenance'].includes(room.status) ? room.status : 'available';
+                const statusSelect = document.getElementById('edit_status');
+                const statusHint = document.getElementById('edit_status_hint');
+                const systemManagedStatus = ['reserved', 'occupied'].includes(room.status);
+                statusSelect.value = room.status || 'available';
+                Array.from(statusSelect.options).forEach(option => {
+                    option.disabled = systemManagedStatus && option.value !== room.status;
+                });
+                if (statusHint) {
+                    statusHint.textContent = systemManagedStatus
+                        ? 'Phòng đang thuộc booking hoạt động; trạng thái này do nghiệp vụ booking quản lý.'
+                        : 'Đổi trạng thái ở đây sẽ áp dụng ngay và không dùng lại thời hạn cũ.';
+                }
                 document.getElementById('edit_note').value = room.note ?? '';
                 openModal('roomEditModal');
             }));

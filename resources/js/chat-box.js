@@ -11,11 +11,15 @@ if (root) {
     const preview = document.getElementById('hotelChatFilesPreview');
     const messagesBox = document.getElementById('hotelChatMessages');
     const badge = document.getElementById('hotelChatBadge');
+    const olderWrap = document.getElementById('hotelChatOlderWrap');
+    const loadOlderButton = document.getElementById('hotelChatLoadOlder');
 
     let conversationId = null;
     const renderedIds = new Set();
     let echoChannel = null;
     let selectedFiles = [];
+    let hasMore = false;
+    let isLoadingMessages = false;
 
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
 
@@ -47,30 +51,56 @@ if (root) {
         </a>`;
     };
 
-    const appendMessage = (message) => {
-        if (!message || renderedIds.has(Number(message.id))) return;
-
-        renderedIds.add(Number(message.id));
-        messagesBox?.querySelector('.hotel-chat-empty')?.remove();
-
+    const buildMessageRow = (message) => {
         const row = document.createElement('div');
         row.className = `hotel-chat-row ${message.sender_type === 'customer' ? 'customer' : 'staff'}`;
         row.dataset.messageId = message.id;
 
         const attachments = (message.attachments || []).map(renderAttachment).join('');
-
         row.innerHTML = `<div class="hotel-chat-bubble">
             ${message.message ? `<div>${escapeHtml(message.message)}</div>` : ''}
             ${attachments}
             <span class="hotel-chat-time">${escapeHtml(message.created_at || '')}</span>
         </div>`;
 
-        messagesBox?.appendChild(row);
-        if (messagesBox) messagesBox.scrollTop = messagesBox.scrollHeight;
+        return row;
+    };
+
+    const appendMessage = (message, scroll = true) => {
+        if (!message || renderedIds.has(Number(message.id))) return;
+
+        renderedIds.add(Number(message.id));
+        messagesBox?.querySelector('.hotel-chat-empty')?.remove();
+        messagesBox?.appendChild(buildMessageRow(message));
+
+        if (scroll && messagesBox) {
+            messagesBox.scrollTop = messagesBox.scrollHeight;
+        }
 
         if (!panel?.classList.contains('is-open') && message.sender_type === 'staff') {
             badge?.classList.remove('d-none');
         }
+    };
+
+    const prependMessages = (messages) => {
+        if (!messagesBox || !messages?.length) return;
+
+        const oldHeight = messagesBox.scrollHeight;
+        const oldTop = messagesBox.scrollTop;
+        const firstExisting = messagesBox.querySelector('[data-message-id]');
+
+        [...messages].reverse().forEach((message) => {
+            if (!message || renderedIds.has(Number(message.id))) return;
+            renderedIds.add(Number(message.id));
+            messagesBox.querySelector('.hotel-chat-empty')?.remove();
+            messagesBox.insertBefore(buildMessageRow(message), firstExisting);
+        });
+
+        messagesBox.scrollTop = oldTop + (messagesBox.scrollHeight - oldHeight);
+    };
+
+    const syncOlderButton = () => {
+        olderWrap?.classList.toggle('d-none', !hasMore);
     };
 
     const subscribeRealtime = () => {
@@ -81,17 +111,23 @@ if (root) {
             .listen('.chat.message.sent', appendMessage);
     };
 
-    let isLoadingMessages = false;
-
-    const loadMessages = async () => {
+    const loadMessages = async ({ beforeId = null } = {}) => {
         if (isLoadingMessages) return;
-
         isLoadingMessages = true;
 
         try {
-            const response = await window.axios.get('/chat/messages');
-            conversationId = response.data.conversation?.id || null;
-            (response.data.messages || []).forEach(appendMessage);
+            const params = beforeId ? { before_id: beforeId } : {};
+            const response = await window.axios.get('/chat/messages', { params });
+            conversationId = response.data.conversation?.id || conversationId;
+            hasMore = Boolean(response.data.has_more);
+
+            if (beforeId) {
+                prependMessages(response.data.messages || []);
+            } else {
+                (response.data.messages || []).forEach((message) => appendMessage(message, false));
+            }
+
+            syncOlderButton();
             subscribeRealtime();
         } catch (error) {
             console.error('Không thể tải chat', error);
@@ -99,6 +135,16 @@ if (root) {
             isLoadingMessages = false;
         }
     };
+
+    loadOlderButton?.addEventListener('click', async () => {
+        const firstMessage = messagesBox?.querySelector('[data-message-id]');
+        const beforeId = Number(firstMessage?.dataset.messageId || 0);
+        if (!beforeId || !hasMore) return;
+
+        loadOlderButton.disabled = true;
+        await loadMessages({ beforeId });
+        loadOlderButton.disabled = false;
+    });
 
     const renderSelectedFiles = () => {
         if (!preview) return;
@@ -136,7 +182,6 @@ if (root) {
                 renderSelectedFiles();
             });
             item.appendChild(remove);
-
             preview.appendChild(item);
         });
     };
@@ -146,7 +191,6 @@ if (root) {
 
         for (const file of Array.from(files || [])) {
             if (selectedFiles.length >= 5) break;
-
             const key = fileKey(file);
             if (!existing.has(key)) {
                 selectedFiles.push(file);
@@ -168,9 +212,7 @@ if (root) {
 
         loadMessages().finally(() => {
             requestAnimationFrame(() => {
-                if (messagesBox) {
-                    messagesBox.scrollTop = messagesBox.scrollHeight;
-                }
+                if (messagesBox) messagesBox.scrollTop = messagesBox.scrollHeight;
                 input?.focus();
             });
         });
@@ -178,7 +220,6 @@ if (root) {
 
     const closePanel = () => {
         if (!panel || !toggle) return;
-
         panel.classList.remove('is-open');
         panel.setAttribute('aria-hidden', 'true');
         toggle.classList.remove('is-hidden');
@@ -208,12 +249,10 @@ if (root) {
         data.append('_token', csrf || '');
         data.append('message', input?.value.trim() || '');
         selectedFiles.forEach((file) => data.append('files[]', file, file.name));
-
         const submitButton = form.querySelector('button[type="submit"]');
 
         try {
             if (submitButton) submitButton.disabled = true;
-
             const response = await window.axios.post('/chat/send', data, {
                 headers: {
                     'X-CSRF-TOKEN': csrf,
@@ -223,7 +262,6 @@ if (root) {
 
             conversationId = response.data.conversation?.id || conversationId;
             appendMessage(response.data.message);
-
             if (input) input.value = '';
             selectedFiles = [];
             renderSelectedFiles();

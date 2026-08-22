@@ -7,7 +7,11 @@
 
   @php
     $now = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
-    $checkInLimitToday = $now->copy()->setTime(14, 0, 0);
+    $roomSearchPolicy = app(\App\Services\HotelPolicyService::class);
+    $searchStandardCheckIn = substr((string) $roomSearchPolicy->get('stay.standard_check_in_time', '14:00'), 0, 5);
+    $searchStandardCheckOut = substr((string) $roomSearchPolicy->get('stay.standard_check_out_time', '12:00'), 0, 5);
+    [$checkInHour, $checkInMinute] = array_map('intval', explode(':', $searchStandardCheckIn));
+    $checkInLimitToday = $now->copy()->setTime($checkInHour, $checkInMinute, 0);
 
     $minOnlineCheckInDate = $minOnlineCheckInDate ?? (
         $now->greaterThanOrEqualTo($checkInLimitToday)
@@ -191,10 +195,10 @@
             @if (!empty($searchData['check_in_date']) && !empty($searchData['check_out_date']))
                 <div class="alert alert-info">
                     Đang hiển thị các hạng phòng còn phòng trống từ
-                    <strong>{{ $searchData['check_in_time'] ?? '14:00' }}</strong>
+                    <strong>{{ $searchData['check_in_time'] ?? $searchStandardCheckIn }}</strong>
                     ngày <strong>{{ date('d/m/Y', strtotime($searchData['check_in_date'])) }}</strong>
                     đến
-                    <strong>{{ $searchData['check_out_time'] ?? '12:00' }}</strong>
+                    <strong>{{ $searchData['check_out_time'] ?? $searchStandardCheckOut }}</strong>
                     ngày <strong>{{ date('d/m/Y', strtotime($searchData['check_out_date'])) }}</strong>.
                 </div>
             @endif
@@ -368,7 +372,7 @@
                         <div class="alert alert-warning mb-0">
                             <div class="fw-semibold mb-1">Không tìm thấy hạng phòng phù hợp.</div>
                             <div class="small">
-                                Có thể hạng phòng đã kín từ mốc giữ phòng 14:00 ngày nhận đến 12:00 ngày trả, hoặc số khách vượt sức chứa.
+                                Có thể hạng phòng đã kín từ mốc giữ phòng {{ $searchStandardCheckIn }} ngày nhận đến {{ $searchStandardCheckOut }} ngày trả, hoặc số khách vượt sức chứa.
                                 Vui lòng đổi ngày, giảm số khách, hoặc chọn hạng phòng khác.
                             </div>
                         </div>

@@ -58,7 +58,7 @@
             <div class="admin-page-head">
                 <div>
                     <h2>Danh sách dịch vụ</h2>
-                    <p>Quản lý dịch vụ, minibar, phí phát sinh và nhóm xe cộ/gửi xe</p>
+                    <p>Chỉ quản lý dịch vụ khách mua/gọi, minibar và các nhóm dịch vụ vận hành.</p>
                 </div>
 
                 <a href="{{ route('services.create') }}" class="btn btn-gold">
@@ -66,14 +66,7 @@
                     Thêm dịch vụ
                 </a>
             </div>
-
-            @if (session('success'))
-                <div class="alert alert-success">
-                    {{ session('success') }}
-                </div>
-            @endif
-
-            <div class="settings-section mb-3">
+<div class="settings-section mb-3">
                 <form method="GET" action="{{ route('services.index') }}" class="service-filter-grid">
                     <input type="text" name="keyword" class="form-control"
                         value="{{ request('keyword') }}" placeholder="Tìm tên, mô tả, đơn vị...">

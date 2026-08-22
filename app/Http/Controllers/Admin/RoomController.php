@@ -11,6 +11,8 @@ use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class RoomController extends Controller
 {
@@ -141,7 +143,7 @@ class RoomController extends Controller
     {
         $data = $request->validate([
             'room_number' => 'required|max:20|unique:rooms,room_number',
-            'room_category_id' => 'required|exists:room_categories,id',
+            'room_category_id' => ['required', Rule::exists('room_categories', 'id')->where(fn ($query) => $query->where('status', 'active'))],
             'floor_number' => 'nullable|integer|min:0',
             'status' => 'required|in:available,cleaning,inspection,maintenance',
             'note' => 'nullable|string|max:1000',
@@ -163,29 +165,83 @@ class RoomController extends Controller
     {
         $data = $request->validate([
             'room_number' => 'required|max:20|unique:rooms,room_number,' . $room->id,
-            'room_category_id' => 'required|exists:room_categories,id',
+            'room_category_id' => ['required', Rule::exists('room_categories', 'id')->where(fn ($query) => $query->where('status', 'active'))],
             'floor_number' => 'nullable|integer|min:0',
-            'status' => 'required|in:available,cleaning,inspection,maintenance',
+            'status' => 'required|in:available,reserved,occupied,cleaning,inspection,maintenance',
             'note' => 'nullable|string|max:1000',
         ]);
 
-        $room->update($data);
+        if ((int) $data['room_category_id'] !== (int) $room->room_category_id) {
+            $hasActiveBooking = $room->bookingRooms()
+                ->whereHas('booking', fn ($query) => $query->activeForOperations())
+                ->exists();
 
-        return redirect()->route('admin.rooms.index', ['tab' => 'catalog'])
-            ->with('success', 'Cập nhật phòng thành công.');
+            if ($hasActiveBooking) {
+                return back()->withInput()->with('error', 'Phòng đang thuộc một booking hoạt động nên chưa thể đổi hạng phòng. Hãy kết thúc/hủy booking hoặc đổi phòng bằng nghiệp vụ booking trước.');
+            }
+        }
+
+        if (in_array($room->status, ['reserved', 'occupied'], true) && $data['status'] !== $room->status) {
+            $data['status'] = $room->status;
+        } elseif (!in_array($room->status, ['reserved', 'occupied'], true)
+            && in_array($data['status'], ['reserved', 'occupied'], true)) {
+            return back()->withInput()->with('error', 'Trạng thái Đã giữ/Đang ở do hệ thống booking quản lý, không thể đặt thủ công.');
+        }
+
+        // Trạng thái sửa thủ công không được giữ status_until cũ. Nếu một phòng
+        // từng có thời hạn bảo trì/dọn đã hết, status_until cũ sẽ khiến index
+        // vừa redirect xong tự đổi phòng về "Sẵn sàng", tạo cảm giác sửa không lưu.
+        if (!in_array($room->status, ['reserved', 'occupied'], true)) {
+            if (in_array($data['status'], ['cleaning', 'inspection', 'maintenance'], true)) {
+                $data['status_from'] = now(self::TIMEZONE);
+                $data['status_until'] = null;
+            } elseif ($data['status'] === 'available') {
+                $data['status_from'] = null;
+                $data['status_until'] = null;
+            }
+        }
+
+        $room->update($data);
+        $room->refresh();
+
+        return redirect()->route('admin.rooms.index', [
+            'tab' => 'catalog',
+            'updated_room' => $room->id,
+        ])->with('success', 'Đã cập nhật phòng ' . $room->room_number . '.');
     }
 
     public function updateStatus(Request $request, Room $room)
     {
         $data = $request->validate([
-            'status' => 'required|in:available,cleaning,inspection,maintenance',
+            'status' => 'required|in:available,reserved,occupied,cleaning,inspection,maintenance',
             'status_from' => 'nullable|string',
             'status_until' => 'nullable|string',
             'note' => 'nullable|string|max:500',
         ]);
 
-        $statusFrom = $this->parseVietnameseDateTime($data['status_from'] ?? null);
-        $statusUntil = $this->parseVietnameseDateTime($data['status_until'] ?? null);
+        if (in_array($room->status, ['reserved', 'occupied'], true) && $data['status'] !== $room->status) {
+            return back()->with('error', 'Phòng đang được giữ/đang có khách. Trạng thái này phải được thay đổi qua nghiệp vụ booking, không đổi thủ công.');
+        }
+
+        if (!in_array($room->status, ['reserved', 'occupied'], true)
+            && in_array($data['status'], ['reserved', 'occupied'], true)) {
+            return back()->with('error', 'Trạng thái Đã giữ/Đang ở do hệ thống booking quản lý, không thể đặt thủ công.');
+        }
+
+        $statusFromInput = trim((string) ($data['status_from'] ?? ''));
+        $statusUntilInput = trim((string) ($data['status_until'] ?? ''));
+        $statusFrom = $this->parseVietnameseDateTime($statusFromInput ?: null);
+        $statusUntil = $this->parseVietnameseDateTime($statusUntilInput ?: null);
+
+        if ($statusFromInput !== '' && !$statusFrom) {
+            throw ValidationException::withMessages(['status_from' => 'Thời gian bắt đầu phải đúng định dạng ngày/tháng/năm giờ:phút.']);
+        }
+        if ($statusUntilInput !== '' && !$statusUntil) {
+            throw ValidationException::withMessages(['status_until' => 'Thời gian kết thúc phải đúng định dạng ngày/tháng/năm giờ:phút.']);
+        }
+        if ($statusFrom && $statusUntil && Carbon::parse($statusUntil, self::TIMEZONE)->lte(Carbon::parse($statusFrom, self::TIMEZONE))) {
+            throw ValidationException::withMessages(['status_until' => 'Thời gian kết thúc phải sau thời gian bắt đầu.']);
+        }
         if ($data['status'] === 'available') {
             $statusFrom = $statusUntil = null;
         }
@@ -214,14 +270,11 @@ class RoomController extends Controller
 
     public function destroy(Room $room)
     {
-        $hasActiveBooking = $room->bookingRooms()
-            ->whereHas('booking', fn ($query) => $query->whereIn('status', [
-                'pending', 'confirmed', 'checked_in', 'inspection_requested',
-            ]))
-            ->exists();
-
-        if ($hasActiveBooking) {
-            return back()->with('error', 'Không thể xóa phòng đang có booking hoạt động.');
+        if ($room->bookingRooms()->exists()) {
+            return back()->with(
+                'error',
+                'Phòng đã có lịch sử booking nên không thể xóa vật lý. Hãy chuyển phòng sang Bảo trì nếu không muốn tiếp tục sử dụng.'
+            );
         }
 
         $room->delete();
@@ -237,10 +290,10 @@ class RoomController extends Controller
         $matched = collect($bookings)->filter(function (Booking $booking) use ($dateStart, $dateEnd) {
             $checkIn = $booking->check_in_at
                 ? Carbon::parse($booking->check_in_at, self::TIMEZONE)
-                : Carbon::parse($booking->check_in_date . ' 14:00:00', self::TIMEZONE);
+                : Carbon::parse($booking->check_in_date . ' ' . $booking->standardCheckInTime(), self::TIMEZONE);
             $checkOut = $booking->check_out_at
                 ? Carbon::parse($booking->check_out_at, self::TIMEZONE)
-                : Carbon::parse($booking->check_out_date . ' 12:00:00', self::TIMEZONE);
+                : Carbon::parse($booking->check_out_date . ' ' . $booking->standardCheckOutTime(), self::TIMEZONE);
 
             return $checkIn->lte($dateEnd) && $checkOut->gt($dateStart);
         })->sortBy(fn (Booking $booking) => $booking->check_in_at ?? $booking->check_in_date);

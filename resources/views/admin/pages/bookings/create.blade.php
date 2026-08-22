@@ -6,6 +6,38 @@
 
 @php
     $adjacentRoomWarning = session('adjacent_room_warning');
+    $policyService = app(\App\Services\HotelPolicyService::class);
+    $minBookingAge = max(0, (int) $policyService->get('booking.min_age', 18));
+    $depositPercent = max(0, min(100, (float) $policyService->get('payment.deposit_percent', 30)));
+    $depositRate = $depositPercent / 100;
+    $policyUi = [
+        'standardCheckIn' => (string) $policyService->get('stay.standard_check_in_time', '14:00'),
+        'standardCheckOut' => (string) $policyService->get('stay.standard_check_out_time', '12:00'),
+        'earlyFreeFrom' => (string) $policyService->get('stay.early_checkin_free_from', '12:00'),
+        'earlyTier1End' => (string) $policyService->get('stay.early_checkin_tier1_end', '06:00'),
+        'earlyTier2End' => (string) $policyService->get('stay.early_checkin_tier2_end', '09:00'),
+        'earlyPercent1' => (float) $policyService->get('stay.early_checkin_percent_1', 100),
+        'earlyPercent2' => (float) $policyService->get('stay.early_checkin_percent_2', 50),
+        'earlyPercent3' => (float) $policyService->get('stay.early_checkin_percent_3', 20),
+        'lateFreeMinutes' => (int) $policyService->get('stay.late_checkout_free_minutes', 15),
+        'lateTier1End' => (string) $policyService->get('stay.late_checkout_tier1_end', '13:00'),
+        'lateTier2End' => (string) $policyService->get('stay.late_checkout_tier2_end', '14:00'),
+        'lateTier3End' => (string) $policyService->get('stay.late_checkout_tier3_end', '15:00'),
+        'lateFullFrom' => (string) $policyService->get('stay.late_checkout_full_night_from', '18:00'),
+        'latePercent1' => (float) $policyService->get('stay.late_checkout_percent_1', 20),
+        'latePercent2' => (float) $policyService->get('stay.late_checkout_percent_2', 40),
+        'latePercent3' => (float) $policyService->get('stay.late_checkout_percent_3', 60),
+        'latePercent4' => (float) $policyService->get('stay.late_checkout_percent_4', 80),
+        'latePercentFull' => (float) $policyService->get('stay.late_checkout_percent_full', 100),
+        'shortMinMinutes' => (int) $policyService->get('stay.short_stay_min_minutes', 30),
+        'shortToOvernightHours' => (int) $policyService->get('stay.short_stay_to_overnight_hours', 12),
+        'shortBaseHours' => (int) $policyService->get('stay.short_stay_base_hours', 2),
+        'shortBasePercent' => (float) $policyService->get('stay.short_stay_base_percent', 50),
+        'shortExtraHourPercent' => (float) $policyService->get('stay.short_stay_extra_hour_percent', 10),
+        'shortMaxPercent' => (float) $policyService->get('stay.short_stay_max_percent', 80),
+        'depositPercent' => $depositPercent,
+        'depositRate' => $depositRate,
+    ];
 @endphp
 
     <style>
@@ -226,14 +258,7 @@
                 </a>
 
             </div>
-
-            @if (session('error'))
-                <div class="alert alert-danger">
-                    {{ session('error') }}
-                </div>
-            @endif
-
-            @if ($errors->any())
+@if ($errors->any())
                 <div class="alert alert-danger">
 
                     <strong>Không thể tạo booking:</strong>
@@ -287,8 +312,8 @@
                                 <div class="col-12">
                                     <div class="border rounded p-3 bg-light">
                                         <div class="d-flex flex-wrap gap-2 align-items-center">
-                                            <button type="button" id="adminCreateCccdButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('adminCreateCccdImage').click()">Quét CCCD khách hàng</button>
-                                            <input type="file" id="adminCreateCccdImage" class="d-none js-cccd-image" accept="image/*" capture="environment"
+                                            <button type="button" id="adminCreateCccdButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('adminCreateCccdImage').click()"><i class="bx bx-image-add me-1"></i> Quét CCCD từ ảnh</button>
+                                            <input type="file" id="adminCreateCccdImage" class="d-none js-cccd-image" accept="image/*"
                                                 data-button="#adminCreateCccdButton" data-status="#adminCreateCccdStatus"
                                                 data-target-cccd="input[name='customer_cccd']" data-target-full-name="input[name='customer_name']"
                                                 data-target-birthday="input[name='customer_birthday']" data-target-address="input[name='customer_address']"
@@ -315,8 +340,19 @@
                                     <input type="date" name="customer_birthday"
                                         class="form-control @error('customer_birthday') is-invalid @enderror"
                                         value="{{ old('customer_birthday') }}"
-                                        max="{{ now('Asia/Ho_Chi_Minh')->subYears(18)->toDateString() }}" required>
+                                        max="{{ now('Asia/Ho_Chi_Minh')->subYears($minBookingAge)->toDateString() }}" required>
                                     @error('customer_birthday')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Giới tính</label>
+                                    <select name="customer_gender" class="form-select @error('customer_gender') is-invalid @enderror">
+                                        <option value="">-- Chọn --</option>
+                                        <option value="male" @selected(old('customer_gender') === 'male')>Nam</option>
+                                        <option value="female" @selected(old('customer_gender') === 'female')>Nữ</option>
+                                        <option value="other" @selected(old('customer_gender') === 'other')>Khác</option>
+                                    </select>
+                                    @error('customer_gender')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                 </div>
 
                                 <div class="col-md-6">
@@ -367,7 +403,7 @@
                                     </select>
 
                                     <div class="booking-help-text mt-1" id="bookingModeHelpText">
-                                        Đặt trước giữ phòng theo giờ chuẩn 14:00 → 12:00.
+                                        Đặt trước giữ phòng theo giờ chuẩn {{ $policyUi['standardCheckIn'] }} → {{ $policyUi['standardCheckOut'] }}.
                                     </div>
                                 </div>
 
@@ -384,7 +420,7 @@
                                     </select>
 
                                     <div class="booking-help-text mt-1" id="bookingTypeHelpText">
-                                        Qua đêm giữ phòng theo giờ chuẩn 14:00 → 12:00. Khách có thể nhận từ 13:00 nếu phòng
+                                        Qua đêm giữ phòng theo giờ chuẩn {{ $policyUi['standardCheckIn'] }} → {{ $policyUi['standardCheckOut'] }}. Khách có thể nhận từ {{ $policyUi['earlyFreeFrom'] }} nếu phòng
                                         đã sẵn sàng.
                                     </div>
                                 </div>
@@ -453,12 +489,11 @@
                                     <label class="form-label">Giờ trả (tùy chọn)</label>
                                     <select name="check_out_time" id="overnightCheckOutTime"
                                         class="form-select @error('check_out_time') is-invalid @enderror">
-                                        <option value="">-- Mặc định 12:00 --</option>
-                                        <option value="13:00" {{ old('check_out_time') == '13:00' ? 'selected' : '' }}>13:00 (Phụ thu 20%)</option>
-                                        <option value="14:00" {{ old('check_out_time') == '14:00' ? 'selected' : '' }}>14:00 (Phụ thu 40%)</option>
-                                        <option value="15:00" {{ old('check_out_time') == '15:00' ? 'selected' : '' }}>15:00 (Phụ thu 60%)</option>
-                                        <option value="16:00" {{ old('check_out_time') == '16:00' ? 'selected' : '' }}>16:00 (Phụ thu 80%)</option>
-                                        <option value="18:00" {{ old('check_out_time') == '18:00' ? 'selected' : '' }}>18:00 (Tính 1 đêm thêm)</option>
+                                        <option value="">-- Mặc định {{ $policyUi['standardCheckOut'] }} --</option>
+                                        <option value="{{ $policyUi['lateTier1End'] }}" @selected(old('check_out_time') == $policyUi['lateTier1End'])>{{ $policyUi['lateTier1End'] }} (Phụ thu {{ $policyUi['latePercent1'] }}%)</option>
+                                        <option value="{{ $policyUi['lateTier2End'] }}" @selected(old('check_out_time') == $policyUi['lateTier2End'])>{{ $policyUi['lateTier2End'] }} (Phụ thu {{ $policyUi['latePercent2'] }}%)</option>
+                                        <option value="{{ $policyUi['lateTier3End'] }}" @selected(old('check_out_time') == $policyUi['lateTier3End'])>{{ $policyUi['lateTier3End'] }} (Phụ thu {{ $policyUi['latePercent3'] }}%)</option>
+                                        <option value="{{ $policyUi['lateFullFrom'] }}" @selected(old('check_out_time') == $policyUi['lateFullFrom'])>{{ $policyUi['lateFullFrom'] }} (Phụ thu {{ $policyUi['latePercentFull'] }}%)</option>
                                     </select>
 
                                     @error('check_out_time')
@@ -680,7 +715,7 @@
                                     @enderror
 
                                     <div class="booking-help-text mt-1">
-                                        Booking bắt buộc cọc 30% khi tạo đơn.
+                                        Booking bắt buộc cọc {{ rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.') }}% khi tạo đơn.
                                     </div>
                                 </div>
 
@@ -689,7 +724,7 @@
                                     <select name="payment_type" id="paymentType"
                                         class="form-select @error('payment_type') is-invalid @enderror">
                                         <option value="deposit_30" {{ old('payment_type', 'deposit_30') == 'deposit_30' ? 'selected' : '' }}>
-                                            Thu cọc 30%
+                                            Thu cọc {{ rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.') }}%
                                         </option>
                                     </select>
 
@@ -722,7 +757,7 @@
                                             type="checkbox" name="confirm_counter_payment" value="1"
                                             id="confirmCounterPayment" {{ old('confirm_counter_payment') ? 'checked' : '' }}>
                                         <label class="form-check-label" for="confirmCounterPayment" id="confirmCounterPaymentLabel">
-                                            Tôi xác nhận đã nhận đủ tiền cọc 30% của khách tại quầy.
+                                            Tôi xác nhận đã nhận đủ tiền cọc {{ rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.') }}% của khách tại quầy.
                                         </label>
                                         @error('confirm_counter_payment')
                                             <div class="invalid-feedback d-block">{{ $message }}</div>
@@ -770,7 +805,8 @@
                             </p>
 
                             @foreach ($services as $index => $service)
-                                <div class="border rounded p-2 mb-2 service-row" data-price="{{ $service->price }}">
+                                <div class="border rounded p-2 mb-2 service-row" data-price="{{ $service->price }}"
+                                    data-billing-rule="{{ $service->billing_rule ?: \App\Models\Service::BILLING_ONCE }}">
 
                                     <div class="form-check mb-2">
                                         <input type="checkbox" name="services[{{ $index }}][service_id]"
@@ -911,6 +947,7 @@
                                                                             'service_unit' => $offer->service->unit ?? '',
                                                                             'service_price' => (float) ($offer->service->price ?? 0),
                                                                             'service_type' => $offer->service->type ?? 'service',
+                                                                            'service_billing_rule' => $offer->service->billing_rule ?? \App\Models\Service::BILLING_ONCE,
                                                                             'discount_type' => $offer->discount_type,
                                                                             'discount_value' => (float) $offer->discount_value,
                                                                             'quantity' => (int) $offer->quantity,
@@ -1109,6 +1146,12 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            const policy = @json($policyUi);
+            const timeToMinutes = (value) => {
+                const [hour, minute] = String(value || '00:00').split(':').map(Number);
+                return (hour * 60) + minute;
+            };
+            const percentLabel = (value) => Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
             const bookingMode = document.getElementById('bookingMode');
             const bookingModeHelpText = document.getElementById('bookingModeHelpText');
             const bookingType = document.getElementById('bookingType');
@@ -1259,6 +1302,69 @@
                 return Math.max(1, parseInt(roomQuantity.value || 1));
             }
 
+            function getCurrentGuestCount() {
+                const adultInput = document.getElementById('adultCount');
+                const childInput = document.getElementById('childCount');
+                const adults = Math.max(1, parseInt(adultInput?.value || 1));
+                const children = Math.max(0, parseInt(childInput?.value || 0));
+
+                return Math.max(1, adults + children);
+            }
+
+            function getCurrentServiceNightCount() {
+                if (bookingMode.value === 'walk_in' && bookingType.value === 'hourly') {
+                    const checkInDateTime = parseDateTime(checkInDate.value, checkInTime.value);
+                    const checkOutDateTime = parseDateTime(checkOutDate.value, hourlyCheckOutTime.value);
+
+                    if (!checkInDateTime || !checkOutDateTime
+                        || Number.isNaN(checkInDateTime.getTime())
+                        || Number.isNaN(checkOutDateTime.getTime())) {
+                        return 1;
+                    }
+
+                    if (checkOutDateTime < checkInDateTime) {
+                        checkOutDateTime.setDate(checkOutDateTime.getDate() + 1);
+                    }
+
+                    const durationMinutes = Math.ceil((checkOutDateTime - checkInDateTime) / (1000 * 60));
+                    const hourlyPrice = calculateWalkInHourlyPrice(
+                        Math.max(0, getSelectedRoomPrice()),
+                        getRoomQuantity(),
+                        durationMinutes,
+                        checkInDateTime,
+                        checkOutDateTime
+                    );
+
+                    return hourlyPrice.effectiveType === 'overnight'
+                        ? Math.max(1, parseInt(hourlyPrice.nightCount || 1))
+                        : 1;
+                }
+
+                if (bookingMode.value === 'walk_in' && bookingType.value === 'overnight') {
+                    const policy = calculateWalkInOvernightPolicy();
+                    return Math.max(1, parseInt(policy?.nightCount || 1));
+                }
+
+                return Math.max(1, parseInt(calculateNightCount() || 1));
+            }
+
+            function serviceMultiplier(billingRule) {
+                const nights = getCurrentServiceNightCount();
+                const rooms = getRoomQuantity();
+                const guests = getCurrentGuestCount();
+
+                if (billingRule === 'per_night') return nights;
+                if (billingRule === 'per_room') return rooms;
+                if (billingRule === 'per_room_per_night') return rooms * nights;
+                if (billingRule === 'per_guest') return guests;
+                if (billingRule === 'per_guest_per_night') return guests * nights;
+                return 1;
+            }
+
+            function billedServiceQuantity(baseQuantity, billingRule) {
+                return Math.max(1, parseInt(baseQuantity || 1)) * serviceMultiplier(billingRule || 'once');
+            }
+
             function calculateServiceTotal() {
                 let total = 0;
 
@@ -1271,9 +1377,10 @@
                     }
 
                     const price = parseFloat(row.dataset.price || 0);
-                    const quantity = Math.max(1, parseInt(quantityInput.value || 1));
+                    const baseQuantity = Math.max(1, parseInt(quantityInput.value || 1));
+                    const billingRule = row.dataset.billingRule || 'once';
 
-                    total += price * quantity;
+                    total += price * billedServiceQuantity(baseQuantity, billingRule);
                 });
 
                 if (serviceTotalText) {
@@ -1295,7 +1402,10 @@
                     }
 
                     if (String(checkbox.value) === String(serviceId)) {
-                        quantity += Math.max(1, parseInt(quantityInput.value || 1));
+                        quantity += billedServiceQuantity(
+                            Math.max(1, parseInt(quantityInput.value || 1)),
+                            row.dataset.billingRule || 'once'
+                        );
                     }
                 });
 
@@ -1321,12 +1431,13 @@
 
                     parseServiceOffers(checkbox).forEach(function (offer) {
                         const price = parseFloat(offer.service_price || 0);
+                        const billingRule = offer.service_billing_rule || 'once';
                         const offerQuantity = Math.max(1, parseInt(offer.quantity || 1));
                         let applicableQuantity = Math.min(offerQuantity, getSelectedServiceQuantity(offer.service_id));
                         const missingQuantity = Math.max(0, offerQuantity - applicableQuantity);
 
                         if (missingQuantity > 0 && offer.auto_add_service) {
-                            autoServiceTotal += price * missingQuantity;
+                            autoServiceTotal += price * missingQuantity * serviceMultiplier(billingRule);
                             applicableQuantity += missingQuantity;
                         }
 
@@ -1373,7 +1484,12 @@
                     moneyDiscount += Math.max(0, amount);
                 });
 
-                const totalDiscount = Math.min(subtotal, moneyDiscount + serviceDiscount);
+                const effectiveServiceDiscount = Math.min(subtotal, Math.max(0, serviceDiscount));
+                const effectiveMoneyDiscount = Math.min(
+                    Math.max(0, moneyDiscount),
+                    Math.max(0, subtotal - effectiveServiceDiscount)
+                );
+                const totalDiscount = effectiveServiceDiscount + effectiveMoneyDiscount;
 
                 if (promotionSubtotalText) {
                     promotionSubtotalText.innerText = formatMoney(subtotal);
@@ -1389,6 +1505,8 @@
 
                 return {
                     subtotal: subtotal,
+                    moneyDiscount: effectiveMoneyDiscount,
+                    serviceDiscount: effectiveServiceDiscount,
                     totalDiscount: totalDiscount,
                     finalTotal: Math.max(0, subtotal - totalDiscount),
                 };
@@ -1409,27 +1527,37 @@
 
             function getEarlyCheckInPolicy(dateTime) {
                 const minutes = dateTime.getHours() * 60 + dateTime.getMinutes();
-                if (minutes < 360) return { percent: 1, text: 'Check-in trước 06:00: phụ thu 100%.' };
-                if (minutes < 540) return { percent: 0.5, text: 'Check-in 06:00–09:00: phụ thu 50%.' };
-                if (minutes < 720) return { percent: 0.2, text: 'Check-in 09:00–12:00: phụ thu 20%.' };
-                if (minutes < 840) return { percent: 0, text: 'Check-in 12:00–14:00: miễn phụ thu nếu phòng sẵn sàng.' };
-                return { percent: 0, text: 'Check-in từ 14:00: không phụ thu.' };
+                const tier1 = timeToMinutes(policy.earlyTier1End);
+                const tier2 = timeToMinutes(policy.earlyTier2End);
+                const freeFrom = timeToMinutes(policy.earlyFreeFrom);
+                const standard = timeToMinutes(policy.standardCheckIn);
+                if (minutes < tier1) return { percent: policy.earlyPercent1 / 100, text: `Check-in trước ${policy.earlyTier1End}: phụ thu ${percentLabel(policy.earlyPercent1)}%.` };
+                if (minutes < tier2) return { percent: policy.earlyPercent2 / 100, text: `Check-in ${policy.earlyTier1End}–${policy.earlyTier2End}: phụ thu ${percentLabel(policy.earlyPercent2)}%.` };
+                if (minutes < freeFrom) return { percent: policy.earlyPercent3 / 100, text: `Check-in ${policy.earlyTier2End}–${policy.earlyFreeFrom}: phụ thu ${percentLabel(policy.earlyPercent3)}%.` };
+                if (minutes < standard) return { percent: 0, text: `Check-in ${policy.earlyFreeFrom}–${policy.standardCheckIn}: miễn phụ thu nếu phòng sẵn sàng.` };
+                return { percent: 0, text: `Check-in từ ${policy.standardCheckIn}: không phụ thu.` };
             }
 
             function getLateCheckOutPolicy(dateTime) {
                 const minutes = dateTime.getHours() * 60 + dateTime.getMinutes();
-                if (minutes <= 735) return { percent: 0, text: 'Trả đến 12:15: miễn phụ thu.' };
-                if (minutes <= 780) return { percent: 0.2, text: 'Trả sau 12:15–13:00: phụ thu 20%.' };
-                if (minutes <= 840) return { percent: 0.4, text: 'Trả sau 13:00–14:00: phụ thu 40%.' };
-                if (minutes <= 900) return { percent: 0.6, text: 'Trả sau 14:00–15:00: phụ thu 60%.' };
-                if (minutes < 1080) return { percent: 0.8, text: 'Trả sau 15:00–18:00: phụ thu 80%.' };
-                return { percent: 1, text: 'Trả từ 18:00: tính thêm 1 đêm.' };
+                const freeUntil = timeToMinutes(policy.standardCheckOut) + Number(policy.lateFreeMinutes || 0);
+                const tier1 = timeToMinutes(policy.lateTier1End);
+                const tier2 = timeToMinutes(policy.lateTier2End);
+                const tier3 = timeToMinutes(policy.lateTier3End);
+                const full = timeToMinutes(policy.lateFullFrom);
+                const formatMinutes = (total) => `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+                if (minutes <= freeUntil) return { percent: 0, text: `Trả đến ${formatMinutes(freeUntil)}: miễn phụ thu.` };
+                if (minutes <= tier1) return { percent: policy.latePercent1 / 100, text: `Trả đến ${policy.lateTier1End}: phụ thu ${percentLabel(policy.latePercent1)}%.` };
+                if (minutes <= tier2) return { percent: policy.latePercent2 / 100, text: `Trả đến ${policy.lateTier2End}: phụ thu ${percentLabel(policy.latePercent2)}%.` };
+                if (minutes <= tier3) return { percent: policy.latePercent3 / 100, text: `Trả đến ${policy.lateTier3End}: phụ thu ${percentLabel(policy.latePercent3)}%.` };
+                if (minutes < full) return { percent: policy.latePercent4 / 100, text: `Trả trước ${policy.lateFullFrom}: phụ thu ${percentLabel(policy.latePercent4)}%.` };
+                return { percent: policy.latePercentFull / 100, text: `Trả từ ${policy.lateFullFrom}: phụ thu ${percentLabel(policy.latePercentFull)}%.` };
             }
 
             function calculateWalkInHourlyPrice(price, quantity, durationMinutes, checkInDateTime = null, checkOutDateTime = null) {
                 const durationHours = Math.max(1, Math.ceil(durationMinutes / 60));
 
-                if (durationMinutes > 12 * 60 && checkInDateTime && checkOutDateTime) {
+                if (durationMinutes > Number(policy.shortToOvernightHours) * 60 && checkInDateTime && checkOutDateTime) {
                     const startDay = new Date(checkInDateTime.getFullYear(), checkInDateTime.getMonth(), checkInDateTime.getDate());
                     const endDay = new Date(checkOutDateTime.getFullYear(), checkOutDateTime.getMonth(), checkOutDateTime.getDate());
                     const nightCount = Math.max(1, Math.round((endDay - startDay) / 86400000));
@@ -1441,7 +1569,7 @@
                         durationHours,
                         chargedPercent,
                         amount: Math.round(price * quantity * chargedPercent),
-                        policyText: 'Vượt 12 giờ: tự động tính ' + nightCount + ' đêm. ' + early.text + ' ' + late.text,
+                        policyText: 'Vượt ' + policy.shortToOvernightHours + ' giờ: tự động tính ' + nightCount + ' đêm. ' + early.text + ' ' + late.text,
                         effectiveType: 'overnight',
                         nightCount,
                         earlyPercent: early.percent,
@@ -1449,26 +1577,30 @@
                     };
                 }
 
-                const chargedPercent = durationHours <= 2
-                    ? 0.5
-                    : Math.min(0.8, 0.5 + ((durationHours - 2) * 0.1));
+                const baseHours = Number(policy.shortBaseHours);
+                const baseRate = Number(policy.shortBasePercent) / 100;
+                const extraRate = Number(policy.shortExtraHourPercent) / 100;
+                const maxRate = Number(policy.shortMaxPercent) / 100;
+                const chargedPercent = durationHours <= baseHours
+                    ? baseRate
+                    : Math.min(maxRate, baseRate + ((durationHours - baseHours) * extraRate));
 
                 return {
                     durationHours,
                     chargedPercent,
                     amount: Math.round(price * quantity * chargedPercent),
-                    policyText: durationHours <= 2
-                        ? 'Block tối thiểu 2 giờ đầu = 50% giá qua đêm.'
-                        : (chargedPercent >= 0.8
-                            ? 'Đạt ngưỡng 80% giá qua đêm.'
-                            : '2 giờ đầu = 50%, mỗi giờ tiếp theo +10%.'),
+                    policyText: durationHours <= baseHours
+                        ? `${baseHours} giờ đầu = ${percentLabel(policy.shortBasePercent)}% giá qua đêm.`
+                        : (chargedPercent >= maxRate
+                            ? `Đạt ngưỡng ${percentLabel(policy.shortMaxPercent)}% giá qua đêm.`
+                            : `${baseHours} giờ đầu = ${percentLabel(policy.shortBasePercent)}%, mỗi giờ tiếp theo +${percentLabel(policy.shortExtraHourPercent)}%.`),
                     effectiveType: 'hourly',
                 };
             }
 
             function calculateWalkInOvernightPolicy() {
                 const checkInDateTime = parseDateTime(checkInDate.value, checkInTime.value);
-                const checkOutDateTime = parseDateTime(checkOutDate.value, '12:00');
+                const checkOutDateTime = parseDateTime(checkOutDate.value, policy.standardCheckOut);
                 const price = getSelectedRoomPrice();
                 const quantity = getRoomQuantity();
 
@@ -1490,7 +1622,7 @@
                 const extraFee = Math.round(price * quantity * extraPercent);
                 const total = baseTotal + extraFee;
 
-                policyText += ' Khách ở ' + nightCount + ' đêm và tự động trả phòng lúc 12:00 ngày ' + checkOutDate.value.split('-').reverse().join('/') + '.';
+                policyText += ' Khách ở ' + nightCount + ' đêm và tự động trả phòng lúc ' + policy.standardCheckOut + ' ngày ' + checkOutDate.value.split('-').reverse().join('/') + '.';
 
                 return {
                     checkInDateTime,
@@ -1597,8 +1729,8 @@
                         confirmLowStock.checked = false;
                     }
 
-                    bookingModeHelpText.innerText = 'Đặt trước giữ phòng theo giờ chuẩn 14:00 → 12:00.';
-                    bookingTypeHelpText.innerText = 'Đặt trước luôn là booking qua đêm; khách có thể nhận từ 13:00 nếu phòng đã sẵn sàng, hệ thống giữ phòng theo mốc 14:00.';
+                    bookingModeHelpText.innerText = 'Đặt trước giữ phòng theo giờ chuẩn {{ $policyUi['standardCheckIn'] }} → {{ $policyUi['standardCheckOut'] }}.';
+                    bookingTypeHelpText.innerText = `Đặt trước luôn là booking qua đêm; khách có thể nhận từ ${policy.earlyFreeFrom} nếu phòng đã sẵn sàng, hệ thống giữ phòng theo mốc ${policy.standardCheckIn}.`;
                     return;
                 }
 
@@ -1658,8 +1790,8 @@
                     confirmLowStock.checked = false;
                 }
 
-                bookingModeHelpText.innerText = 'Ở ngay qua đêm: giờ nhận là giờ thực tế; ngày trả do lễ tân chọn và giờ trả luôn là 12:00.';
-                bookingTypeHelpText.innerText = 'Qua đêm ở ngay: chọn ngày nhận và ngày trả. Hệ thống tính đủ số đêm, cộng phụ thu nhận phòng sớm cho ngày đầu nếu có; tự động trả lúc 12:00.';
+                bookingModeHelpText.innerText = `Ở ngay qua đêm: giờ nhận là giờ thực tế; ngày trả do lễ tân chọn và giờ trả luôn là ${policy.standardCheckOut}.`;
+                bookingTypeHelpText.innerText = `Qua đêm ở ngay: chọn ngày nhận và ngày trả. Hệ thống tính đủ số đêm, cộng phụ thu nhận phòng sớm cho ngày đầu nếu có; tự động trả lúc ${policy.standardCheckOut}.`;
             }
 
             function updateAdjacentRoomBox() {
@@ -1763,10 +1895,10 @@
 
                 const durationMinutes = Math.ceil((checkOutDateTime - checkInDateTime) / (1000 * 60));
 
-                if (durationMinutes < 30) {
+                if (durationMinutes < Number(policy.shortMinMinutes || 1)) {
                     hourlyPreviewBadge.className = 'badge bg-danger';
                     hourlyPreviewBadge.innerText = 'Quá ngắn';
-                    hourlyPreviewMessage.innerText = 'Thời gian ở theo giờ phải tối thiểu 30 phút.';
+                    hourlyPreviewMessage.innerText = 'Thời gian ở theo giờ phải tối thiểu ' + Number(policy.shortMinMinutes || 1) + ' phút.';
                     return;
                 }
 
@@ -1951,6 +2083,7 @@
                 const quantity = getRoomQuantity();
 
                 let roomTotal = 0;
+                let depositRoomTotal = 0;
                 let summaryText = 'Chọn hạng phòng và thời gian lưu trú để tính tiền.';
 
                 if (price > 0) {
@@ -1967,6 +2100,9 @@
                             const hourlyPrice = calculateWalkInHourlyPrice(price, quantity, durationMinutes, checkInDateTime, checkOutDateTime);
 
                             roomTotal = hourlyPrice.amount;
+                            depositRoomTotal = hourlyPrice.effectiveType === 'overnight'
+                                ? price * quantity * Math.max(1, parseInt(hourlyPrice.nightCount || 1))
+                                : hourlyPrice.amount;
                             summaryText = hourlyPrice.effectiveType === 'overnight'
                                 ? quantity + ' phòng, tự động tính qua đêm (' + hourlyPrice.nightCount + ' đêm + phụ thu sớm/muộn)'
                                 : quantity + ' phòng x ở ngay theo giờ, làm tròn '
@@ -1978,6 +2114,7 @@
 
                         if (policy) {
                             roomTotal = policy.total;
+                            depositRoomTotal = policy.baseTotal;
                             summaryText = quantity + ' phòng x ' + policy.nightCount + ' đêm';
 
                             if (policy.extraPercent > 0) {
@@ -1989,6 +2126,7 @@
 
                         if (nights > 0) {
                             roomTotal = price * quantity * nights;
+                            depositRoomTotal = roomTotal;
                             summaryText = quantity + ' phòng x ' + nights + ' đêm';
                         }
                     }
@@ -1998,7 +2136,7 @@
                 const total = promotionTotals.finalTotal;
 
                 estimatedTotalText.innerText = formatMoney(total);
-                updatePaymentUi(total);
+                updatePaymentUi(total, depositRoomTotal, promotionTotals.moneyDiscount);
 
                 if (roomTotal <= 0 && serviceTotal > 0) {
                     nightCountText.innerText = 'Đã cộng dịch vụ đặt trước. Chọn hạng phòng và thời gian lưu trú để tính tiền phòng.';
@@ -2007,7 +2145,7 @@
                 }
             }
 
-            function updatePaymentUi(total) {
+            function updatePaymentUi(total, roomTotalForDeposit = 0, moneyDiscount = 0) {
                 if (!paymentMethod || !paymentType || !depositAmount) {
                     return;
                 }
@@ -2015,7 +2153,14 @@
                 const method = paymentMethod.value || 'cash';
                 const type = paymentType.value || '';
                 const customOption = paymentType.querySelector('option[value="custom"]');
-                const deposit30 = Math.round(Number(total || 0) * 0.3);
+                const depositBase = Math.max(
+                    0,
+                    Number(roomTotalForDeposit || 0) - Math.min(
+                        Math.max(0, Number(roomTotalForDeposit || 0)),
+                        Math.max(0, Number(moneyDiscount || 0))
+                    )
+                );
+                const deposit30 = Math.round(depositBase * Number(policy.depositRate));
                 const isCounterPayment = method === 'cash' || method === 'bank_transfer';
 
                 if (counterPaymentConfirmBox) {
@@ -2032,8 +2177,8 @@
 
                 if (confirmCounterPaymentLabel) {
                     confirmCounterPaymentLabel.innerText = method === 'bank_transfer'
-                        ? 'Tôi xác nhận đã kiểm tra tài khoản và nhận đủ tiền cọc 30% bằng chuyển khoản tại quầy.'
-                        : 'Tôi xác nhận đã nhận đủ tiền cọc 30% bằng tiền mặt tại quầy.';
+                        ? `Tôi xác nhận đã kiểm tra tài khoản và nhận đủ tiền cọc ${percentLabel(policy.depositPercent)}% bằng chuyển khoản tại quầy.`
+                        : `Tôi xác nhận đã nhận đủ tiền cọc ${percentLabel(policy.depositPercent)}% bằng tiền mặt tại quầy.`;
                 }
 
                 if (counterPaymentConfirmHelp) {
@@ -2071,11 +2216,11 @@
 
                 if (paymentTypeHelp) {
                     if (method === 'vnpay') {
-                        paymentTypeHelp.innerText = 'Sau khi tạo booking, hệ thống gửi email có đường dẫn VNPay để khách đặt cọc 30% khoảng ' + formatMoney(deposit30) + '.';
+                        paymentTypeHelp.innerText = `Sau khi tạo booking, hệ thống gửi email có đường dẫn VNPay để khách đặt cọc ${percentLabel(policy.depositPercent)}% khoảng ` + formatMoney(deposit30) + '.';
                     } else if (activeType === 'custom') {
                         paymentTypeHelp.innerText = 'Lễ tân nhập đúng số tiền khách thực trả tại quầy.';
                     } else {
-                        paymentTypeHelp.innerText = 'Ghi nhận cọc 30% khoảng ' + formatMoney(deposit30) + '.';
+                        paymentTypeHelp.innerText = `Ghi nhận cọc ${percentLabel(policy.depositPercent)}% khoảng ` + formatMoney(deposit30) + '.';
                     }
                 }
 
@@ -2517,7 +2662,7 @@
                     night_count: Math.max(1, Math.round(calculateNightCount() || 1)),
                     room_quantity: getRoomQuantity(),
                     check_in_at: checkInDate?.value && checkInTime?.value ? `${checkInDate.value} ${checkInTime.value}` : null,
-                    check_out_at: checkOutDate?.value && (hourlyCheckOutTime?.value || '12:00') ? `${checkOutDate.value} ${bookingType?.value === 'hourly' ? hourlyCheckOutTime.value : '12:00'}` : null,
+                    check_out_at: checkOutDate?.value && (hourlyCheckOutTime?.value || policy.standardCheckOut) ? `${checkOutDate.value} ${bookingType?.value === 'hourly' ? hourlyCheckOutTime.value : policy.standardCheckOut}` : null,
                 };
 
                 try {

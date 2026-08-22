@@ -21,8 +21,7 @@ class InspectionRealtimeUpdated implements ShouldBroadcastNow
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('admin.realtime'),
-            new PrivateChannel('admin.rooms'),
+            new PrivateChannel('admin.inspections.supervisors'),
         ];
     }
 
@@ -45,7 +44,6 @@ class InspectionRealtimeUpdated implements ShouldBroadcastNow
             'status' => $this->inspection->status,
             'workflow_stage' => $this->inspection->workflow_stage,
             'version' => (int) ($this->inspection->version ?? 0),
-            'admin_acknowledged_version' => (int) ($this->inspection->admin_acknowledged_version ?? 0),
             'last_update_summary' => $this->inspection->last_update_summary,
             'status_label' => $this->statusLabel($this->inspection->status, $this->inspection->workflow_stage),
             'damage_total' => (float) ($this->inspection->damage_total ?? 0),
@@ -58,14 +56,13 @@ class InspectionRealtimeUpdated implements ShouldBroadcastNow
     private function statusLabel(?string $status, ?string $workflowStage): string
     {
         if ($status === 'confirmed' || $workflowStage === 'completed') {
-            return 'Đã xác nhận cuối';
+            return 'Đã hoàn tất kiểm tra';
         }
 
         return match ($workflowStage) {
             'housekeeping_report' => 'Chờ buồng phòng kiểm tra',
             'guest_consultation' => 'Chờ lễ tân trao đổi với khách',
             'housekeeping_recheck' => 'Chờ buồng phòng kiểm tra lại',
-            'admin_approval' => 'Chờ admin xác nhận cuối',
             default => match ($status) {
                 'pending' => 'Chờ kiểm tra',
                 'reported' => 'Đang xử lý kết quả kiểm tra',

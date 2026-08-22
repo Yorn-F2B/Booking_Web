@@ -39,7 +39,7 @@
                     </p>
 
                     @if (session('status') === 'verification-link-sent')
-                        <p class="mt-2 font-medium text-sm text-green-600">
+                        <p data-flash-inline class="mt-2 font-medium text-sm text-green-600">
                             {{ __('A new verification link has been sent to your email address.') }}
                         </p>
                     @endif
@@ -52,6 +52,7 @@
 
             @if (session('status') === 'profile-updated')
                 <p
+                    data-flash-inline
                     x-data="{ show: true }"
                     x-show="show"
                     x-transition

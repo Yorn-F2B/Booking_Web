@@ -16,24 +16,16 @@
 
                 <div>
                     <h2>Phòng cần dọn</h2>
-                    <p>Danh sách phòng đã check-out và đang chờ quản lý tầng xác nhận dọn xong</p>
+                    @if(auth()->user()?->role === 'housekeeping')
+                        <p>Chỉ hiển thị phòng thuộc tầng bạn phụ trách lâu dài hoặc nhiệm vụ phòng được giao cho hôm nay.</p>
+                    @else
+                        <p>Danh sách toàn bộ phòng cần dọn để quản lý/trưởng buồng phòng điều phối. Phòng chưa có người phụ trách sẽ được đánh dấu rõ.</p>
+                    @endif
                 </div>
 
             </div>
 
-            @if (session('success'))
-                <div class="alert alert-success">
-                    {{ session('success') }}
-                </div>
-            @endif
-
-            @if (session('error'))
-                <div class="alert alert-danger">
-                    {{ session('error') }}
-                </div>
-            @endif
-
-            <div class="settings-section">
+<div class="settings-section">
 
                 <div class="table-responsive">
 
@@ -45,6 +37,7 @@
                                 <th>Hạng phòng</th>
                                 <th>Tầng</th>
                                 <th>Trạng thái</th>
+                                <th>Phụ trách</th>
                                 <th>Ghi chú</th>
                                 <th class="text-end">Thao tác</th>
                             </tr>
@@ -76,6 +69,16 @@
                                     </td>
 
                                     <td>
+                                        @if(($room->housekeeping_assignees ?? collect())->isNotEmpty())
+                                            @foreach($room->housekeeping_assignees as $assignee)
+                                                <span class="badge bg-light text-dark border me-1 mb-1">{{ $assignee }}</span>
+                                            @endforeach
+                                        @else
+                                            <span class="badge bg-warning text-dark">Chưa phân công</span>
+                                        @endif
+                                    </td>
+
+                                    <td>
                                         {{ $room->note ?: 'Không có ghi chú' }}
                                     </td>
 
@@ -101,7 +104,7 @@
                             @empty
 
                                 <tr>
-                                    <td colspan="6" class="text-center text-muted">
+                                    <td colspan="7" class="text-center text-muted">
                                         Không có phòng nào cần dọn.
                                     </td>
                                 </tr>

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\User;
+use App\Services\BookingIdentityGuard;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -120,6 +121,15 @@ class UserSettingController extends Controller
 
         try {
             DB::transaction(function () use ($validated, $user, $newAvatarPath): void {
+                $existingCustomer = Customer::query()->where('user_id', $user->id)->lockForUpdate()->first();
+                if ($existingCustomer) {
+                    app(BookingIdentityGuard::class)->assertIdentityUpdateAllowed(
+                        $existingCustomer,
+                        $validated['cccd'],
+                        $validated['birthday'] ?? null
+                    );
+                }
+
                 Customer::updateOrCreate(
                     ['user_id' => $user->id],
                     [
@@ -131,7 +141,6 @@ class UserSettingController extends Controller
                         'birthday' => $validated['birthday'] ?? null,
                         'gender' => $validated['gender'],
                         'address' => $validated['address'],
-                        'status' => 'active',
                     ]
                 );
 
@@ -145,6 +154,9 @@ class UserSettingController extends Controller
                 }
 
                 $user->name = $userData['name'];
+                if (strcasecmp((string) $user->email, (string) $userData['email']) !== 0) {
+                    $user->email_verified_at = null;
+                }
                 $user->email = $userData['email'];
 
                 if (array_key_exists('avatar', $userData)) {

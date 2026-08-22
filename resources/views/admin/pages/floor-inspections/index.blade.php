@@ -8,14 +8,12 @@
         'housekeeping_report' => 'Chờ kiểm tra ban đầu',
         'guest_consultation' => 'Chờ lễ tân trao đổi',
         'housekeeping_recheck' => 'Cần kiểm tra lại',
-        'admin_approval' => 'Chờ admin xác nhận',
         'completed' => 'Đã hoàn tất',
     ];
     $stageClasses = [
         'housekeeping_report' => 'bg-warning text-dark',
         'guest_consultation' => 'bg-info text-dark',
         'housekeeping_recheck' => 'bg-danger',
-        'admin_approval' => 'bg-primary',
         'completed' => 'bg-success',
     ];
 @endphp
@@ -27,10 +25,7 @@
             <div><h2>Phòng cần kiểm tra</h2><p>Buồng phòng kiểm tra ban đầu và xử lý riêng các khoản khách yêu cầu xác minh lại.</p></div>
         </div>
 
-        @if (session('success')) <div class="alert alert-success">{{ session('success') }}</div> @endif
-        @if (session('error')) <div class="alert alert-danger">{{ session('error') }}</div> @endif
-
-        <div class="settings-section">
+<div class="settings-section">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-light">

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -9,12 +10,7 @@ class Booking extends Model
 {
     use SoftDeletes;
 
-    public const STANDARD_CHECK_OUT_TIME = '12:00:00';
-    public const PRIORITY_CLEANING_START_TIME = '12:00:00';
-    public const EARLY_CHECK_IN_TIME = '13:00:00';
-    public const STANDARD_CHECK_IN_TIME = '14:00:00';
     public const DEFAULT_CLEANING_BUFFER_MINUTES = 0;
-    public const LATE_ARRIVAL_HOLD_TIME = '18:00:00';
 
     public const RESCHEDULED_AFTER_G_POLICY_PREFIX = '[RESCHEDULED_AFTER_G]';
     public const RESCHEDULED_AFTER_G_GRACE_MINUTES = 120;
@@ -62,6 +58,7 @@ class Booking extends Model
         'late_arrival_confirmed_at',
         'late_arrival_confirmed_by',
         'cleaning_buffer_minutes',
+        'policy_snapshot',
     ];
 
     protected $casts = [
@@ -79,8 +76,29 @@ class Booking extends Model
         'deposit_amount' => 'decimal:2',
         'required_deposit_amount' => 'decimal:2',
         'overpayment_amount' => 'decimal:2',
+        'policy_snapshot' => 'array',
     ];
 
+
+    /**
+     * Booking còn hiệu lực vận hành: đã xác nhận/đang ở/chờ kiểm tra, hoặc đơn
+     * pending vẫn còn thời hạn giữ phòng (hay đã có giao dịch thành công nhưng
+     * callback chưa kịp chuyển trạng thái). Đơn pending hết hạn không được chặn
+     * tồn phòng/khách chỉ vì scheduler chưa chạy.
+     */
+    public function scopeActiveForOperations(Builder $query): Builder
+    {
+        return $query->where(function (Builder $active) {
+            $active->whereIn('status', ['confirmed', 'checked_in', 'inspection_requested'])
+                ->orWhere(function (Builder $pending) {
+                    $pending->where('status', 'pending')
+                        ->where(function (Builder $validHold) {
+                            $validHold->where('payment_expires_at', '>', now('Asia/Ho_Chi_Minh'))
+                                ->orWhereHas('payments', fn (Builder $payment) => $payment->where('status', 'success'));
+                        });
+                });
+        });
+    }
 
     public static function customerSnapshotAttributes(?Customer $customer): array
     {
@@ -212,7 +230,45 @@ class Booking extends Model
 
     public function canBeReviewed(): bool
     {
-        return in_array($this->status, ['checked_out', 'completed'], true);
+        return in_array($this->status, ['checked_out', 'completed'], true)
+            && $this->actual_check_in !== null
+            && $this->actual_check_out !== null;
+    }
+
+    /**
+     * Giới hạn phạm vi vận hành booking theo phân công lễ tân.
+     * Trưởng lễ tân/quản lý có thể điều phối toàn bộ. Lễ tân thường chỉ thấy
+     * booking chưa có người nhận hoặc booking đang được phân công cho chính họ.
+     */
+    public function scopeVisibleToOperationsUser(Builder $query, ?User $user): Builder
+    {
+        if (!$user || !in_array($user->role, ['super_admin', 'manager', 'receptionist_lead', 'receptionist'], true)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        if ($user->role !== 'receptionist') {
+            return $query;
+        }
+
+        return $query->where(function (Builder $scope) use ($user) {
+            $scope->whereDoesntHave('activeStaffAssignments')
+                ->orWhereHas('activeStaffAssignments', fn (Builder $assignment) => $assignment->where('staff_id', $user->id));
+        });
+    }
+
+    public function canBeHandledBy(?User $user): bool
+    {
+        if (!$user || !in_array($user->role, ['super_admin', 'manager', 'receptionist_lead', 'receptionist'], true)) {
+            return false;
+        }
+
+        if ($user->role !== 'receptionist') {
+            return true;
+        }
+
+        $hasAnyAssignment = $this->activeStaffAssignments()->exists();
+
+        return !$hasAnyAssignment || $this->isAssignedTo($user->id);
     }
 
 
@@ -293,10 +349,10 @@ class Booking extends Model
         }
 
         $changedAt = \Carbon\Carbon::parse($latestChangeLog->created_at, 'Asia/Ho_Chi_Minh');
-        $cutoffAt = $changedAt->copy()->setTimeFromTimeString(self::LATE_ARRIVAL_HOLD_TIME);
+        $cutoffAt = $changedAt->copy()->setTimeFromTimeString($this->lateArrivalCutoffTime());
 
         // Tương thích cả các đơn đã đổi ngày trước khi cài bản sửa: log đổi ngày được tạo
-        // đúng ngày nhận mới và sau 18:00 thì dùng thời điểm đổi lịch làm mốc mới.
+        // đúng ngày nhận mới và sau giờ G của booking thì dùng thời điểm đổi lịch làm mốc mới.
         if (
             $checkInAt->toDateString() === $changedAt->toDateString()
             && $changedAt->greaterThanOrEqualTo($cutoffAt)
@@ -333,7 +389,7 @@ class Booking extends Model
 
         $timezone = 'Asia/Ho_Chi_Minh';
         $checkInAt = \Carbon\Carbon::parse($rawCheckInAt, $timezone);
-        [$holdHour, $holdMinute] = array_map('intval', explode(':', self::LATE_ARRIVAL_HOLD_TIME));
+        [$holdHour, $holdMinute] = array_map('intval', explode(':', $this->lateArrivalCutoffTime()));
         $cutoffAt = $checkInAt->copy()->setTime($holdHour, $holdMinute, 0);
 
         // Đơn được tạo tại quầy sau giờ G không thể bị coi là khách đã no-show
@@ -356,11 +412,11 @@ class Booking extends Model
         }
 
         $checkInAt = \Carbon\Carbon::parse($this->getRawOriginal('check_in_at'), 'Asia/Ho_Chi_Minh');
-        [$holdHour, $holdMinute] = array_map('intval', explode(':', self::LATE_ARRIVAL_HOLD_TIME));
+        [$holdHour, $holdMinute] = array_map('intval', explode(':', $this->lateArrivalCutoffTime()));
         $standardHoldAt = $checkInAt->copy()->setTime($holdHour, $holdMinute, 0);
 
         // Khi lễ tân đã xác nhận khách sẽ đến sau giờ G, late_arrival_hours lưu
-        // số giờ từ 18:00 đến giờ khách dự kiến tới. Giữ thêm 30 phút để khách
+        // số giờ từ giờ G đến giờ khách dự kiến tới. Giữ thêm thời gian ân hạn theo policy để khách
         // làm thủ tục, nhưng không vượt quá giờ trả phòng dự kiến.
         $lateArrivalConfirmedAt = $this->getRawOriginal('late_arrival_confirmed_at');
         $lateArrivalHours = (float) ($this->getRawOriginal('late_arrival_hours') ?? 0);
@@ -368,7 +424,7 @@ class Booking extends Model
         if ($lateArrivalConfirmedAt && $lateArrivalHours > 0) {
             $extendedHoldAt = $standardHoldAt->copy()
                 ->addMinutes((int) round($lateArrivalHours * 60))
-                ->addMinutes(30);
+                ->addMinutes($this->lateArrivalGraceMinutes());
 
             $rawCheckOutAt = $this->getRawOriginal('check_out_at');
             if ($rawCheckOutAt) {
@@ -380,6 +436,46 @@ class Booking extends Model
         }
 
         return $standardHoldAt;
+    }
+
+    public function policyValue(string $key, mixed $fallback = null): mixed
+    {
+        return app(\App\Services\HotelPolicyService::class)->forBooking($this, $key, $fallback);
+    }
+
+    public function standardCheckInTime(): string
+    {
+        return (string) $this->policyValue('stay.standard_check_in_time', '14:00') . ':00';
+    }
+
+    public function standardCheckOutTime(): string
+    {
+        return (string) $this->policyValue('stay.standard_check_out_time', '12:00') . ':00';
+    }
+
+    public function lateArrivalCutoffTime(): string
+    {
+        return (string) $this->policyValue('stay.late_arrival_cutoff_time', '18:00') . ':00';
+    }
+
+    public function directCancelCutoffTime(): string
+    {
+        return (string) $this->policyValue('booking.direct_cancel_cutoff_time', '14:00') . ':00';
+    }
+
+    public function hourlyCancelGraceMinutes(): int
+    {
+        return max(0, (int) $this->policyValue('booking.hourly_cancel_grace_minutes', 30));
+    }
+
+    public function lateArrivalGraceMinutes(): int
+    {
+        return max(0, (int) $this->policyValue('stay.late_arrival_grace_minutes', 30));
+    }
+
+    public function rescheduledAfterCutoffGraceMinutes(): int
+    {
+        return max(0, (int) $this->policyValue('stay.rescheduled_after_cutoff_grace_minutes', self::RESCHEDULED_AFTER_G_GRACE_MINUTES));
     }
 
     public function promotions()

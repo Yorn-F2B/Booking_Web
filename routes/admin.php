@@ -17,6 +17,9 @@ Route::middleware('role:super_admin,manager,receptionist_lead,housekeeping_super
 });
 
 Route::middleware('role:super_admin,manager')->group(function () {
+    Route::get('policies', [\App\Http\Controllers\Admin\HotelPolicyController::class, 'index'])->name('admin.policies.index');
+    Route::patch('policies', [\App\Http\Controllers\Admin\HotelPolicyController::class, 'update'])->name('admin.policies.update');
+
     require __DIR__ . '/admin/room-issues.php';
     require __DIR__ . '/admin/room-categories.php';
     require __DIR__ . '/admin/services.php';
@@ -82,23 +85,10 @@ Route::middleware('role:super_admin,manager,housekeeping_supervisor,housekeeping
     Route::post('floor-inspections/{roomInspection}/report', [\App\Http\Controllers\Admin\FloorInspectionController::class, 'report'])
         ->name('admin.floor-inspections.report');
 
+    Route::post('floor-inspections/{roomInspection}/supplemental-report', [\App\Http\Controllers\Admin\FloorInspectionController::class, 'supplementalReport'])
+        ->name('admin.floor-inspections.supplemental-report');
+
     Route::post('floor-inspections/{roomInspection}/recheck', [\App\Http\Controllers\Admin\FloorInspectionController::class, 'recheck'])
         ->name('admin.floor-inspections.recheck');
 });
 
-Route::middleware('role:super_admin,manager')->group(function () {
-    Route::get('inspection-approvals', [\App\Http\Controllers\Admin\InspectionApprovalController::class, 'index'])
-        ->name('admin.inspection-approvals.index');
-
-    Route::get('inspection-approvals/{roomInspection}', [\App\Http\Controllers\Admin\InspectionApprovalController::class, 'show'])
-        ->name('admin.inspection-approvals.show');
-
-    Route::post('inspection-approvals/{roomInspection}/approve', [\App\Http\Controllers\Admin\InspectionApprovalController::class, 'approve'])
-        ->name('admin.inspection-approvals.approve');
-
-    Route::post('inspection-approvals/{roomInspection}/acknowledge', [\App\Http\Controllers\Admin\InspectionApprovalController::class, 'acknowledge'])
-        ->name('admin.inspection-approvals.acknowledge');
-
-    Route::get('inspection-approvals/{roomInspection}/updates', [\App\Http\Controllers\Admin\InspectionApprovalController::class, 'updates'])
-        ->name('admin.inspection-approvals.updates');
-});

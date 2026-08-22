@@ -36,6 +36,7 @@
 
             @if (session('status') === 'password-updated')
                 <p
+                    data-flash-inline
                     x-data="{ show: true }"
                     x-show="show"
                     x-transition

@@ -8,14 +8,12 @@
         <span class="badge text-bg-warning fs-6">{{ $pendingCount }} chờ duyệt</span>
     </div>
 
-    @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
-    @if(session('error'))<div class="alert alert-danger">{{ session('error') }}</div>@endif
-
-    <div class="settings-section mb-3">
+<div class="settings-section mb-3">
         <form method="GET" class="row g-2 align-items-end">
             <div class="col-md-6"><label class="form-label">Tìm kiếm</label><input name="search" value="{{ $search }}" class="form-control" placeholder="Phòng, mã booking, nội dung sự cố..."></div>
             <div class="col-md-3"><label class="form-label">Trạng thái</label><select name="status" class="form-select">
-                <option value="pending" @selected($status==='pending')>Chờ duyệt</option>
+                <option value="pending" @selected($status==='pending')>Cần quản lý xử lý</option>
+                <option value="waiting_guest" @selected($status==='waiting_guest')>Đang chờ khách xác nhận</option>
                 <option value="approved" @selected($status==='approved')>Đã đổi phòng</option>
                 <option value="repair_only" @selected($status==='repair_only')>Không còn phòng - sửa gấp</option>
                 <option value="all" @selected($status==='all')>Tất cả</option>

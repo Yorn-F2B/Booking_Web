@@ -5,7 +5,11 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\BookingLog;
+use App\Models\BookingPayment;
 use App\Models\BookingServiceItem;
+use App\Models\ChatConversation;
+use App\Models\RoomIssueRequest;
+use App\Models\Service;
 use App\Models\Room;
 use App\Models\RoomCategory;
 use App\Models\RoomInspection;
@@ -13,6 +17,7 @@ use App\Models\RoomInspectionItem;
 use App\Models\StaffFloorAssignment;
 use App\Models\StaffRoomAssignment;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -20,222 +25,516 @@ class DashboardController extends Controller
 {
     private array $activeBookingStatuses = ['pending', 'confirmed', 'checked_in', 'inspection_requested'];
 
-    public function index()
+    public function index(Request $request)
     {
         $user = Auth::user();
 
+        // Dashboard này là bảng điều hành cấp cao: chỉ Super Admin được xem.
         if (!$user || $user->role !== 'super_admin') {
             return match ($user?->role) {
-                'manager' => redirect()->route('admin.rooms.index'),
-                'receptionist_lead', 'receptionist' => redirect()->route('admin.bookings.index'),
+                'manager', 'receptionist_lead', 'receptionist' => redirect()->route('admin.bookings.index'),
                 'housekeeping_supervisor', 'housekeeping' => redirect()->route('admin.housekeeping.index'),
                 default => redirect()->route('home'),
             };
         }
 
+        [$from, $to, $preset] = $this->resolveDashboardRange($request);
+        $periodDays = $from->copy()->startOfDay()->diffInDays($to->copy()->startOfDay()) + 1;
+        $previousTo = $from->copy()->subDay()->endOfDay();
+        $previousFrom = $previousTo->copy()->subDays($periodDays - 1)->startOfDay();
         $now = Carbon::now('Asia/Ho_Chi_Minh');
-        $todayStart = $now->copy()->startOfDay();
-        $todayEnd = $now->copy()->endOfDay();
-        $monthStart = $now->copy()->startOfMonth();
-        $monthEnd = $now->copy()->endOfMonth();
 
-        $roomStatusLabels = $this->roomStatusLabels();
-        $bookingStatusLabels = $this->bookingStatusLabels();
-        $paymentStatusLabels = $this->paymentStatusLabels();
+        $revenue = $this->paidRevenueForPeriod($from, $to);
+        $previousRevenue = $this->paidRevenueForPeriod($previousFrom, $previousTo);
+        $revenueChangePercent = $this->percentChange($revenue, $previousRevenue);
 
-        $roomsByStatus = Room::query()
+        $successPayments = BookingPayment::query()
+            ->where('status', 'success')
+            ->where(function ($query) use ($from, $to) {
+                $query->whereBetween('paid_at', [$from, $to])
+                    ->orWhere(function ($fallback) use ($from, $to) {
+                        $fallback->whereNull('paid_at')->whereBetween('created_at', [$from, $to]);
+                    });
+            });
+
+        $paymentProviderRows = (clone $successPayments)
+            ->selectRaw("CASE WHEN provider IN ('vnpay','admin_vnpay') THEN 'VNPay' WHEN provider = 'cash' THEN 'Tiền mặt' WHEN provider = 'bank_transfer' THEN 'Chuyển khoản' ELSE provider END as provider_label, SUM(amount) as total")
+            ->groupBy('provider_label')
+            ->orderByDesc('total')
+            ->get()
+            ->map(fn ($row) => ['label' => (string) $row->provider_label, 'total' => (float) $row->total])
+            ->values()
+            ->all();
+
+        $bookingPeriod = Booking::query()->whereBetween('created_at', [$from, $to]);
+        $newBookings = (int) (clone $bookingPeriod)->count();
+        $cancelledBookings = (int) (clone $bookingPeriod)->where('status', 'cancelled')->count();
+        $completedBookings = (int) (clone $bookingPeriod)->whereIn('status', ['checked_out', 'completed'])->count();
+        $bookingValue = (float) (clone $bookingPeriod)->where('status', '!=', 'cancelled')->sum('estimated_total');
+        $discountAmount = (float) (clone $bookingPeriod)->where('status', '!=', 'cancelled')->sum('discount_amount');
+
+        $noShowCount = (int) BookingLog::query()
+            ->whereBetween('created_at', [$from, $to])
+            ->whereIn('action', [
+                'auto_cancel_no_show',
+                'cancel_no_show',
+                'late_arrival_cancelled',
+                'system_no_show_cancelled',
+                'receptionist_no_show_cancelled',
+            ])
+            ->distinct('booking_id')
+            ->count('booking_id');
+
+        $bookingSourceRows = Booking::query()
+            ->whereBetween('created_at', [$from, $to])
+            ->selectRaw("CASE
+                WHEN booking_source = 'user_online' THEN 'Website'
+                WHEN booking_source = 'reception' AND booking_mode = 'walk_in' THEN 'Walk-in tại quầy'
+                WHEN booking_source = 'reception' THEN 'Lễ tân đặt trước'
+                ELSE 'Khác'
+            END as source_label, COUNT(*) as total")
+            ->groupBy('source_label')
+            ->orderByDesc('total')
+            ->get()
+            ->map(fn ($row) => ['label' => (string) $row->source_label, 'count' => (int) $row->total])
+            ->values()
+            ->all();
+
+        $bookingStatusRows = Booking::query()
+            ->whereBetween('created_at', [$from, $to])
             ->select('status', DB::raw('COUNT(*) as total'))
             ->groupBy('status')
             ->pluck('total', 'status');
 
+        $roomStatuses = Room::query()
+            ->select('status', DB::raw('COUNT(*) as total'))
+            ->groupBy('status')
+            ->pluck('total', 'status');
         $totalRooms = (int) Room::query()->count();
-        $occupiedRooms = (int) ($roomsByStatus['occupied'] ?? 0);
-        $reservedRooms = (int) ($roomsByStatus['reserved'] ?? 0);
-        $availableRooms = (int) ($roomsByStatus['available'] ?? 0);
-        $cleaningRooms = (int) ($roomsByStatus['cleaning'] ?? 0);
-        $inspectionRooms = (int) ($roomsByStatus['inspection'] ?? 0);
-        $maintenanceRooms = (int) ($roomsByStatus['maintenance'] ?? 0);
-        $occupancyRate = $totalRooms > 0 ? round(($occupiedRooms / $totalRooms) * 100, 1) : 0;
+        $currentOccupiedRooms = (int) ($roomStatuses['occupied'] ?? 0);
+        $currentAvailableRooms = (int) ($roomStatuses['available'] ?? 0);
+        $currentNotReadyRooms = (int) (($roomStatuses['cleaning'] ?? 0) + ($roomStatuses['inspection'] ?? 0) + ($roomStatuses['maintenance'] ?? 0));
 
-        $checkinsTodayCount = (int) $this->bookingQuery()
-            ->whereBetween('check_in_at', [$todayStart, $todayEnd])
-            ->whereIn('status', ['pending', 'confirmed', 'checked_in'])
+        $occupancy = $this->buildOccupancyReport($from, $to, $periodDays, $totalRooms);
+        $categoryOccupancy = $this->buildCategoryOccupancyReport($from, $to, $periodDays);
+        $revenueTrend = $this->buildRevenueTrendForRange($from, $to);
+        $surchargeRows = $this->buildSurchargeReport($from, $to);
+
+        $paidByBooking = BookingPayment::query()
+            ->selectRaw('booking_id, SUM(amount) as paid_total')
+            ->where('status', 'success')
+            ->groupBy('booking_id');
+        $receivableRow = Booking::query()
+            ->leftJoinSub($paidByBooking, 'paid_ledger', fn ($join) => $join->on('paid_ledger.booking_id', '=', 'bookings.id'))
+            ->whereIn('bookings.status', $this->activeBookingStatuses)
+            ->where('bookings.check_in_at', '<=', $to)
+            ->where('bookings.check_out_at', '>=', $from)
+            ->selectRaw('COALESCE(SUM(GREATEST(COALESCE(bookings.estimated_total, 0) - COALESCE(paid_ledger.paid_total, 0), 0)), 0) as amount')
+            ->selectRaw('SUM(CASE WHEN GREATEST(COALESCE(bookings.estimated_total, 0) - COALESCE(paid_ledger.paid_total, 0), 0) > 0 THEN 1 ELSE 0 END) as booking_count')
+            ->first();
+        $receivableAmount = (float) ($receivableRow->amount ?? 0);
+        $receivableBookings = (int) ($receivableRow->booking_count ?? 0);
+
+        $failedPayments = (int) BookingPayment::query()
+            ->where('status', 'failed')
+            ->whereBetween('updated_at', [$from, $to])
+            ->count();
+        $pendingPayments = (int) BookingPayment::query()
+            ->where('status', 'pending')
+            ->whereBetween('created_at', [$from, $to])
             ->count();
 
-        $checkoutsTodayCount = (int) $this->bookingQuery()
-            ->whereBetween('check_out_at', [$todayStart, $todayEnd])
-            ->whereIn('status', ['checked_in', 'inspection_requested', 'checked_out'])
-            ->count();
+        // Cảnh báo điều hành là snapshot hiện tại, không phụ thuộc khoảng thời gian
+        // đang xem báo cáo. Chỉ đưa lên những ngoại lệ thực sự cần Super Admin chú ý.
+        $operationAlerts = $this->buildExecutiveAlerts($now);
 
-        $checkinsToday = $this->bookingQuery()
-            ->with(['customer', 'roomCategory', 'bookingRooms.room'])
-            ->whereBetween('check_in_at', [$todayStart, $todayEnd])
-            ->whereIn('status', ['pending', 'confirmed', 'checked_in'])
-            ->orderBy('check_in_at')
-            ->limit(8)
-            ->get();
-
-        $checkoutsToday = $this->bookingQuery()
-            ->with(['customer', 'roomCategory', 'bookingRooms.room'])
-            ->whereBetween('check_out_at', [$todayStart, $todayEnd])
-            ->whereIn('status', ['checked_in', 'inspection_requested', 'checked_out'])
-            ->orderBy('check_out_at')
-            ->limit(8)
-            ->get();
-
-        $todayRevenue = $this->paidRevenueForPeriod($todayStart, $todayEnd);
-        $monthRevenue = $this->paidRevenueForPeriod($monthStart, $monthEnd);
-        $serviceRevenueToday = (float) BookingServiceItem::query()
-            ->where('billing_status', 'confirmed')
-            ->whereBetween('confirmed_at', [$todayStart, $todayEnd])
-            ->sum('total');
-
-        $receivableAmount = (float) $this->bookingQuery()
-            ->whereIn('status', $this->activeBookingStatuses)
-            ->selectRaw('COALESCE(SUM(GREATEST(COALESCE(estimated_total, 0) - COALESCE(deposit_amount, 0), 0)), 0) as total')
-            ->value('total');
-
-        $summaryCards = [
-            [
-                'label' => 'Công suất hôm nay',
-                'value' => $occupiedRooms . '/' . max($totalRooms, 0),
-                'sub' => $occupancyRate . '% phòng đang ở',
-                'icon' => 'bx bx-pulse',
-                'tone' => 'primary',
-            ],
-            [
-                'label' => 'Phòng có thể bán',
-                'value' => $availableRooms,
-                'sub' => 'Reserved: ' . $reservedRooms . ' · Bảo trì: ' . $maintenanceRooms,
-                'icon' => 'bx bx-door-open',
-                'tone' => 'success',
-            ],
-            [
-                'label' => 'Check-in hôm nay',
-                'value' => $checkinsTodayCount,
-                'sub' => 'Khách đến trong ngày ' . $now->format('d/m/Y'),
-                'icon' => 'bx bx-log-in-circle',
-                'tone' => 'info',
-            ],
-            [
-                'label' => 'Check-out hôm nay',
-                'value' => $checkoutsTodayCount,
-                'sub' => 'Theo lịch trả phòng hôm nay',
-                'icon' => 'bx bx-log-out-circle',
-                'tone' => 'warning',
-            ],
-            [
-                'label' => 'Chờ dọn / kiểm tra',
-                'value' => $cleaningRooms + $inspectionRooms,
-                'sub' => 'Dọn: ' . $cleaningRooms . ' · Kiểm tra: ' . $inspectionRooms,
-                'icon' => 'bx bx-brush',
-                'tone' => ($cleaningRooms + $inspectionRooms) > 0 ? 'warning' : 'success',
-            ],
-            [
-                'label' => 'Doanh thu đã thu hôm nay',
-                'value' => $this->formatCompactMoney($todayRevenue),
-                'sub' => 'Tháng này: ' . $this->formatCompactMoney($monthRevenue),
-                'icon' => 'bx bx-wallet',
-                'tone' => 'money',
-            ],
-        ];
-
-        $urgentAlerts = $this->buildUrgentAlerts($now, $todayStart, $todayEnd, $user);
-        $systemWarnings = $this->buildSystemWarnings($now, $user);
-
-        $floorMap = Room::query()
-            ->with(['category'])
-            ->orderBy('floor_number')
-            ->orderBy('room_number')
-            ->get()
-            ->groupBy('floor_number');
-
-        $housekeepingRooms = Room::query()
-            ->with('category')
-            ->whereIn('status', ['inspection', 'cleaning', 'maintenance'])
-            ->orderBy('floor_number')
-            ->orderBy('room_number')
-            ->limit(12)
-            ->get();
-
-        $inspectionStats = [
-            'pending' => (int) RoomInspection::query()->where('status', 'pending')->count(),
-            'reported' => (int) RoomInspection::query()->where('status', 'reported')->count(),
-            'confirmed' => (int) RoomInspection::query()->where('status', 'confirmed')->count(),
-            'rejected' => (int) RoomInspection::query()->where('status', 'rejected')->count(),
-            'pending_items' => (int) RoomInspectionItem::query()->where('status', 'pending')->count(),
-        ];
-
-        $assignmentStats = [
-            'room_assigned' => (int) StaffRoomAssignment::query()
-                ->whereDate('work_date', $now->toDateString())
-                ->whereIn('status', ['assigned', 'in_progress'])
-                ->count(),
-            'room_completed' => (int) StaffRoomAssignment::query()
-                ->whereDate('work_date', $now->toDateString())
-                ->where('status', 'completed')
-                ->count(),
-            'floor_active' => (int) StaffFloorAssignment::query()
-                ->whereDate('work_date', $now->toDateString())
-                ->where('status', 'active')
-                ->count(),
-        ];
-
-        $revenueChart = $this->buildRevenueChart($now);
-        $roomStatusChart = $this->buildRoomStatusChart($roomsByStatus, $roomStatusLabels, $totalRooms);
-        $bookingStatusChart = $this->buildBookingStatusChart($bookingStatusLabels);
-        $categoryRevenueChart = $this->buildCategoryRevenueChart($monthStart, $monthEnd);
-
-        $latestLogs = BookingLog::query()
-            ->with(['booking.customer', 'user'])
-            ->latest()
-            ->limit(8)
-            ->get();
-
-        $financeStats = [
-            'today_revenue' => $todayRevenue,
-            'month_revenue' => $monthRevenue,
-            'service_revenue_today' => $serviceRevenueToday,
-            'receivable_amount' => $receivableAmount,
-            'unpaid_active_bookings' => (int) $this->bookingQuery()
-                ->whereIn('status', $this->activeBookingStatuses)
-                ->where('payment_status', 'unpaid')
-                ->count(),
-            'partial_active_bookings' => (int) $this->bookingQuery()
-                ->whereIn('status', $this->activeBookingStatuses)
-                ->where('payment_status', 'partial')
-                ->count(),
-        ];
+        $periodLabel = $from->format('d/m/Y') === $to->format('d/m/Y')
+            ? $from->format('d/m/Y')
+            : $from->format('d/m/Y') . ' – ' . $to->format('d/m/Y');
+        $previousPeriodLabel = $previousFrom->format('d/m/Y') . ' – ' . $previousTo->format('d/m/Y');
 
         return view('admin.pages.dashboard.dashboard', compact(
             'now',
-            'roomStatusLabels',
-            'bookingStatusLabels',
-            'paymentStatusLabels',
-            'summaryCards',
-            'urgentAlerts',
-            'systemWarnings',
-            'floorMap',
-            'housekeepingRooms',
-            'inspectionStats',
-            'assignmentStats',
-            'revenueChart',
-            'roomStatusChart',
-            'bookingStatusChart',
-            'categoryRevenueChart',
-            'latestLogs',
-            'financeStats',
-            'checkinsToday',
-            'checkoutsToday',
+            'from',
+            'to',
+            'preset',
+            'periodDays',
+            'periodLabel',
+            'previousPeriodLabel',
+            'revenue',
+            'previousRevenue',
+            'revenueChangePercent',
+            'paymentProviderRows',
+            'newBookings',
+            'cancelledBookings',
+            'completedBookings',
+            'bookingValue',
+            'discountAmount',
+            'noShowCount',
+            'bookingSourceRows',
+            'bookingStatusRows',
+            'roomStatuses',
             'totalRooms',
-            'occupiedRooms',
-            'availableRooms',
-            'reservedRooms',
-            'cleaningRooms',
-            'inspectionRooms',
-            'maintenanceRooms',
-            'occupancyRate'
+            'currentOccupiedRooms',
+            'currentAvailableRooms',
+            'currentNotReadyRooms',
+            'occupancy',
+            'categoryOccupancy',
+            'revenueTrend',
+            'surchargeRows',
+            'receivableAmount',
+            'receivableBookings',
+            'failedPayments',
+            'pendingPayments',
+            'operationAlerts'
         ));
+    }
+
+
+    private function resolveDashboardRange(Request $request): array
+    {
+        $now = Carbon::now('Asia/Ho_Chi_Minh');
+        $preset = (string) $request->query('preset', 'this_month');
+        $fromInput = trim((string) $request->query('from'));
+        $toInput = trim((string) $request->query('to'));
+
+        if ($fromInput !== '' || $toInput !== '') {
+            try {
+                $from = $fromInput !== '' ? Carbon::createFromFormat('Y-m-d', $fromInput, 'Asia/Ho_Chi_Minh') : $now->copy()->startOfMonth();
+                $to = $toInput !== '' ? Carbon::createFromFormat('Y-m-d', $toInput, 'Asia/Ho_Chi_Minh') : $now->copy();
+                $preset = 'custom';
+            } catch (\Throwable) {
+                $from = $now->copy()->startOfMonth();
+                $to = $now->copy();
+                $preset = 'this_month';
+            }
+        } else {
+            [$from, $to] = match ($preset) {
+                'today' => [$now->copy()->startOfDay(), $now->copy()->endOfDay()],
+                'yesterday' => [$now->copy()->subDay()->startOfDay(), $now->copy()->subDay()->endOfDay()],
+                '7d' => [$now->copy()->subDays(6)->startOfDay(), $now->copy()->endOfDay()],
+                '30d' => [$now->copy()->subDays(29)->startOfDay(), $now->copy()->endOfDay()],
+                'last_month' => [$now->copy()->subMonthNoOverflow()->startOfMonth(), $now->copy()->subMonthNoOverflow()->endOfMonth()],
+                'this_year' => [$now->copy()->startOfYear(), $now->copy()->endOfDay()],
+                default => [$now->copy()->startOfMonth(), $now->copy()->endOfDay()],
+            };
+        }
+
+        if ($from->greaterThan($to)) {
+            [$from, $to] = [$to, $from];
+        }
+
+        return [$from->copy()->startOfDay(), $to->copy()->endOfDay(), $preset];
+    }
+
+    private function percentChange(float $current, float $previous): ?float
+    {
+        if (abs($previous) < 0.01) {
+            return abs($current) < 0.01 ? 0.0 : null;
+        }
+
+        return round((($current - $previous) / abs($previous)) * 100, 1);
+    }
+
+    private function buildOccupancyReport(Carbon $from, Carbon $to, int $periodDays, int $totalRooms): array
+    {
+        $periodStart = $from->copy()->startOfDay()->toDateTimeString();
+        $periodEndExclusive = $to->copy()->endOfDay()->addSecond()->toDateTimeString();
+
+        $occupiedRoomDays = (float) DB::table('booking_rooms')
+            ->join('bookings', 'bookings.id', '=', 'booking_rooms.booking_id')
+            ->whereNull('bookings.deleted_at')
+            ->where('bookings.status', '!=', 'cancelled')
+            ->where('bookings.check_in_at', '<', $periodEndExclusive)
+            ->where('bookings.check_out_at', '>', $periodStart)
+            ->selectRaw(
+                'COALESCE(SUM(GREATEST(TIMESTAMPDIFF(MINUTE, GREATEST(bookings.check_in_at, ?), LEAST(bookings.check_out_at, ?)), 0) / 1440), 0) as room_days',
+                [$periodStart, $periodEndExclusive]
+            )
+            ->value('room_days');
+
+        $capacityRoomDays = max(0, $totalRooms * max(1, $periodDays));
+        $rate = $capacityRoomDays > 0 ? round(min(100, ($occupiedRoomDays / $capacityRoomDays) * 100), 1) : 0.0;
+
+        return [
+            'occupied_room_days' => round($occupiedRoomDays, 1),
+            'capacity_room_days' => $capacityRoomDays,
+            'rate' => $rate,
+        ];
+    }
+
+    private function buildCategoryOccupancyReport(Carbon $from, Carbon $to, int $periodDays): array
+    {
+        $periodStart = $from->copy()->startOfDay()->toDateTimeString();
+        $periodEndExclusive = $to->copy()->endOfDay()->addSecond()->toDateTimeString();
+
+        $roomCounts = RoomCategory::query()
+            ->leftJoin('rooms', function ($join) {
+                $join->on('rooms.room_category_id', '=', 'room_categories.id')->whereNull('rooms.deleted_at');
+            })
+            ->select('room_categories.id', 'room_categories.name')
+            ->selectRaw('COUNT(rooms.id) as room_count')
+            ->groupBy('room_categories.id', 'room_categories.name')
+            ->get()
+            ->keyBy('id');
+
+        $used = DB::table('booking_rooms')
+            ->join('bookings', 'bookings.id', '=', 'booking_rooms.booking_id')
+            ->join('rooms', 'rooms.id', '=', 'booking_rooms.room_id')
+            ->whereNull('bookings.deleted_at')
+            ->whereNull('rooms.deleted_at')
+            ->where('bookings.status', '!=', 'cancelled')
+            ->where('bookings.check_in_at', '<', $periodEndExclusive)
+            ->where('bookings.check_out_at', '>', $periodStart)
+            ->select('rooms.room_category_id')
+            ->selectRaw(
+                'COALESCE(SUM(GREATEST(TIMESTAMPDIFF(MINUTE, GREATEST(bookings.check_in_at, ?), LEAST(bookings.check_out_at, ?)), 0) / 1440), 0) as room_days',
+                [$periodStart, $periodEndExclusive]
+            )
+            ->groupBy('rooms.room_category_id')
+            ->pluck('room_days', 'room_category_id');
+
+        return $roomCounts->map(function ($row, $categoryId) use ($used, $periodDays) {
+            $capacity = (int) $row->room_count * max(1, $periodDays);
+            $roomDays = (float) ($used[$categoryId] ?? 0);
+
+            return [
+                'name' => (string) $row->name,
+                'room_count' => (int) $row->room_count,
+                'room_days' => round($roomDays, 1),
+                'rate' => $capacity > 0 ? round(min(100, ($roomDays / $capacity) * 100), 1) : 0,
+            ];
+        })->sortByDesc('rate')->values()->all();
+    }
+
+    private function buildRevenueTrendForRange(Carbon $from, Carbon $to): array
+    {
+        $days = $from->copy()->startOfDay()->diffInDays($to->copy()->startOfDay()) + 1;
+        $payments = BookingPayment::query()
+            ->where('status', 'success')
+            ->where(function ($query) use ($from, $to) {
+                $query->whereBetween('paid_at', [$from, $to])
+                    ->orWhere(function ($fallback) use ($from, $to) {
+                        $fallback->whereNull('paid_at')->whereBetween('created_at', [$from, $to]);
+                    });
+            })
+            ->get(['amount', 'paid_at', 'created_at']);
+
+        $points = [];
+        $cursor = $from->copy()->startOfDay();
+        if ($days <= 45) {
+            while ($cursor->lte($to)) {
+                $start = $cursor->copy()->startOfDay();
+                $end = $cursor->copy()->endOfDay();
+                $points[] = [
+                    'label' => $cursor->format('d/m'),
+                    'value' => (float) $payments->filter(fn ($p) => ($p->paid_at ?? $p->created_at)?->betweenIncluded($start, $end))->sum('amount'),
+                ];
+                $cursor->addDay();
+            }
+        } elseif ($days <= 180) {
+            while ($cursor->lte($to)) {
+                $start = $cursor->copy()->startOfDay();
+                $end = $cursor->copy()->addDays(6)->endOfDay()->min($to);
+                $label = $start->month === $end->month
+                    ? $start->format('d') . '–' . $end->format('d/m')
+                    : $start->format('d/m') . '–' . $end->format('d/m');
+                $points[] = [
+                    'label' => $label,
+                    'value' => (float) $payments->filter(fn ($p) => ($p->paid_at ?? $p->created_at)?->betweenIncluded($start, $end))->sum('amount'),
+                ];
+                $cursor = $end->copy()->addDay()->startOfDay();
+            }
+        } else {
+            $cursor = $from->copy()->startOfMonth();
+            while ($cursor->lte($to)) {
+                $start = $cursor->copy()->startOfMonth()->max($from);
+                $end = $cursor->copy()->endOfMonth()->min($to);
+                $points[] = [
+                    'label' => $cursor->format('m/Y'),
+                    'value' => (float) $payments->filter(fn ($p) => ($p->paid_at ?? $p->created_at)?->betweenIncluded($start, $end))->sum('amount'),
+                ];
+                $cursor->addMonthNoOverflow()->startOfMonth();
+            }
+        }
+
+        $max = max(1, (float) collect($points)->max('value'));
+        $pointCount = count($points);
+        $tickStep = max(1, (int) ceil(max(1, $pointCount - 1) / 6));
+
+        foreach ($points as $index => &$point) {
+            $point['show_label'] = $index === 0
+                || $index === $pointCount - 1
+                || $index % $tickStep === 0;
+            $point['show_value'] = (float) $point['value'] > 0
+                && ($point['show_label'] || (float) $point['value'] >= $max);
+        }
+        unset($point);
+
+        return ['points' => $points, 'max' => $max];
+    }
+
+    private function buildSurchargeReport(Carbon $from, Carbon $to): array
+    {
+        $labels = [
+            Service::TYPE_EARLY_CHECKIN_FEE => 'Check-in sớm',
+            Service::TYPE_LATE_CHECKOUT_FEE => 'Check-out muộn',
+            Service::TYPE_OCCUPANCY_FEE => 'Phụ thu số người',
+            Service::TYPE_EXTRA_GUEST_FEE => 'Vượt sức chứa',
+            Service::TYPE_EXTENSION_FEE => 'Gia hạn lưu trú',
+            Service::TYPE_DAMAGE_FEE => 'Hư hại / bồi thường',
+            Service::TYPE_POLICY_VIOLATION_FEE => 'Vi phạm chính sách',
+            Service::TYPE_MANUAL_FEE => 'Phát sinh thủ công',
+            'late_arrival_fee' => 'Đến muộn',
+        ];
+
+        $rows = BookingServiceItem::query()
+            ->where('billing_status', 'confirmed')
+            ->whereIn('type', array_keys($labels))
+            ->where(function ($query) use ($from, $to) {
+                $query->whereBetween('confirmed_at', [$from, $to])
+                    ->orWhere(function ($fallback) use ($from, $to) {
+                        $fallback->whereNull('confirmed_at')->whereBetween('created_at', [$from, $to]);
+                    });
+            })
+            ->select('type', DB::raw('SUM(total) as total'), DB::raw('COUNT(*) as items'))
+            ->groupBy('type')
+            ->get()
+            ->map(fn ($row) => [
+                'label' => $labels[$row->type] ?? $row->type,
+                'total' => (float) $row->total,
+                'items' => (int) $row->items,
+            ]);
+
+        $roomAdjustments = (float) DB::table('booking_rooms')
+            ->join('bookings', 'bookings.id', '=', 'booking_rooms.booking_id')
+            ->whereNull('bookings.deleted_at')
+            ->where('booking_rooms.surcharge', '>', 0)
+            ->where('bookings.check_in_at', '<=', $to)
+            ->where('bookings.check_out_at', '>=', $from)
+            ->sum('booking_rooms.surcharge');
+        if ($roomAdjustments > 0) {
+            $rows->push(['label' => 'Điều chỉnh/phụ thu phòng', 'total' => $roomAdjustments, 'items' => null]);
+        }
+
+        return $rows->sortByDesc('total')->values()->all();
+    }
+
+    private function buildExecutiveAlerts(Carbon $now): array
+    {
+        $alerts = [];
+
+        // 1) Công nợ chỉ cảnh báo khi booking đang ở/chờ kiểm tra và sắp đến hạn
+        // trả phòng trong 24 giờ, thay vì coi mọi khoản chưa thu là "bất thường".
+        $paidByBooking = BookingPayment::query()
+            ->selectRaw('booking_id, SUM(amount) as paid_total')
+            ->where('status', 'success')
+            ->groupBy('booking_id');
+
+        $dueSoon = Booking::query()
+            ->leftJoinSub($paidByBooking, 'paid_alert_ledger', fn ($join) => $join->on('paid_alert_ledger.booking_id', '=', 'bookings.id'))
+            ->whereIn('bookings.status', ['checked_in', 'inspection_requested'])
+            ->whereBetween('bookings.check_out_at', [$now->copy()->subHours(6), $now->copy()->addHours(24)])
+            ->selectRaw('COALESCE(SUM(GREATEST(COALESCE(bookings.estimated_total, 0) - COALESCE(paid_alert_ledger.paid_total, 0), 0)), 0) as amount')
+            ->selectRaw('SUM(CASE WHEN GREATEST(COALESCE(bookings.estimated_total, 0) - COALESCE(paid_alert_ledger.paid_total, 0), 0) > 0 THEN 1 ELSE 0 END) as booking_count')
+            ->first();
+
+        $dueSoonAmount = (float) ($dueSoon->amount ?? 0);
+        $dueSoonCount = (int) ($dueSoon->booking_count ?? 0);
+        if ($dueSoonCount > 0) {
+            $alerts[] = [
+                'level' => 'warning',
+                'title' => 'Công nợ sắp đến hạn',
+                'value' => $dueSoonCount . ' booking',
+                'detail' => number_format($dueSoonAmount, 0, ',', '.') . 'đ chưa thu · khách trả phòng trong vòng 24 giờ',
+                'url' => route('admin.bookings.index'),
+                'action' => 'Xem booking',
+            ];
+        }
+
+        // 2) Chỉ cảnh báo giao dịch đang treo quá 15 phút hoặc failed gần đây.
+        $stalePending = (int) BookingPayment::query()
+            ->where('status', 'pending')
+            ->where('created_at', '<=', $now->copy()->subMinutes(15))
+            ->count();
+        $failed24h = (int) BookingPayment::query()
+            ->where('status', 'failed')
+            ->where('updated_at', '>=', $now->copy()->subDay())
+            ->count();
+        if ($stalePending > 0 || $failed24h > 0) {
+            $alerts[] = [
+                'level' => 'warning',
+                'title' => 'Thanh toán có dấu hiệu bất thường',
+                'value' => ($stalePending + $failed24h) . ' giao dịch',
+                'detail' => 'Treo >15 phút: ' . $stalePending . ' · Failed 24 giờ: ' . $failed24h,
+                'url' => route('admin.bookings.index'),
+                'action' => 'Kiểm tra',
+            ];
+        }
+
+        // 3) Phòng ở trạng thái không sẵn sàng quá lâu mới cần đưa lên dashboard cấp cao.
+        $roomAlertMinutes = max(30, (int) app(\App\Services\HotelPolicyService::class)
+            ->get('housekeeping.slow_room_alert_minutes', 120));
+        $staleRoomCount = (int) Room::query()
+            ->whereIn('status', ['cleaning', 'inspection', 'maintenance'])
+            ->where('updated_at', '<=', $now->copy()->subMinutes($roomAlertMinutes))
+            ->count();
+        $maintenanceCount = (int) Room::query()->where('status', 'maintenance')->count();
+        if ($staleRoomCount > 0) {
+            $alerts[] = [
+                'level' => $maintenanceCount > 0 ? 'danger' : 'info',
+                'title' => 'Phòng chưa sẵn sàng quá lâu',
+                'value' => $staleRoomCount . ' phòng',
+                'detail' => 'Quá ' . $roomAlertMinutes . ' phút chưa trở lại sẵn sàng · đang bảo trì: ' . $maintenanceCount,
+                'url' => route('admin.rooms.index'),
+                'action' => 'Xem phòng',
+            ];
+        }
+
+        // 4) Sự cố phòng mở quá 30 phút mà chưa khép lại.
+        $staleIssues = (int) RoomIssueRequest::query()
+            ->whereIn('workflow_status', ['pending', 'proposal_ready', 'waiting_guest_confirmation', 'guest_accepted', 'guest_requested_change'])
+            ->where('created_at', '<=', $now->copy()->subMinutes(30))
+            ->count();
+        if ($staleIssues > 0) {
+            $alerts[] = [
+                'level' => 'danger',
+                'title' => 'Sự cố phòng đang tồn đọng',
+                'value' => $staleIssues . ' sự cố',
+                'detail' => 'Đã mở quá 30 phút nhưng chưa hoàn tất quy trình xử lý',
+                'url' => route('admin.room-issues.index'),
+                'action' => 'Xem sự cố',
+            ];
+        }
+
+        // 5) Khách chờ chat quá 5 phút mới là bất thường đối với Super Admin.
+        $waitingChats = (int) ChatConversation::query()
+            ->where('status', 'waiting')
+            ->where('updated_at', '<=', $now->copy()->subMinutes(5))
+            ->count();
+        if ($waitingChats > 0) {
+            $alerts[] = [
+                'level' => 'warning',
+                'title' => 'Khách chờ chat quá lâu',
+                'value' => $waitingChats . ' cuộc',
+                'detail' => 'Chưa được tiếp nhận sau hơn 5 phút',
+                'url' => route('admin.chats.index'),
+                'action' => 'Xem chat',
+            ];
+        }
+
+        if (empty($alerts)) {
+            $alerts[] = [
+                'level' => 'success',
+                'title' => 'Không có ngoại lệ cần can thiệp',
+                'value' => 'Vận hành ổn định',
+                'detail' => 'Các ngưỡng công nợ, thanh toán, phòng, sự cố và chat hiện chưa vượt mức cảnh báo.',
+                'url' => null,
+                'action' => null,
+            ];
+        }
+
+        return $alerts;
     }
 
     private function bookingQuery()
@@ -245,17 +544,16 @@ class DashboardController extends Controller
 
     private function paidRevenueForPeriod(Carbon $from, Carbon $to): float
     {
-        return (float) $this->bookingQuery()
-            ->whereIn('status', ['checked_out', 'completed'])
-            ->where('payment_status', 'paid')
+        return (float) BookingPayment::query()
+            ->where('status', 'success')
             ->where(function ($query) use ($from, $to) {
-                $query->whereBetween('actual_check_out', [$from, $to])
+                $query->whereBetween('paid_at', [$from, $to])
                     ->orWhere(function ($subQuery) use ($from, $to) {
-                        $subQuery->whereNull('actual_check_out')
-                            ->whereBetween('updated_at', [$from, $to]);
+                        $subQuery->whereNull('paid_at')
+                            ->whereBetween('created_at', [$from, $to]);
                     });
             })
-            ->sum('estimated_total');
+            ->sum('amount');
     }
 
     private function buildUrgentAlerts(Carbon $now, Carbon $todayStart, Carbon $todayEnd, $user): array
@@ -328,10 +626,12 @@ class DashboardController extends Controller
             ];
         }
 
+        $slowRoomAlertMinutes = max(1, (int) app(\App\Services\HotelPolicyService::class)
+            ->get('housekeeping.slow_room_alert_minutes', 120));
         $slowRooms = Room::query()
             ->with('category')
             ->whereIn('status', ['cleaning', 'inspection'])
-            ->where('updated_at', '<', $now->copy()->subHours(2))
+            ->where('updated_at', '<', $now->copy()->subMinutes($slowRoomAlertMinutes))
             ->orderBy('updated_at')
             ->limit(5)
             ->get();
@@ -358,13 +658,19 @@ class DashboardController extends Controller
             ->get();
 
         foreach ($reportedInspections as $inspection) {
+            $stageText = match ($inspection->workflow_stage) {
+                RoomInspection::STAGE_GUEST_CONSULTATION => 'chờ lễ tân trao đổi với khách',
+                RoomInspection::STAGE_HOUSEKEEPING_RECHECK => 'chờ buồng phòng kiểm tra lại',
+                default => 'đang đối chiếu kết quả',
+            };
+
             $alerts[] = [
                 'level' => 'warning',
-                'icon' => 'bx bx-check-shield',
-                'title' => 'Phiếu kiểm tra chờ duyệt',
-                'message' => 'Phòng ' . ($inspection->room->room_number ?? 'N/A') . ' · booking ' . ($inspection->booking->booking_code ?? 'N/A') . ' · cần duyệt minibar/hư hại',
-                'url' => $this->canApproveInspection($user) ? route('admin.inspection-approvals.show', $inspection) : route('admin.floor-inspections.show', $inspection),
-                'action' => $this->canApproveInspection($user) ? 'Duyệt' : 'Xem',
+                'icon' => 'bx bx-search-alt',
+                'title' => 'Phiếu kiểm tra đang xử lý',
+                'message' => 'Phòng ' . ($inspection->room->room_number ?? 'N/A') . ' · booking ' . ($inspection->booking->booking_code ?? 'N/A') . ' · ' . $stageText,
+                'url' => route('admin.floor-inspections.show', $inspection),
+                'action' => 'Xem',
             ];
         }
 
@@ -578,12 +884,18 @@ class DashboardController extends Controller
 
     private function buildCategoryRevenueChart(Carbon $from, Carbon $to): array
     {
-        $rows = Booking::query()
+        $rows = BookingPayment::query()
+            ->join('bookings', 'bookings.id', '=', 'booking_payments.booking_id')
             ->join('room_categories', 'room_categories.id', '=', 'bookings.room_category_id')
-            ->select('room_categories.name', DB::raw('COALESCE(SUM(bookings.estimated_total), 0) as total'))
-            ->where('bookings.payment_status', 'paid')
-            ->whereIn('bookings.status', ['checked_out', 'completed'])
-            ->whereBetween('bookings.updated_at', [$from, $to])
+            ->select('room_categories.name', DB::raw('COALESCE(SUM(booking_payments.amount), 0) as total'))
+            ->where('booking_payments.status', 'success')
+            ->where(function ($query) use ($from, $to) {
+                $query->whereBetween('booking_payments.paid_at', [$from, $to])
+                    ->orWhere(function ($subQuery) use ($from, $to) {
+                        $subQuery->whereNull('booking_payments.paid_at')
+                            ->whereBetween('booking_payments.created_at', [$from, $to]);
+                    });
+            })
             ->groupBy('room_categories.id', 'room_categories.name')
             ->orderByDesc('total')
             ->limit(6)
@@ -611,10 +923,6 @@ class DashboardController extends Controller
         return $user && in_array($user->role, ['super_admin', 'manager', 'receptionist_lead', 'receptionist'], true);
     }
 
-    private function canApproveInspection($user): bool
-    {
-        return $user && in_array($user->role, ['super_admin', 'manager'], true);
-    }
 
     private function customerName(Booking $booking): string
     {
@@ -694,7 +1002,7 @@ class DashboardController extends Controller
             'inspection_requested' => 'Chờ kiểm tra',
             'checked_out' => 'Đã check-out',
             'completed' => 'Hoàn tất',
-            'canceled' => 'Đã hủy',
+            'cancelled' => 'Đã hủy',
         ];
     }
 

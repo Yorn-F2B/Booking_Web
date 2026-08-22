@@ -243,6 +243,14 @@ class RoomCategoryController extends Controller
 
     public function destroy(RoomCategory $roomCategory)
     {
+        if ($roomCategory->rooms()->exists() || $roomCategory->bookings()->exists()) {
+            $roomCategory->update(['status' => 'inactive']);
+
+            return redirect()
+                ->route('room-categories.index')
+                ->with('success', 'Hạng phòng đã có dữ liệu sử dụng nên hệ thống chỉ chuyển sang Ngừng hoạt động để bảo toàn lịch sử.');
+        }
+
         $roomCategory->delete();
 
         return redirect()

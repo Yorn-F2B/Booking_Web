@@ -1,10 +1,19 @@
 @extends('guest-bookings.layout')
+@php
+    $lateArrivalPolicy = app(\App\Services\HotelPolicyService::class);
+    $lateArrivalCutoffLabel = substr((string) $lateArrivalPolicy
+        ->forBooking($booking, 'stay.late_arrival_cutoff_time', '18:00'), 0, 5);
+    $lateArrivalGraceMinutes = max(0, (int) $lateArrivalPolicy
+        ->forBooking($booking, 'stay.late_arrival_grace_minutes', 30));
+    $lateArrivalDefaultTime = \Carbon\Carbon::createFromFormat('H:i', $lateArrivalCutoffLabel)
+        ->addMinutes($lateArrivalGraceMinutes)->format('H:i');
+@endphp
 @section('content')
 <div class="container py-4" style="max-width:820px">
     <div class="card shadow-sm">
         <div class="card-body p-4">
             <h3 class="mb-2">Báo đến sau giờ G</h3>
-            <p class="text-muted">Booking <strong>{{ $booking->booking_code }}</strong> · Giờ G: 18:00 ngày nhận phòng.</p>
+            <p class="text-muted">Booking <strong>{{ $booking->booking_code }}</strong> · Giờ G: {{ $lateArrivalCutoffLabel }} ngày nhận phòng.</p>
 
             @if($errors->any())
                 <div class="alert alert-danger">{{ $errors->first() }}</div>
@@ -27,7 +36,7 @@
                     </div>
                     @php
                         $oldArrivalDate = old('expected_arrival_date', $pendingRequest?->expected_arrival_at?->format('Y-m-d') ?? \Carbon\Carbon::parse($booking->check_in_date)->format('Y-m-d'));
-                        $oldArrivalTime = old('expected_arrival_time', $pendingRequest?->expected_arrival_at?->format('H:i') ?? '18:30');
+                        $oldArrivalTime = old('expected_arrival_time', $pendingRequest?->expected_arrival_at?->format('H:i') ?? $lateArrivalDefaultTime);
                     @endphp
                     <div class="col-md-6">
                         <label class="form-label">Ngày dự kiến đến <span class="text-danger">*</span></label>

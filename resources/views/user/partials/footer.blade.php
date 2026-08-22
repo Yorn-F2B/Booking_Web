@@ -1,3 +1,9 @@
+@php
+    $footerPolicy = app(\App\Services\HotelPolicyService::class);
+    $footerCheckIn = substr((string) $footerPolicy->get('stay.standard_check_in_time', '14:00'), 0, 5);
+    $footerEarlyFreeFrom = substr((string) $footerPolicy->get('stay.early_checkin_free_from', '12:00'), 0, 5);
+    $footerCheckOut = substr((string) $footerPolicy->get('stay.standard_check_out_time', '12:00'), 0, 5);
+@endphp
 <footer class="site-footer pt-5 pb-3">
   <div class="container">
     <div class="row g-4">
@@ -47,8 +53,8 @@
       <div class="col-lg-4 col-md-6">
         <p class="footer-heading">Thời gian &amp; chính sách</p>
         <ul class="list-unstyled small mb-0" style="line-height:2;color:rgba(255,255,255,.55)">
-          <li><i class="bx bx-time me-1 text-gold"></i> Thời gian nhận phòng: 14:00 - 16:00</li>
-          <li><i class="bx bx-time me-1 text-gold"></i> Thời gian trả phòng: 10:00 - 12:00</li>
+          <li><i class="bx bx-time me-1 text-gold"></i> Nhận phòng chuẩn: {{ $footerCheckIn }} · linh hoạt từ {{ $footerEarlyFreeFrom }} nếu phòng sẵn sàng</li>
+          <li><i class="bx bx-time me-1 text-gold"></i> Trả phòng chuẩn: {{ $footerCheckOut }}</li>
           <li><i class="bx bx-headphone me-1 text-gold"></i> Lễ tân &amp; hỗ trợ 24/7</li>
           <li><i class="bx bx-refresh me-1 text-gold"></i> Hủy phòng không hoàn lại tiền đã thanh toán</li>
           <li><i class="bx bx-car me-1 text-gold"></i> Đưa đón theo yêu cầu</li>

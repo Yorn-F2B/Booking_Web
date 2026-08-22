@@ -10,7 +10,10 @@ document.addEventListener('DOMContentLoaded', () => {
         window.Echo.private(`customer.${customerId}`)
             .listen('.booking.updated', (event) => {
                 window.dispatchEvent(new CustomEvent('customer-booking:updated', { detail: event }));
-                showUserToast(getCustomerBookingMessage(event));
+                const actorUserId = Number(event.actor_user_id || 0);
+                if (!userId || !actorUserId || Number(userId) !== actorUserId) {
+                    showUserToast(getCustomerBookingMessage(event), `booking:${event.id}:${event.action}`);
+                }
                 updateCustomerBookingView(event);
             })
             .error((error) => console.error('Lỗi realtime khách:', error));
@@ -70,39 +73,14 @@ function getCustomerBookingMessage(event) {
     }
 }
 
-function showUserToast(message) {
-    let wrapper = document.querySelector('[data-user-realtime-toast-wrapper]');
-
-    if (!wrapper) {
-        wrapper = document.createElement('div');
-        wrapper.setAttribute('data-user-realtime-toast-wrapper', 'true');
-        wrapper.style.position = 'fixed';
-        wrapper.style.right = '18px';
-        wrapper.style.bottom = '18px';
-        wrapper.style.zIndex = '99999';
-        wrapper.style.display = 'flex';
-        wrapper.style.flexDirection = 'column';
-        wrapper.style.gap = '10px';
-        document.body.appendChild(wrapper);
+function showUserToast(message, dedupeKey = '') {
+    if (window.AppToast && typeof window.AppToast.info === 'function') {
+        window.AppToast.info(message, { title: 'Cập nhật booking', duration: 4500, dedupeKey });
+        return;
     }
 
-    const toast = document.createElement('div');
-    toast.style.minWidth = '260px';
-    toast.style.maxWidth = '360px';
-    toast.style.padding = '12px 14px';
-    toast.style.borderRadius = '14px';
-    toast.style.background = '#111827';
-    toast.style.color = '#fff';
-    toast.style.boxShadow = '0 12px 32px rgba(0,0,0,.22)';
-    toast.style.fontSize = '14px';
-    toast.style.lineHeight = '1.45';
-    toast.textContent = message;
-
-    wrapper.appendChild(toast);
-
-    setTimeout(() => {
-        toast.remove();
-    }, 4500);
+    window.__appToastQueue = window.__appToastQueue || [];
+    window.__appToastQueue.push({ message, type: 'info', options: { title: 'Cập nhật booking', duration: 4500, dedupeKey } });
 }
 
 function truncate(value, limit = 80) {

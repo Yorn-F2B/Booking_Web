@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\BookingLog;
+use App\Models\BookingPromotion;
 use App\Models\BookingRoom;
 use App\Models\BookingRoomChange;
 use App\Models\Room;
@@ -15,6 +16,7 @@ use App\Services\BookingPromotionApplicationService;
 use App\Services\BookingRepricingService;
 use App\Services\RoomIssueProposalService;
 use App\Services\PromotionService;
+use App\Services\HotelPolicyService;
 use App\Support\Realtime;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -63,7 +65,7 @@ class RoomIssueGroupController extends Controller
     /**
      * Hệ thống tự lập phương án theo đúng thứ tự nghiệp vụ:
      * 1) phòng cùng hạng; 2) hạng cao hơn gần nhất; 3) giữ nguyên và sửa gấp.
-     * Quản lý không phải tự dò/chọn phòng. Thời gian giữ luôn là 30 phút.
+     * Quản lý không phải tự dò/chọn phòng. Thời gian giữ lấy từ policy của booking.
      */
     public function saveProposal(Request $request, RoomIssueRequest $roomIssueRequest)
     {
@@ -81,6 +83,8 @@ class RoomIssueGroupController extends Controller
         try {
             DB::transaction(function () use ($leader, $issues, $data) {
                 $booking = Booking::whereKey($leader->booking_id)->lockForUpdate()->firstOrFail();
+                $holdMinutes = max(5, (int) app(HotelPolicyService::class)
+                    ->forBooking($booking, 'room_issue.proposal_hold_minutes', 30));
                 if (!in_array($booking->status, ['checked_in', 'inspection_requested'], true)) {
                     throw new \RuntimeException('Booking không còn ở trạng thái đang lưu trú.');
                 }
@@ -121,7 +125,7 @@ class RoomIssueGroupController extends Controller
 
                 // Không xóa phương án đổi phòng chỉ vì khách đã từng chọn sửa gấp.
                 // Nếu phòng đang được giữ còn hiệu lực, hệ thống giữ nguyên phòng đó
-                // và làm mới hạn 30 phút; nếu hết hạn mới tự dò phòng khác.
+                // và làm mới hạn theo policy; nếu hết hạn mới tự dò phòng khác.
                 $proposalResult = $this->proposalService->prepareGroup(
                     $booking,
                     $issues,
@@ -132,10 +136,7 @@ class RoomIssueGroupController extends Controller
 
                 foreach ($issues as $issue) {
                     $issue->update([
-                        'promotion_codes' => json_encode(
-                            $codesByIssue->get((int) $issue->id, collect())->all(),
-                            JSON_UNESCAPED_UNICODE
-                        ),
+                        'promotion_codes' => $codesByIssue->get((int) $issue->id, collect())->all(),
                         'admin_note' => array_key_exists('admin_note_draft', $data)
                             ? (trim((string) ($data['admin_note_draft'] ?? '')) ?: null)
                             : $issue->admin_note,
@@ -161,7 +162,7 @@ class RoomIssueGroupController extends Controller
                     'action' => 'room_issue_auto_proposal_created',
                     'description' => 'Gửi lại các phương án khả dụng cho lễ tân: '
                         . $proposalLogs
-                        . '. Phòng thay thế được giữ/làm mới hạn giữ 30 phút đến '
+                        . '. Phòng thay thế được giữ/làm mới hạn giữ ' . $holdMinutes . ' phút đến '
                         . $proposalResult['expires_at']->format('d/m/Y H:i')
                         . '. Mã bù đắp theo phòng: '
                         . $issues->map(function ($issue) use ($codesByIssue) {
@@ -264,7 +265,7 @@ class RoomIssueGroupController extends Controller
                         if (!$hold) {
                             throw new \RuntimeException('Phòng giữ cho phòng '
                                 . ($issue->currentRoom?->room_number ?? $issue->current_room_id)
-                                . ' đã hết 30 phút. Vui lòng nhờ quản lý tạo lại phương án.');
+                                . ' đã hết thời hạn giữ phòng. Vui lòng nhờ quản lý tạo lại phương án.');
                         }
                     }
 
@@ -416,8 +417,8 @@ class RoomIssueGroupController extends Controller
                 $repricingService->apply($booking, $repricingPreview);
 
                 // Giai đoạn 3: áp mã bù đắp riêng cho từng phòng lỗi. Chênh lệch
-                // giá phòng đã tồn tại thật; mã nâng hạng/giảm tiền quyết định phần
-                // khách sạn hỗ trợ, phần còn lại khách phải thanh toán.
+                // Giá nâng hạng do sự cố đã được khách sạn chịu bằng cách giữ nguyên đơn giá
+                // khách đã chốt. Mã ở đây chỉ là hỗ trợ/bồi thường bổ sung nếu quản lý chọn.
                 foreach ($pendingPromotionApplications as $application) {
                     /** @var RoomIssueRequest $issue */
                     $issue = $application['issue'];
@@ -445,7 +446,7 @@ class RoomIssueGroupController extends Controller
                     }
 
                     $issue->update([
-                        'promotion_codes' => json_encode($codes->all(), JSON_UNESCAPED_UNICODE),
+                        'promotion_codes' => $codes->all(),
                         'admin_note' => $data['admin_note'],
                         'workflow_status' => 'approved',
                         'reviewed_by' => Auth::id(),
@@ -454,7 +455,7 @@ class RoomIssueGroupController extends Controller
 
                     $promotionLogs[] = 'phòng '
                         . ($issue->currentRoom?->room_number ?? $issue->current_room_id)
-                        . ': ' . ($codes->isEmpty() ? 'không áp mã, khách chịu chênh lệch nếu có' : $codes->implode(', '));
+                        . ': ' . ($codes->isEmpty() ? 'không áp mã bổ sung' : $codes->implode(', '));
                 }
 
                 RoomIssueRoomHold::where('group_uuid', $leader->group_uuid)
@@ -515,23 +516,34 @@ class RoomIssueGroupController extends Controller
 
             if (!$hold) {
                 throw new \RuntimeException('Phòng giữ cho ' . $oldRoom->room_number
-                    . ' đã hết 30 phút. Hãy tạo lại phương án và trao đổi lại với khách.');
+                    . ' đã hết thời hạn giữ phòng. Hãy tạo lại phương án và trao đổi lại với khách.');
             }
 
             $newRoom = Room::with('category')->lockForUpdate()->findOrFail($hold->room_id);
-            $remainingStart = now('Asia/Ho_Chi_Minh')->startOfDay();
-            $remainingEnd = Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')->startOfDay();
-            $nightCount = max(1, $remainingStart->diffInDays($remainingEnd));
+            $checkInDay = Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')->startOfDay();
+            $checkOutDay = Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')->startOfDay();
+            $changeDay = now('Asia/Ho_Chi_Minh')->startOfDay();
+            $totalNightCount = max(1, $checkInDay->diffInDays($checkOutDay));
+            $elapsedNightCount = min($totalNightCount, max(0, $checkInDay->diffInDays($changeDay)));
+            $remainingNightCount = max(0, $totalNightCount - $elapsedNightCount);
             $oldPrice = (float) $bookingRoom->price_at_booking;
-            $newPrice = (float) ($newRoom->category?->price ?? $bookingRoom->price_at_booking);
-            $difference = max(0, ($newPrice - $oldPrice) * $nightCount);
+            $marketNewPrice = (float) ($newRoom->category?->price ?? $oldPrice);
+            $isUpgrade = (int) $newRoom->room_category_id !== (int) $oldRoom->room_category_id
+                && $marketNewPrice > $oldPrice;
 
+            // Sự cố phía khách sạn không được biến thành một lần upsell bắt khách trả tiền.
+            // booking_room tiếp tục giữ đúng đơn giá khách đã chốt; giá thị trường của
+            // phòng thay thế chỉ được lưu ở lịch sử đổi phòng để có thể đối chiếu.
             $bookingRoom->update([
                 'room_id' => $newRoom->id,
-                // Luôn ghi giá phòng/hạng mới. Phần chênh lệch chỉ được bù khi
-                // quản lý chọn mã hỗ trợ phù hợp; không tự âm thầm giữ giá cũ.
-                'price_at_booking' => $newPrice,
-                'surcharge_reason' => 'Đổi phòng do sự cố: ' . $note,
+                'price_at_booking' => $oldPrice,
+                'surcharge_reason' => substr(
+                    trim(($bookingRoom->surcharge_reason ? $bookingRoom->surcharge_reason . ' | ' : '')
+                        . 'Đổi phòng do sự cố: ' . $note
+                        . ($isUpgrade ? ' | Khách sạn nâng hạng miễn phí, giữ nguyên đơn giá đã chốt.' : '')),
+                    0,
+                    255
+                ),
             ]);
 
             BookingRoomChange::create([
@@ -543,13 +555,16 @@ class RoomIssueGroupController extends Controller
                 'old_room_category_id' => $oldRoom->room_category_id,
                 'new_room_category_id' => $newRoom->room_category_id,
                 'old_room_price' => $oldPrice,
-                'new_room_price' => $newPrice,
-                'night_count' => $nightCount,
-                'price_difference_total' => $difference,
+                'new_room_price' => $marketNewPrice,
+                'night_count' => $remainingNightCount,
+                'price_difference_total' => 0,
                 'change_source' => 'incident',
-                'reason' => $note,
+                'reason' => $note . ($isUpgrade ? ' | Nâng hạng miễn phí do lỗi/sự cố phía khách sạn.' : ''),
                 'changed_by' => Auth::id(),
             ]);
+
+            // Đây là chênh lệch khách phải trả, không phải chênh giá niêm yết.
+            $newPrice = $oldPrice;
 
             $newRoom->update([
                 'status' => 'occupied',
@@ -584,9 +599,7 @@ class RoomIssueGroupController extends Controller
             'resolution_type' => $resolution === 'repair_only' ? 'no_room' : $resolution,
             'approved_room_id' => $newRoom?->id,
             'approved_room_category_id' => $newRoom?->room_category_id,
-            'price_difference_per_night' => $newRoom
-                ? max(0, (float) ($newRoom->category?->price ?? 0) - (float) ($oldRoom->category?->price ?? 0))
-                : 0,
+            'price_difference_per_night' => 0,
             'repair_status' => 'waiting',
         ]);
 
@@ -639,7 +652,7 @@ class RoomIssueGroupController extends Controller
 
     private function availablePromotions(Booking $booking, $issues)
     {
-        $booking->loadMissing(['bookingPromotions', 'serviceItems']);
+        $booking->loadMissing(['bookingPromotions', 'serviceItems', 'customer']);
 
         $discount = (float) ($booking->discount_amount ?? 0);
         $subtotal = (float) ($booking->subtotal_amount ?? 0);
@@ -667,19 +680,70 @@ class RoomIssueGroupController extends Controller
             'room_quantity' => $booking->room_quantity,
         ];
 
-        // Mã đã được áp hoặc đã gắn vào bất kỳ phương án sự cố nào của nhóm
-        // không được chọn lại ở lần gửi sau. Mã cũ vẫn được hiển thị như mã đã khóa.
+        // Ở luồng bồi thường sự cố không giới hạn số lượng mã theo nhóm loại.
+        // Tuy nhiên một mã mà chính khách này đã thực sự dùng ở booking trước
+        // sẽ không được cấp lại. Nhận diện khách ưu tiên customer_id, sau đó
+        // đối chiếu snapshot CCCD / email / điện thoại để không lách bằng tài khoản khác.
         $usedCodes = $booking->bookingPromotions
             ->pluck('code_snapshot')
             ->merge(collect($issues)->flatMap(fn ($issue) => $issue->promotion_codes ?? []))
+            ->merge($this->historicalPromotionCodesForCustomer($booking))
             ->map(fn ($code) => strtoupper(trim((string) $code)))
             ->filter()
             ->unique();
 
         return app(PromotionService::class)
             ->availablePromotions($context, 'admin')
-            ->reject(fn ($promotion) => $usedCodes->contains(strtoupper($promotion->code)))
+            ->reject(fn ($promotion) => $usedCodes->contains(strtoupper(trim((string) $promotion->code))))
             ->values();
+    }
+
+    private function historicalPromotionCodesForCustomer(Booking $booking)
+    {
+        $customerId = $booking->customer_id ? (int) $booking->customer_id : null;
+        $cccd = strtoupper(trim((string) ($booking->customer_cccd_snapshot ?: $booking->customer?->cccd)));
+        $email = mb_strtolower(trim((string) ($booking->customer_email_snapshot ?: $booking->customer?->email)));
+        $phone = preg_replace('/\D+/', '', (string) ($booking->customer_phone_snapshot ?: $booking->customer?->phone));
+
+        if (!$customerId && $cccd === '' && $email === '' && $phone === '') {
+            return collect();
+        }
+
+        return BookingPromotion::query()
+            ->select('booking_promotions.code_snapshot')
+            ->join('bookings', 'bookings.id', '=', 'booking_promotions.booking_id')
+            ->whereNull('bookings.deleted_at')
+            // Booking đã hủy không được xem là khách đã hưởng ưu đãi.
+            ->where('bookings.status', '!=', 'cancelled')
+            ->where(function ($query) use ($customerId, $cccd, $email, $phone) {
+                $first = true;
+
+                if ($customerId) {
+                    $query->where('bookings.customer_id', $customerId);
+                    $first = false;
+                }
+
+                if ($cccd !== '') {
+                    $method = $first ? 'whereRaw' : 'orWhereRaw';
+                    $query->{$method}("UPPER(TRIM(COALESCE(bookings.customer_cccd_snapshot, ''))) = ?", [$cccd]);
+                    $first = false;
+                }
+
+                if ($email !== '') {
+                    $method = $first ? 'whereRaw' : 'orWhereRaw';
+                    $query->{$method}("LOWER(TRIM(COALESCE(bookings.customer_email_snapshot, ''))) = ?", [$email]);
+                    $first = false;
+                }
+
+                if ($phone !== '') {
+                    $method = $first ? 'whereRaw' : 'orWhereRaw';
+                    $query->{$method}(
+                        "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(bookings.customer_phone_snapshot, ''), ' ', ''), '-', ''), '.', ''), '(', ''), ')', '') = ?",
+                        [$phone]
+                    );
+                }
+            })
+            ->pluck('booking_promotions.code_snapshot');
     }
 
     private function resolutionLabel(?string $resolution): string
@@ -699,12 +763,10 @@ class RoomIssueGroupController extends Controller
 
     private function guardReceptionist(Booking $booking): void
     {
-        $role = Auth::user()?->role;
-        abort_unless(in_array($role, [
-            'super_admin',
-            'manager',
-            'receptionist_lead',
-            'receptionist',
-        ], true), 403);
+        abort_unless(
+            $booking->canBeHandledBy(Auth::user()),
+            403,
+            'Bạn không được phân công xử lý booking này.'
+        );
     }
 }

@@ -20,9 +20,19 @@ class ChatMessageRealtimeSent implements ShouldBroadcastNow
     public function broadcastOn(): array
     {
         $channels = [
-            new PrivateChannel('admin.realtime'),
+            // Trưởng lễ tân/Manager/Super Admin cần thấy hàng đợi để điều phối.
+            new PrivateChannel('chat.supervisors'),
+            // Kênh conversation chỉ dành cho chính khách của hội thoại.
+            // Nhân viên không dùng kênh này để tránh subscription cũ tiếp tục
+            // nhận nội dung sau khi hội thoại đã được transfer.
             new PrivateChannel('chat.conversation.' . $this->message->conversation_id),
         ];
+
+        if ($this->message->conversation?->assigned_staff_id) {
+            $channels[] = new PrivateChannel(
+                'chat.staff.' . $this->message->conversation->assigned_staff_id
+            );
+        }
 
         if ($this->message->conversation?->customer_id) {
             $channels[] = new PrivateChannel(

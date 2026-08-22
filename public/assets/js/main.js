@@ -158,80 +158,16 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 });
 
-// ---------- Toast helper (chỉ để demo) ----------
+// ---------- Toast helper: toàn hệ thống dùng toast góc trên ----------
 function showToast(message, type) {
     type = type || "info";
-    let container = document.getElementById("toast-container");
-    if (!container) {
-        container = document.createElement("div");
-        container.id = "toast-container";
-        container.style.cssText = [
-            "position:fixed",
-            "bottom:1.5rem",
-            "right:1.5rem",
-            "z-index:9999",
-            "display:flex",
-            "flex-direction:column",
-            "gap:.5rem",
-            "max-width:340px",
-            "width:calc(100% - 2rem)",
-        ].join(";");
-        document.body.appendChild(container);
+    if (window.AppToast && typeof window.AppToast.show === "function") {
+        return window.AppToast.show(message, type);
     }
 
-    const colors = {
-        success: { bg: "#0b1628", border: "#c9a84c", icon: "✓" },
-        error: { bg: "#7f1d1d", border: "#f87171", icon: "✕" },
-        info: { bg: "#1e3a5f", border: "#60a5fa", icon: "i" },
-    };
-    const c = colors[type] || colors.info;
-
-    const toast = document.createElement("div");
-    toast.style.cssText = [
-        "background:" + c.bg,
-        "border:1px solid " + c.border,
-        "color:#fff",
-        "padding:.85rem 1rem",
-        "border-radius:.75rem",
-        "font-size:.85rem",
-        "display:flex",
-        "align-items:flex-start",
-        "gap:.65rem",
-        "box-shadow:0 8px 28px rgba(0,0,0,.25)",
-        "animation:toastIn .3s ease",
-        "line-height:1.4",
-    ].join(";");
-
-    toast.innerHTML =
-        '<span style="width:20px;height:20px;border-radius:50%;background:' +
-        c.border +
-        ";color:" +
-        c.bg +
-        ";display:inline-flex;align-items:center;justify-content:center;" +
-        'font-size:.7rem;font-weight:700;flex-shrink:0;margin-top:1px">' +
-        c.icon +
-        "</span>" +
-        "<span>" +
-        message +
-        "</span>";
-
-    if (!document.getElementById("toast-style")) {
-        const s = document.createElement("style");
-        s.id = "toast-style";
-        s.textContent =
-            "@keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}";
-        document.head.appendChild(s);
-    }
-
-    container.appendChild(toast);
-    setTimeout(function () {
-        toast.style.transition = "opacity .3s ease, transform .3s ease";
-        toast.style.opacity = "0";
-        toast.style.transform = "translateY(8px)";
-        setTimeout(function () {
-            toast.remove();
-        }, 320);
-    }, 3500);
+    window.__appToastQueue = window.__appToastQueue || [];
+    window.__appToastQueue.push({ message: String(message || ""), type: type, options: {} });
+    return null;
 }
 
 (function () {

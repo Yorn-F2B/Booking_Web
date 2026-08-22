@@ -15,6 +15,28 @@ use Illuminate\Database\Eloquent\Builder;
 
 class PromotionService
 {
+    public function selectionRules(): array
+    {
+        return [
+            Promotion::TYPE_NORMAL => [
+                'label' => 'Mã thường',
+                'limit' => 1,
+            ],
+            Promotion::TYPE_EVENT => [
+                'label' => 'Mã sự kiện',
+                'limit' => 1,
+            ],
+            Promotion::TYPE_CONDITIONAL => [
+                'label' => 'Mã điều kiện',
+                'limit' => 1,
+            ],
+            Promotion::TYPE_SUPPORT => [
+                'label' => 'Mã hỗ trợ',
+                'limit' => null,
+            ],
+        ];
+    }
+
     public function availablePromotions(array $context, string $channel = 'user'): Collection
     {
         $query = Promotion::query()
@@ -115,23 +137,10 @@ class PromotionService
             ];
         }
 
-        // Quy tắc chọn mã kiểu ứng dụng đặt xe: mỗi nhóm có hạn mức riêng.
-        // Mã thường, sự kiện và điều kiện: tối đa 1 mã mỗi nhóm.
-        // Mã hỗ trợ: có thể chọn nhiều, miễn từng mã cho phép cộng dồn.
-        $typeLimits = [
-            Promotion::TYPE_NORMAL => 1,
-            Promotion::TYPE_EVENT => 1,
-            Promotion::TYPE_CONDITIONAL => 1,
-            Promotion::TYPE_SUPPORT => null,
-        ];
-        $typeLabels = [
-            Promotion::TYPE_NORMAL => 'mã thường',
-            Promotion::TYPE_EVENT => 'mã sự kiện',
-            Promotion::TYPE_CONDITIONAL => 'mã điều kiện',
-            Promotion::TYPE_SUPPORT => 'mã hỗ trợ',
-        ];
-
-        foreach ($typeLimits as $type => $limit) {
+        // Một nguồn quy tắc duy nhất cho backend lẫn UI. Không để màn tạo/sửa
+        // booking tự đặt giới hạn khác với validate server.
+        foreach ($this->selectionRules() as $type => $rule) {
+            $limit = $rule['limit'];
             if (!$ignoreCombinationRules && $limit !== null && $validPromotions->where('promotion_type', $type)->count() > $limit) {
                 return [
                     'ok' => false,
@@ -142,7 +151,7 @@ class PromotionService
                     'room_upgrade_discount_total' => 0,
                     'subtotal_amount' => (float) ($context['subtotal_amount'] ?? 0),
                     'auto_service_items' => [],
-                    'messages' => ['Mỗi booking chỉ được chọn tối đa ' . $limit . ' ' . $typeLabels[$type] . '.'],
+                    'messages' => ['Mỗi booking chỉ được chọn tối đa ' . $limit . ' ' . mb_strtolower($rule['label']) . '.'],
                 ];
             }
         }

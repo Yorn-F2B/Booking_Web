@@ -13,7 +13,13 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'Laravel'),
+    'name' => (function (): string {
+        $name = trim((string) env('APP_NAME', ''));
+
+        return $name !== '' && !in_array(strtolower($name), ['laravel', 'booking web'], true)
+            ? $name
+            : 'MCuong Hotel';
+    })(),
 
     /*
     |--------------------------------------------------------------------------

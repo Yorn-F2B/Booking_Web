@@ -4,7 +4,8 @@
 
     <?php
         $now = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
-        $checkInLimitToday = $now->copy()->setTime(14, 0, 0);
+        $standardCheckInTime = (string) ($standardCheckInTime ?? app(\App\Services\HotelPolicyService::class)->get('stay.standard_check_in_time', '14:00'));
+        $checkInLimitToday = \Carbon\Carbon::parse($now->toDateString() . ' ' . $standardCheckInTime, 'Asia/Ho_Chi_Minh');
 
         $minOnlineCheckInDate = $now->greaterThanOrEqualTo($checkInLimitToday)
             ? $now->copy()->addDay()->toDateString()
@@ -195,59 +196,59 @@
                 <div class="col-6 col-lg-3">
                     <div class="trust-pill">
                         <i class="bx bx-refresh"></i>
-                        <span>Chính sách hủy linh hoạt</span>
+                        <span>Chính sách hủy rõ ràng</span>
                     </div>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Today's Deals -->
+    <!-- Public promotions -->
     <section class="py-5">
         <div class="container">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div>
-                    <h2 class="h4 fw-bold mb-1">Ưu đãi hôm nay tại MCuong</h2>
+                    <h2 class="h4 fw-bold mb-1">Ưu đãi đang áp dụng tại MCuong</h2>
                     <p class="text-muted mb-0">
-                        Phong cách đặt phòng hiện đại: rõ giá gốc, giá ưu đãi, quyền lợi đi kèm.
+                        Mã hiển thị từ dữ liệu ưu đãi đang hoạt động; điều kiện cuối cùng được kiểm tra lại ở bước xác nhận booking.
                     </p>
                 </div>
             </div>
             <div class="row g-3">
-                <div class="col-md-4">
-                    <article class="deal-card">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <span class="badge text-bg-danger">-18%</span>
-                            <small class="text-muted">Áp dụng CN - T5</small>
+                <?php $__empty_1 = true; $__currentLoopData = $publicPromotions; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $promotion): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
+                    <div class="col-md-4">
+                        <article class="deal-card h-100">
+                            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                <span class="badge text-bg-primary"><?php echo e($promotion->code); ?></span>
+                                <small class="text-muted text-end">
+                                    <?php echo e((float) $promotion->discount_value > 0 ? $promotion->discount_label : 'Quyền lợi kèm theo'); ?>
+
+                                </small>
+                            </div>
+                            <h3 class="h6 fw-bold mb-1"><?php echo e($promotion->name); ?></h3>
+                            <p class="small text-muted mb-2">
+                                <?php echo e($promotion->description ?: 'Ưu đãi được áp dụng khi booking đáp ứng đủ điều kiện của mã.'); ?>
+
+                            </p>
+                            <?php if((int) $promotion->min_nights > 0 || (float) $promotion->min_booking_amount > 0): ?>
+                                <p class="mb-0 small">
+                                    <?php if((int) $promotion->min_nights > 0): ?>
+                                        Tối thiểu <?php echo e((int) $promotion->min_nights); ?> đêm.
+                                    <?php endif; ?>
+                                    <?php if((float) $promotion->min_booking_amount > 0): ?>
+                                        Đơn từ <?php echo e(number_format((float) $promotion->min_booking_amount, 0, ',', '.')); ?>đ.
+                                    <?php endif; ?>
+                                </p>
+                            <?php endif; ?>
+                        </article>
+                    </div>
+                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
+                    <div class="col-12">
+                        <div class="alert alert-light border mb-0">
+                            Hiện chưa có mã ưu đãi công khai. Các ưu đãi mới sẽ được hiển thị tự động khi khách sạn kích hoạt.
                         </div>
-                        <h3 class="h6 fw-bold mb-1">Deal ở 2 đêm tiết kiệm</h3>
-                        <p class="small text-muted mb-2">Giảm trực tiếp cho hạng Deluxe và Premier.</p>
-                        <p class="mb-0 small"><strong>1.476.000đ</strong> <span
-                                class="text-muted text-decoration-line-through">1.800.000đ</span></p>
-                    </article>
-                </div>
-                <div class="col-md-4">
-                    <article class="deal-card">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <span class="badge text-bg-success">Breakfast Included</span>
-                            <small class="text-muted">Không phụ thu</small>
-                        </div>
-                        <h3 class="h6 fw-bold mb-1">Gói công tác linh hoạt</h3>
-                        <p class="small text-muted mb-2">Bao gồm ăn sáng + check-out trễ tới 14:00.</p>
-                        <p class="mb-0 small"><strong>Từ 1.550.000đ/đêm</strong></p>
-                    </article>
-                </div>
-                <div class="col-md-4">
-                    <article class="deal-card">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <span class="badge text-bg-primary">Best Value</span>
-                            <small class="text-muted">Gia đình</small>
-                        </div>
-                        <h3 class="h6 fw-bold mb-1">Family combo 3N2Đ</h3>
-                        <p class="small text-muted mb-2">Tặng 1 bữa tối set menu cho 4 người.</p>
-                        <p class="mb-0 small"><strong>Từ 5.900.000đ/gói</strong></p>
-                    </article>
-                </div>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </section>

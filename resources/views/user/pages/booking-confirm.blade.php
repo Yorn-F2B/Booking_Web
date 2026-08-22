@@ -4,6 +4,16 @@
 
 @section('content')
 
+    @php
+        $policyService = app(\App\Services\HotelPolicyService::class);
+        $minBookingAge = max(0, (int) $policyService->get('booking.min_age', 18));
+        $depositPercent = max(0, min(100, (float) $policyService->get('payment.deposit_percent', 30)));
+        $depositRate = $depositPercent / 100;
+        $standardCheckInTime = (string) $policyService->get('stay.standard_check_in_time', '14:00');
+        $standardCheckOutTime = (string) $policyService->get('stay.standard_check_out_time', '12:00');
+        $earlyCheckInFreeFrom = (string) $policyService->get('stay.early_checkin_free_from', '12:00');
+    @endphp
+
     <style>
         .promotion-list {
             display: grid;
@@ -84,15 +94,7 @@
     <main class="py-5">
         <div class="container">
             @include('user.partials.account-restriction')
-
-
-            @if (session('error'))
-                <div class="alert alert-danger">
-                    {{ session('error') }}
-                </div>
-            @endif
-
-            @if ($errors->any())
+@if ($errors->any())
                 <div class="alert alert-danger">
                     <div class="fw-semibold mb-1">
                         Vui lòng kiểm tra lại thông tin bên dưới.
@@ -165,8 +167,8 @@
                                     <div class="col-12">
                                         <div class="border rounded p-3 bg-light">
                                             <div class="d-flex flex-wrap gap-2 align-items-center">
-                                                <button type="button" id="bookingCccdButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('bookingCccdImage').click()">Quét CCCD và cập nhật hồ sơ</button>
-                                                <input type="file" id="bookingCccdImage" class="d-none js-cccd-image" accept="image/*" capture="environment"
+                                                <button type="button" id="bookingCccdButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('bookingCccdImage').click()"><i class="bx bx-image-add me-1"></i> Quét CCCD từ ảnh</button>
+                                                <input type="file" id="bookingCccdImage" class="d-none js-cccd-image" accept="image/*"
                                                     data-button="#bookingCccdButton" data-status="#bookingCccdStatus"
                                                     data-target-cccd="input[name='cccd']" data-target-first-name="input[name='first_name']"
                                                     data-target-last-name="input[name='last_name']" data-target-birthday="input[name='birthday']" data-target-gender="input[name='gender']" data-target-address="textarea[name='address']"
@@ -191,13 +193,20 @@
                                         <label class="form-label">
                                             Ngày sinh <span class="text-danger">*</span>
                                         </label>
-                                        @php($bookingBirthday = old('birthday', $customer?->birthday ? \Carbon\Carbon::parse($customer->birthday)->format('Y-m-d') : ''))
+                                        @php
+                                            $bookingBirthday = old(
+                                                'birthday',
+                                                $customer?->birthday
+                                                    ? \Carbon\Carbon::parse($customer->birthday)->format('Y-m-d')
+                                                    : ''
+                                            );
+                                        @endphp
                                         <input type="date" name="birthday" class="form-control"
                                             value="{{ $bookingBirthday }}"
                                             min="1900-01-01"
-                                            max="{{ now('Asia/Ho_Chi_Minh')->subYears(18)->toDateString() }}"
+                                            max="{{ now('Asia/Ho_Chi_Minh')->subYears($minBookingAge)->toDateString() }}"
                                             required autocomplete="bday">
-                                        <div class="form-text">Người đứng tên booking phải đủ 18 tuổi tại ngày đặt phòng.</div>
+                                        <div class="form-text">Người đứng tên booking phải đủ {{ $minBookingAge }} tuổi tại ngày đặt phòng.</div>
                                         @error('birthday')
                                             <div class="text-danger small mt-1">{{ $message }}</div>
                                         @enderror
@@ -257,6 +266,7 @@
                                                     <option value="{{ $service->id }}" data-name="{{ $service->name }}"
                                                         data-price="{{ $service->price }}" data-unit="{{ $service->unit }}"
                                                         data-type="{{ $service->type }}"
+                                                        data-billing-rule="{{ $service->billing_rule ?: \App\Models\Service::BILLING_ONCE }}"
                                                         data-group="{{ $service->service_group ?? 'general' }}">
                                                         {{ $service->name }}
                                                         -
@@ -383,6 +393,7 @@
                                                                 'service_unit' => $offer->service->unit ?? '',
                                                                 'service_price' => (float) ($offer->service->price ?? 0),
                                                                 'service_type' => $offer->service->type ?? 'service',
+                                                                'service_billing_rule' => $offer->service->billing_rule ?? \App\Models\Service::BILLING_ONCE,
                                                                 'discount_type' => $offer->discount_type,
                                                                 'discount_value' => (float) $offer->discount_value,
                                                                 'quantity' => (int) $offer->quantity,
@@ -474,8 +485,8 @@
                                 </h2>
 
                                 <div class="alert alert-info small mb-3">
-                                    Giờ nhận phòng <strong>13:00 - 14:00</strong> <br>
-                                    Giờ trả phòng <strong>12:00</strong>
+                                    Giờ nhận phòng linh hoạt <strong>{{ $earlyCheckInFreeFrom }} - {{ $standardCheckInTime }}</strong> nếu phòng sẵn sàng <br>
+                                    Giờ trả phòng <strong>{{ $standardCheckOutTime }}</strong>
                                 </div>
 
                                 <div class="mb-3">
@@ -495,7 +506,7 @@
                                         {{ date('d/m/Y', strtotime($bookingData['check_in_date'])) }}
                                     </div>
                                     <div class="small text-muted">
-                                        Nhận phòng linh hoạt 13:00–14:00 nếu phòng đã sẵn sàng
+                                        Nhận phòng linh hoạt {{ $earlyCheckInFreeFrom }}–{{ $standardCheckInTime }} nếu phòng đã sẵn sàng
                                     </div>
                                 </div>
 
@@ -507,7 +518,7 @@
                                         {{ date('d/m/Y', strtotime($bookingData['check_out_date'])) }}
                                     </div>
                                     <div class="small text-muted">
-                                        Trả phòng trước 12:00
+                                        Trả phòng trước {{ $standardCheckOutTime }}
                                     </div>
                                 </div>
 
@@ -582,9 +593,9 @@
                                         <input class="form-check-input" type="radio" name="payment_type"
                                             id="paymentDeposit30" value="deposit_30" checked>
                                         <label class="form-check-label" for="paymentDeposit30">
-                                            Cọc 30%
+                                            Cọc {{ rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.') }}%
                                             <strong id="depositAmountPreview">
-                                                {{ number_format(round($estimatedTotal * 0.3), 0, ',', '.') }}đ
+                                                {{ number_format(round($estimatedTotal * $depositRate), 0, ',', '.') }}đ
                                             </strong>
                                         </label>
                                     </div>
@@ -643,6 +654,26 @@
             const fullAmountPreview = document.getElementById('fullAmountPreview');
 
             const selectedServices = new Map();
+            const bookingNightCount = Math.max(1, {{ (int) $nightCount }});
+            const bookingRoomCount = 1;
+            const bookingGuestCount = Math.max(1, {{ (int) $bookingData['adult_count'] + (int) ($bookingData['child_count'] ?? 0) }});
+
+            function serviceMultiplier(billingRule) {
+                if (billingRule === 'per_night') return bookingNightCount;
+                if (billingRule === 'per_room') return bookingRoomCount;
+                if (billingRule === 'per_room_per_night') return bookingRoomCount * bookingNightCount;
+                if (billingRule === 'per_guest') return bookingGuestCount;
+                if (billingRule === 'per_guest_per_night') return bookingGuestCount * bookingNightCount;
+                return 1;
+            }
+
+            function billedServiceQuantity(service) {
+                return Math.max(1, parseInt(service.quantity || 1)) * serviceMultiplier(service.billingRule || 'once');
+            }
+
+            function serviceLineTotal(service) {
+                return Math.round(Math.max(0, Number(service.price || 0)) * billedServiceQuantity(service));
+            }
 
             function formatMoney(value) {
                 return new Intl.NumberFormat('vi-VN').format(value) + 'đ';
@@ -667,7 +698,7 @@
             function getSelectedServiceQuantity(serviceId) {
                 const key = String(serviceId);
                 return selectedServices.has(key)
-                    ? Math.max(0, parseInt(selectedServices.get(key).quantity || 0))
+                    ? billedServiceQuantity(selectedServices.get(key))
                     : 0;
             }
 
@@ -691,12 +722,13 @@
 
                     parseServiceOffers(checkbox).forEach(function (offer) {
                         const price = parseFloat(offer.service_price || 0);
+                        const billingRule = offer.service_billing_rule || 'once';
                         const offerQuantity = Math.max(1, parseInt(offer.quantity || 1));
                         let applicableQuantity = Math.min(offerQuantity, getSelectedServiceQuantity(offer.service_id));
                         const missingQuantity = Math.max(0, offerQuantity - applicableQuantity);
 
                         if (missingQuantity > 0 && offer.auto_add_service) {
-                            autoServiceTotal += price * missingQuantity;
+                            autoServiceTotal += price * missingQuantity * serviceMultiplier(billingRule);
                             applicableQuantity += missingQuantity;
                             autoServiceNames.push((offer.service_name || 'Dịch vụ') + ' x' + missingQuantity);
                         }
@@ -744,14 +776,16 @@
                     moneyDiscount += Math.max(0, amount);
                 });
 
-                const totalDiscount = Math.min(subtotal, moneyDiscount + serviceDiscount);
+                const effectiveServiceDiscount = Math.min(serviceDiscount, subtotal);
+                const effectiveMoneyDiscount = Math.min(moneyDiscount, Math.max(0, subtotal - effectiveServiceDiscount));
+                const totalDiscount = effectiveServiceDiscount + effectiveMoneyDiscount;
 
                 return {
                     subtotal: subtotal,
                     autoServiceTotal: autoServiceTotal,
                     autoServiceNames: autoServiceNames,
-                    moneyDiscount: Math.min(moneyDiscount, subtotal),
-                    serviceDiscount: Math.min(serviceDiscount, subtotal),
+                    moneyDiscount: effectiveMoneyDiscount,
+                    serviceDiscount: effectiveServiceDiscount,
                     totalDiscount: totalDiscount,
                     finalTotal: Math.max(0, subtotal - totalDiscount),
                 };
@@ -769,7 +803,7 @@
                 let index = 0;
 
                 selectedServices.forEach(function (service, serviceId) {
-                    const total = service.price * service.quantity;
+                    const total = serviceLineTotal(service);
                     serviceTotal += total;
 
                     const row = document.createElement('tr');
@@ -855,7 +889,10 @@
                     finalEstimatedTotalText.innerText = formatMoney(finalTotal);
 
                     if (depositAmountPreview) {
-                        depositAmountPreview.innerText = formatMoney(Math.round(finalTotal * 0.3));
+                        const roomTotal = getRoomTotal();
+                        const roomDiscountForDeposit = Math.min(roomTotal, totals.moneyDiscount);
+                        const requiredDeposit = Math.round(Math.max(0, roomTotal - roomDiscountForDeposit) * {{ json_encode($depositRate) }});
+                        depositAmountPreview.innerText = formatMoney(requiredDeposit);
                     }
 
                     if (fullAmountPreview) {
@@ -898,6 +935,7 @@
                         price: parseFloat(selectedOption.dataset.price || 0),
                         unit: selectedOption.dataset.unit || '',
                         type: selectedOption.dataset.type || 'service',
+                        billingRule: selectedOption.dataset.billingRule || 'once',
                         quantity: quantity,
                         note: note,
                     });

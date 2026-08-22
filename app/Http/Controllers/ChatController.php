@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Events\ChatMessageRealtimeSent;
+use App\Support\Realtime;
 use App\Models\ChatAttachment;
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
+use App\Models\Booking;
 use App\Services\ChatAssignmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,23 +24,43 @@ class ChatController extends Controller
 
     public function messages(Request $request): JsonResponse
     {
+        $this->guardPublicChatActor();
         $conversation = $this->getCurrentConversation();
 
         if (!$conversation) {
             return response()->json([
                 'conversation' => null,
                 'messages' => [],
+                'has_more' => false,
             ]);
         }
 
-        $messages = ChatMessage::query()
+        $data = $request->validate([
+            'before_id' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $messagesQuery = ChatMessage::query()
             ->where('conversation_id', $conversation->id)
-            ->with(['sender', 'attachments'])
+            ->with(['sender', 'attachments']);
+
+        if (!empty($data['before_id'])) {
+            $messagesQuery->where('id', '<', (int) $data['before_id']);
+        }
+
+        $messages = $messagesQuery
             ->latest('id')
             ->limit(50)
             ->get()
             ->reverse()
             ->values();
+
+        $oldestId = $messages->min('id');
+        $hasMore = $oldestId
+            ? ChatMessage::query()
+                ->where('conversation_id', $conversation->id)
+                ->where('id', '<', $oldestId)
+                ->exists()
+            : false;
 
         return response()->json([
             'conversation' => [
@@ -48,11 +69,14 @@ class ChatController extends Controller
                 'assigned_staff_name' => $conversation->assignedStaff?->name,
             ],
             'messages' => $messages->map(fn(ChatMessage $message) => $this->messagePayload($message)),
+            'has_more' => $hasMore,
         ]);
     }
 
     public function send(Request $request): JsonResponse
     {
+        $this->guardPublicChatActor();
+
         $request->validate([
             'message' => [
                 'nullable',
@@ -93,16 +117,27 @@ class ChatController extends Controller
             'camera_image.mimes' => 'Ảnh chụp không đúng định dạng.',
         ]);
 
+        $bookingId = $this->resolveAccessibleBookingId($request->input('booking_id'));
+        $request->merge(['booking_id' => $bookingId]);
+
         $storedPaths = [];
 
         try {
             [$conversation, $message] = DB::transaction(function () use ($request, &$storedPaths) {
                 $conversation = $this->getOrCreateConversation($request);
+                $conversation = ChatConversation::query()->lockForUpdate()->findOrFail($conversation->id);
 
-                if (!$conversation->assigned_staff_id) {
-                    $this->assignmentService->assign($conversation);
-                    $conversation->refresh();
+                if ($conversation->status === 'closed') {
+                    $conversation->update([
+                        'status' => 'waiting',
+                        'closed_at' => null,
+                    ]);
                 }
+
+                // Mỗi lần khách nhắn lại đều xác nhận người đang phụ trách còn online.
+                // Nếu người cũ đã nghỉ ca/offline, tự bàn giao sang người online ít tải nhất.
+                $this->assignmentService->ensureAvailableAssignment($conversation);
+                $conversation->refresh();
 
                 $message = ChatMessage::create([
                     'conversation_id' => $conversation->id,
@@ -151,7 +186,7 @@ class ChatController extends Controller
                 return [$conversation->refresh(), $message->load(['sender', 'attachments', 'conversation'])];
             });
 
-            event(new ChatMessageRealtimeSent($message));
+            Realtime::chat($message);
 
             return response()->json([
                 'success' => true,
@@ -176,13 +211,18 @@ class ChatController extends Controller
 
     public function close(): JsonResponse
     {
+        $this->guardPublicChatActor();
         $conversation = $this->getCurrentConversation();
 
         if ($conversation) {
-            $conversation->update([
-                'status' => 'closed',
-                'closed_at' => now(),
-            ]);
+            DB::transaction(function () use ($conversation) {
+                $locked = ChatConversation::query()->lockForUpdate()->findOrFail($conversation->id);
+                abort_unless($this->canAccessConversation($locked), 403);
+                $locked->update([
+                    'status' => 'closed',
+                    'closed_at' => now(),
+                ]);
+            });
         }
 
         return response()->json(['success' => true]);
@@ -238,6 +278,12 @@ class ChatController extends Controller
                 ->first();
         }
 
+        // Endpoint chat công khai chỉ dành cho khách hoặc khách vãng lai.
+        // Không cho tài khoản nhân viên rơi xuống session guest cũ.
+        if (Auth::check()) {
+            return null;
+        }
+
         $conversationId = session('chat_conversation_id');
 
         return $conversationId
@@ -269,6 +315,28 @@ class ChatController extends Controller
         return $conversation;
     }
 
+    private function resolveAccessibleBookingId($bookingId): ?int
+    {
+        if (!$bookingId) {
+            return null;
+        }
+
+        // Khách vãng lai chưa có bằng chứng sở hữu booking ngay trong luồng chat.
+        // Không nhận booking_id từ client để tránh gắn hội thoại vào đơn của người khác.
+        if (!Auth::check() || Auth::user()->role !== 'customer') {
+            return null;
+        }
+
+        $booking = Booking::query()
+            ->whereKey((int) $bookingId)
+            ->whereHas('customer', fn ($query) => $query->where('user_id', Auth::id()))
+            ->first();
+
+        abort_unless($booking, 403, 'Booking không thuộc tài khoản đang đăng nhập.');
+
+        return (int) $booking->id;
+    }
+
     private function canAccessConversation(ChatConversation $conversation): bool
     {
         if (!Auth::check()) {
@@ -281,12 +349,23 @@ class ChatController extends Controller
             return (int) $conversation->customer_id === (int) $user->id;
         }
 
-        return in_array($user->role, [
-            'super_admin',
-            'manager',
-            'receptionist_lead',
-            'receptionist',
-        ], true);
+        if (in_array($user->role, ['super_admin', 'manager', 'receptionist_lead'], true)) {
+            return true;
+        }
+
+        if ($user->role === 'receptionist') {
+            return (int) $conversation->assigned_staff_id === (int) $user->id
+                || ($conversation->assigned_staff_id === null && $conversation->status === 'waiting');
+        }
+
+        return false;
+    }
+
+    private function guardPublicChatActor(): void
+    {
+        if (Auth::check()) {
+            abort_unless(Auth::user()->role === 'customer', 403, 'Tài khoản nhân viên phải sử dụng khu vực chat quản trị.');
+        }
     }
 
     private function messagePayload(ChatMessage $message): array

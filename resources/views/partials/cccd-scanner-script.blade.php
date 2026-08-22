@@ -433,8 +433,22 @@
                 return;
             } catch (aiError) {
                 geminiProgress.stop();
+                const aiMessage = String(aiError?.message || 'Gemini tạm lỗi');
+                const isAuthFailure = /HTTP\s*401|không xác thực|authentication credentials|unauthenticated|access_token_type_unsupported|api key/i.test(aiMessage);
+
+                // Không âm thầm rơi xuống OCR khi Gemini lỗi xác thực. OCR cục bộ có thể
+                // đọc sai họ tên/ngày sinh nhưng lại trông như một lần quét thành công.
+                if (isAuthFailure) {
+                    console.error('Gemini authentication failed.', aiError);
+                    if (status) {
+                        status.textContent = `${aiMessage} Không dùng OCR dự phòng để tránh điền sai thông tin CCCD.`;
+                        status.className = 'small text-danger d-block mb-3';
+                    }
+                    throw new Error(aiMessage);
+                }
+
                 console.warn('Gemini OCR thất bại, chuyển sang OCR dự phòng.', aiError);
-                if (status) status.textContent = `${aiError.message || 'Gemini tạm lỗi'} Đang thử OCR dự phòng trên thiết bị...`;
+                if (status) status.textContent = `${aiMessage} Đang thử OCR dự phòng trên thiết bị...`;
             }
 
             const result = await Tesseract.recognize(input.files[0], 'vie+eng', {

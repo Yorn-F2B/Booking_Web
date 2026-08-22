@@ -8,14 +8,12 @@
         'housekeeping_report' => 'Buồng phòng kiểm tra ban đầu',
         'guest_consultation' => 'Chờ lễ tân trao đổi với khách',
         'housekeeping_recheck' => 'Khách phản hồi - cần kiểm tra lại',
-        'admin_approval' => 'Chờ admin xác nhận cuối',
         'completed' => 'Đã hoàn tất',
     ];
     $stageClasses = [
         'housekeeping_report' => 'bg-warning text-dark',
         'guest_consultation' => 'bg-info text-dark',
         'housekeeping_recheck' => 'bg-danger',
-        'admin_approval' => 'bg-primary',
         'completed' => 'bg-success',
     ];
     $customerName = trim(($roomInspection->booking->customer->last_name ?? '') . ' ' . ($roomInspection->booking->customer->first_name ?? ''));
@@ -41,9 +39,7 @@
             <a href="{{ route('admin.floor-inspections.index') }}" class="btn btn-outline-secondary">Quay lại</a>
         </div>
 
-        @if (session('success')) <div class="alert alert-success">{{ session('success') }}</div> @endif
-        @if (session('error')) <div class="alert alert-danger">{{ session('error') }}</div> @endif
-        @if ($errors->any())
+@if ($errors->any())
             <div class="alert alert-danger">
                 <strong>Vui lòng kiểm tra lại:</strong>
                 <ul class="mb-0 mt-1">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>
@@ -68,10 +64,54 @@
                     @if ($roomInspection->last_update_summary)
                         <div class="alert alert-light border small mb-0">{{ $roomInspection->last_update_summary }}</div>
                     @endif
+
                 </div>
             </div>
 
             <div class="col-lg-8">
+                @if (!$isInitialStep && ($roomInspection->booking->status ?? null) === 'inspection_requested')
+                    <details class="settings-section border border-warning mb-3 supplemental-inspection-panel" @if($errors->has('supplemental_damage_service_ids') || $errors->has('supplemental_minibar_service_ids') || $errors->has('supplemental_note')) open @endif>
+                        <summary class="p-3 fw-bold text-warning-emphasis" style="cursor:pointer">
+                            <i class="bx bx-plus-circle me-1"></i> Vừa phát hiện thêm lỗi / minibar? Ghi nhận tại đây
+                                <span class="badge bg-warning text-dark ms-2">Không ghi đè lịch sử cũ</span>
+                            </summary>
+                            <div class="p-3 pt-0">
+                                <div class="alert alert-warning small">
+                                    Chỉ dùng khi vừa phát hiện thêm minibar, mất đồ hoặc hư hại <strong>sau lần kiểm tra trước</strong> và booking chưa checkout. Mỗi khoản sẽ được tạo thành dòng mới, ghi người/thời điểm phát hiện và gửi lại lễ tân để xử lý.
+                                </div>
+                                <form action="{{ route('admin.floor-inspections.supplemental-report', $roomInspection->id) }}" method="POST">
+                                    @csrf
+                                    <div class="mb-4">
+                                        <label class="form-label fw-semibold">Minibar / đồ dùng mới phát hiện</label>
+                                        @include('admin.pages.floor-inspections.partials.service-table', [
+                                            'services' => $minibarServices,
+                                            'itemMap' => collect(),
+                                            'checkboxName' => 'supplemental_minibar_service_ids[]',
+                                            'quantityName' => 'supplemental_minibar_quantities',
+                                            'checkboxClass' => 'inspection-service-checkbox',
+                                        ])
+                                    </div>
+                                    <div class="mb-4">
+                                        <label class="form-label fw-semibold">Hư hại / mất tài sản mới phát hiện</label>
+                                        @include('admin.pages.floor-inspections.partials.service-table', [
+                                            'services' => $damageServices,
+                                            'itemMap' => collect(),
+                                            'checkboxName' => 'supplemental_damage_service_ids[]',
+                                            'quantityName' => 'supplemental_damage_quantities',
+                                            'checkboxClass' => 'inspection-service-checkbox',
+                                        ])
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label fw-semibold">Lý do / căn cứ phát hiện bổ sung <span class="text-danger">*</span></label>
+                                        <textarea name="supplemental_note" rows="3" class="form-control" required placeholder="Ví dụ: phát hiện vết nứt sau khi dọn lớp ga; kiểm kê minibar lần hai thấy thiếu...">{{ old('supplemental_note') }}</textarea>
+                                    </div>
+                                    <button type="submit" class="btn btn-warning w-100" onclick="return confirm('Tạo khoản phát hiện bổ sung? Các khoản đã xử lý trước đó sẽ được giữ nguyên và checkout tiếp tục bị chặn cho đến khi khoản mới được giải quyết.')">
+                                        Ghi nhận phát hiện bổ sung
+                                    </button>
+                                </form>
+                            </div>
+                    </details>
+                @endif
                 <div class="settings-section">
                     @if ($isRecheckStep)
                         <div class="alert alert-danger">
@@ -128,24 +168,29 @@
                                                     <div class="small text-muted">{{ $item->unit ?: 'đơn vị' }}</div>
                                                 </td>
                                                 <td>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        max="999"
-                                                        class="form-control recheck-quantity"
-                                                        id="recheckQty{{ $item->id }}"
-                                                        name="recheck_quantities[{{ $item->id }}]"
-                                                        value="{{ $verifiedQuantity }}"
-                                                        data-price="{{ (float) $item->price }}"
-                                                        data-guest-quantity="{{ $guestClaimedQuantity }}"
-                                                        data-original-quantity="{{ $reportedQuantity }}"
-                                                        data-was-disputed="{{ $isDisputed ? '1' : '0' }}"
-                                                        data-unit="{{ $item->unit ?: 'đơn vị' }}"
-                                                        data-total-id="recheckTotal{{ $item->id }}"
-                                                        data-compare-id="recheckCompare{{ $item->id }}"
-                                                        data-note-id="recheckNote{{ $item->id }}"
-                                                        required
-                                                    >
+                                                    <div class="inspection-quantity-control" data-inspection-quantity-control>
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm inspection-quantity-step" data-step="-1" aria-label="Giảm số lượng">−</button>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            max="999"
+                                                            inputmode="numeric"
+                                                            class="form-control form-control-sm recheck-quantity"
+                                                            id="recheckQty{{ $item->id }}"
+                                                            name="recheck_quantities[{{ $item->id }}]"
+                                                            value="{{ $verifiedQuantity }}"
+                                                            data-price="{{ (float) $item->price }}"
+                                                            data-guest-quantity="{{ $guestClaimedQuantity }}"
+                                                            data-original-quantity="{{ $reportedQuantity }}"
+                                                            data-was-disputed="{{ $isDisputed ? '1' : '0' }}"
+                                                            data-unit="{{ $item->unit ?: 'đơn vị' }}"
+                                                            data-total-id="recheckTotal{{ $item->id }}"
+                                                            data-compare-id="recheckCompare{{ $item->id }}"
+                                                            data-note-id="recheckNote{{ $item->id }}"
+                                                            required
+                                                        >
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm inspection-quantity-step" data-step="1" aria-label="Tăng số lượng">+</button>
+                                                    </div>
                                                     <div id="recheckCompare{{ $item->id }}" class="small mt-2"></div>
                                                 </td>
                                                 <td>
@@ -223,19 +268,28 @@
                         <h5 class="fw-bold mb-3">Kết quả đã gửi</h5>
                         @if ($roomInspection->workflow_stage === 'guest_consultation')
                             <div class="alert alert-info">Đang chờ lễ tân trao đổi từng khoản với khách. Buồng phòng chưa được sửa trong bước này.</div>
-                        @elseif ($roomInspection->workflow_stage === 'admin_approval')
-                            <div class="alert alert-primary">Khách đã đồng ý toàn bộ kết quả hiện tại. Phiếu đang chờ admin xác nhận cuối.</div>
                         @elseif ($roomInspection->workflow_stage === 'completed')
-                            <div class="alert alert-success">Admin đã xác nhận xong phiếu này.</div>
+                            <div class="alert alert-success">Kết quả đã thống nhất và phiếu kiểm tra đã hoàn tất.</div>
                         @endif
 
                         <div class="table-responsive">
                             <table class="table table-bordered align-middle">
-                                <thead class="table-light"><tr><th>Hạng mục</th><th>Ban đầu</th><th>Ý kiến khách</th><th>Kiểm tra lại</th><th>Admin</th></tr></thead>
+                                <thead class="table-light"><tr><th>Hạng mục</th><th>Ban đầu</th><th>Ý kiến khách</th><th>Kiểm tra lại</th><th>Kết quả cuối</th></tr></thead>
                                 <tbody>
                                     @forelse ($roomInspection->items as $item)
                                         <tr>
-                                            <td><strong>{{ $item->name }}</strong><div class="small text-muted">{{ $item->type === 'minibar' ? 'Minibar/đồ dùng' : 'Hư hại/mất đồ' }}</div></td>
+                                            <td>
+                                                <strong>{{ $item->name }}</strong>
+                                                <div class="small text-muted">{{ $item->type === 'minibar' ? 'Minibar/đồ dùng' : 'Hư hại/mất đồ' }}</div>
+                                                @if (($item->detection_source ?? 'initial') === 'supplemental')
+                                                    <span class="badge bg-warning text-dark mt-1">Phát hiện bổ sung</span>
+                                                    <div class="small text-muted mt-1">
+                                                        {{ $item->detector->name ?? 'Nhân viên buồng phòng' }}
+                                                        · {{ $item->detected_at?->format('d/m/Y H:i') ?? $item->created_at?->format('d/m/Y H:i') }}
+                                                        @if ($item->detection_version) · Lần #{{ $item->detection_version }} @endif
+                                                    </div>
+                                                @endif
+                                            </td>
                                             <td>{{ $item->quantity }} × {{ number_format((float) $item->price, 0, ',', '.') }}đ = <strong>{{ number_format((float) ($item->original_total ?: $item->total), 0, ',', '.') }}đ</strong></td>
                                             <td>
                                                 @if ($item->guest_response === 'accepted')<span class="badge bg-success">Khách đồng ý</span>
@@ -250,9 +304,9 @@
                                                 @if ($item->recheck_note)<div class="small mt-1">{{ $item->recheck_note }}</div>@endif
                                             </td>
                                             <td>
-                                                @if ($item->status === 'approved')<span class="badge bg-success">Đã duyệt {{ number_format((float) $item->total, 0, ',', '.') }}đ</span>
-                                                @elseif ($item->status === 'rejected')<span class="badge bg-secondary">Không duyệt</span><div class="small">{{ $item->admin_note }}</div>
-                                                @else <span class="text-muted">Chưa duyệt</span>@endif
+                                                @if ($item->status === 'approved')<span class="badge bg-success">Đã chốt {{ number_format((float) $item->total, 0, ',', '.') }}đ</span>
+                                                @elseif ($item->status === 'rejected')<span class="badge bg-secondary">Không tính phí</span>
+                                                @else <span class="text-muted">Đang đối chiếu</span>@endif
                                             </td>
                                         </tr>
                                     @empty
@@ -264,12 +318,29 @@
                     @endif
                 </div>
             </div>
+
         </div>
     </main>
     <footer class="admin-footer"><span>MCuong Hotel Admin</span></footer>
 </div>
 
 <script>
+document.querySelectorAll('[data-inspection-quantity-control] .inspection-quantity-step').forEach(function (button) {
+    button.addEventListener('click', function () {
+        const control = button.closest('[data-inspection-quantity-control]');
+        const input = control ? control.querySelector('input[type="number"]') : null;
+        if (!input || input.disabled) return;
+
+        const min = Number.isFinite(Number(input.min)) && input.min !== '' ? Number(input.min) : 0;
+        const max = Number.isFinite(Number(input.max)) && input.max !== '' ? Number(input.max) : 999;
+        const step = Number(button.dataset.step || 0);
+        const current = Number.isFinite(Number(input.value)) ? Number(input.value) : min;
+        input.value = Math.min(max, Math.max(min, current + step));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+});
+
 document.querySelectorAll('.inspection-service-checkbox').forEach(function (checkbox) {
     const row = checkbox.closest('tr');
     const quantity = row ? row.querySelector('.inspection-service-quantity') : null;
@@ -277,8 +348,15 @@ document.querySelectorAll('.inspection-service-checkbox').forEach(function (chec
     const update = function () {
         if (!quantity) return;
         quantity.disabled = !checkbox.checked;
+        const control = quantity.closest('[data-inspection-quantity-control]');
+        if (control) {
+            control.querySelectorAll('.inspection-quantity-step').forEach(function (button) {
+                button.disabled = !checkbox.checked;
+            });
+        }
         const price = Number(quantity.dataset.price || 0);
-        const qty = Math.max(1, Number(quantity.value || 1));
+        const qty = Math.max(1, Math.min(999, Number(quantity.value || 1)));
+        quantity.value = qty;
         if (lineTotal) lineTotal.textContent = checkbox.checked ? new Intl.NumberFormat('vi-VN').format(price * qty) + 'đ' : '0đ';
     };
     checkbox.addEventListener('change', update);

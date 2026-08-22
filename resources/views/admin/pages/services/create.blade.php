@@ -44,7 +44,7 @@
             <div class="admin-page-head">
                 <div>
                     <h2>Thêm dịch vụ</h2>
-                    <p>Thêm dịch vụ, minibar gọi thêm, minibar kiểm kê hoặc phí phát sinh</p>
+                    <p>Thêm dịch vụ khách mua/gọi, minibar có sẵn hoặc minibar gọi thêm.</p>
                 </div>
 
                 <a href="{{ route('services.index') }}" class="btn btn-outline-secondary">

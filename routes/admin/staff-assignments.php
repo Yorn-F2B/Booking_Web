@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\Route;
 Route::get('staff-assignments', [StaffAssignmentController::class, 'index'])
     ->name('admin.staff-assignments.index');
 
+Route::get('staff-assignments/status', [StaffAssignmentController::class, 'status'])
+    ->name('admin.staff-assignments.status');
+
 Route::middleware('role:super_admin,manager,receptionist_lead')->group(function () {
     Route::get('staff-assignments/receptionists', [StaffAssignmentController::class, 'receptionists'])
         ->name('admin.staff-assignments.receptionists');
@@ -26,6 +29,9 @@ Route::middleware('role:super_admin,manager,housekeeping_supervisor')->group(fun
 
     Route::post('staff-assignments/housekeeping/rooms', [StaffAssignmentController::class, 'storeRoomAssignment'])
         ->name('admin.staff-assignments.housekeeping.rooms.store');
+
+    Route::patch('staff-assignments/housekeeping/floors/stop-group', [StaffAssignmentController::class, 'stopFloorAssignmentGroup'])
+        ->name('admin.staff-assignments.housekeeping.floors.stop-group');
 
     Route::delete('staff-assignments/housekeeping/floors/{staffFloorAssignment}', [StaffAssignmentController::class, 'deleteFloorAssignment'])
         ->name('admin.staff-assignments.housekeeping.floors.destroy');

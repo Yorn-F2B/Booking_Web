@@ -3,6 +3,14 @@
 @section('title', 'Chi tiết đơn phòng')
 
 @section('content')
+    @php
+        $detailPolicy = app(\App\Services\HotelPolicyService::class);
+        $detailDepositPercent = (float) $detailPolicy->forBooking($booking, 'payment.deposit_percent', 30);
+        $detailDepositLabel = rtrim(rtrim(number_format($detailDepositPercent, 2, '.', ''), '0'), '.') . '%';
+        $detailCheckIn = substr((string) $detailPolicy->forBooking($booking, 'stay.standard_check_in_time', '14:00'), 0, 5);
+        $detailCheckOut = substr((string) $detailPolicy->forBooking($booking, 'stay.standard_check_out_time', '12:00'), 0, 5);
+        $detailEarlyFree = substr((string) $detailPolicy->forBooking($booking, 'stay.early_checkin_free_from', '12:00'), 0, 5);
+    @endphp
 
     <section class="page-header">
         <div class="container">
@@ -26,19 +34,7 @@
                 </a>
             </div>
 
-            @if (session('success'))
-                <div class="alert alert-success">
-                    {{ session('success') }}
-                </div>
-            @endif
-
-            @if (session('error'))
-                <div class="alert alert-danger">
-                    {{ session('error') }}
-                </div>
-            @endif
-
-            @if ($errors->any())
+@if ($errors->any())
                 <div class="alert alert-danger">
                     <div class="fw-semibold mb-1">Vui lòng kiểm tra lại thông tin.</div>
                     <ul class="mb-0">
@@ -51,7 +47,7 @@
 
             @if ($booking->status == 'pending' && $booking->payment_status == 'unpaid')
                 @php
-                    $deposit30Amount = round((float) $booking->estimated_total * 0.3);
+                    $deposit30Amount = app(\App\Services\BookingFinancialService::class)->requiredDeposit($booking);
                     $fullAmount = (float) $booking->estimated_total;
                     $selectedPaymentType = old('payment_type', $defaultPaymentType ?? 'deposit_30');
                 @endphp
@@ -85,26 +81,33 @@
                             @endif
                         </div>
 
-                        <form action="{{ route('payment.vnpay.create', $booking->id) }}" method="POST" style="min-width: 280px;">
-                            @csrf
+                        <div style="min-width: 280px;">
+                            <a href="{{ route('bookings.edit-before-payment', $booking) }}" class="btn btn-outline-primary w-100 mb-2">
+                                <i class="bx bx-edit-alt me-1"></i>
+                                Chỉnh sửa đơn trước thanh toán
+                            </a>
 
-                            <div class="border rounded-3 p-3 bg-white mb-2">
+                            <form action="{{ route('payment.vnpay.create', $booking->id) }}" method="POST">
+                                @csrf
+
+                                <div class="border rounded-3 p-3 bg-white mb-2">
                                 <div class="form-check mb-2">
                                     <input class="form-check-input" type="radio" name="payment_type"
                                         id="continueDeposit30" value="deposit_30"
                                         {{ $selectedPaymentType == 'deposit_30' ? 'checked' : '' }}>
                                     <label class="form-check-label" for="continueDeposit30">
-                                        Cọc 30%
+                                        Cọc {{ $detailDepositLabel }}
                                         <strong>{{ number_format($deposit30Amount, 0, ',', '.') }}đ</strong>
                                     </label>
                                 </div>
                             </div>
 
-                            <button type="submit" class="btn btn-primary w-100">
-                                <i class="bx bx-credit-card me-1"></i>
-                                Tiếp tục thanh toán VNPay
-                            </button>
-                        </form>
+                                <button type="submit" class="btn btn-primary w-100">
+                                    <i class="bx bx-credit-card me-1"></i>
+                                    Tiếp tục thanh toán VNPay
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             @endif
@@ -171,7 +174,7 @@
                                         <th>Ngày nhận phòng</th>
                                         <td>
                                             {{ date('d/m/Y', strtotime($booking->check_in_date)) }}
-                                            <div class="small text-muted">Nhận phòng linh hoạt 13:00–14:00 nếu phòng đã sẵn sàng</div>
+                                            <div class="small text-muted">Nhận phòng linh hoạt {{ $detailEarlyFree }}–{{ $detailCheckIn }} nếu phòng đã sẵn sàng</div>
                                         </td>
                                     </tr>
 
@@ -179,7 +182,7 @@
                                         <th>Ngày trả phòng</th>
                                         <td>
                                             {{ date('d/m/Y', strtotime($booking->check_out_date)) }}
-                                            <div class="small text-muted">Trả phòng trước 12:00</div>
+                                            <div class="small text-muted">Trả phòng theo giờ chuẩn {{ $detailCheckOut }}</div>
                                         </td>
                                     </tr>
 
@@ -637,8 +640,7 @@
                         @if ($canRequestRoomIssue)
                             <div class="modal fade" id="roomIssueModal" tabindex="-1" aria-hidden="true">
                                 <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-                                    <div class="modal-content border-0 shadow">
-                                        <form action="{{ route('bookings.room-issues.store', $booking) }}" method="POST" enctype="multipart/form-data" id="userRoomIssueForm">
+                                    <form action="{{ route('bookings.room-issues.store', $booking) }}" method="POST" enctype="multipart/form-data" id="userRoomIssueForm" class="modal-content border-0 shadow">
                                             @csrf
                                             <div class="modal-header">
                                                 <div>
@@ -723,8 +725,7 @@
                                                     Xác nhận gửi quản lý (<span id="userSelectedRoomCount">0</span> yêu cầu)
                                                 </button>
                                             </div>
-                                        </form>
-                                    </div>
+                                    </form>
                                 </div>
                             </div>
 
@@ -975,7 +976,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 : 'Xác nhận hủy đơn';
             document.getElementById('cancelModeMessage').textContent = requestMode
                 ? 'Mã xác nhận sẽ được gửi về email.'
-                : 'Hủy đơn sẽ mất toàn bộ tiền cọc 30% đã thanh toán. Khoản này không được hoàn lại và không được bảo lưu.';
+                : 'Hủy đơn sẽ mất toàn bộ khoản đã thanh toán, bao gồm tiền cọc ' + @json($detailDepositLabel) + '. Khoản này không được hoàn lại và không được bảo lưu.';
             document.getElementById('cancelPolicyLabel').textContent = form.dataset.policy || 'Theo chính sách hủy';
             document.getElementById('cancelPaid').textContent = formatMoney(form.dataset.paid);
             document.getElementById('cancelForfeit').textContent = formatMoney(form.dataset.forfeit);
