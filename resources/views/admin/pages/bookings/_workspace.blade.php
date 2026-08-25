@@ -63,9 +63,17 @@
         $directCancelCutoffTimePolicy = $policyTime('booking.direct_cancel_cutoff_time', '14:00');
         $lateArrivalCutoffTimePolicy = $policyTime('stay.late_arrival_cutoff_time', '18:00');
         $lateArrivalTier1EndPolicy = $policyTime('stay.late_arrival_tier1_end', '21:00');
-        $lateArrivalPercent1Policy = (float) $bookingPolicy('stay.late_arrival_percent_1', 20);
-        $lateArrivalPercent2Policy = (float) $bookingPolicy('stay.late_arrival_percent_2', 50);
-        $lateArrivalNextDayPercentPolicy = (float) $bookingPolicy('stay.late_arrival_percent_next_day', 100);
+        $positiveLateArrivalPercent = function (string $key, float $fallback) use ($bookingPolicy, $hotelPolicy): float {
+            $value = (float) $bookingPolicy($key, $fallback);
+            if ($value <= 0) {
+                $value = (float) $hotelPolicy->get($key, $fallback);
+            }
+
+            return $value > 0 ? $value : $fallback;
+        };
+        $lateArrivalPercent1Policy = $positiveLateArrivalPercent('stay.late_arrival_percent_1', 20);
+        $lateArrivalPercent2Policy = $positiveLateArrivalPercent('stay.late_arrival_percent_2', 50);
+        $lateArrivalNextDayPercentPolicy = $positiveLateArrivalPercent('stay.late_arrival_percent_next_day', 100);
         $lateArrivalGraceMinutesPolicy = max(0, (int) $bookingPolicy('stay.late_arrival_grace_minutes', 30));
         $shortStayOvernightHoursPolicy = max(1, (int) $bookingPolicy('stay.short_stay_to_overnight_hours', 12));
         $depositPercentPolicy = (float) $bookingPolicy('payment.deposit_percent', 30);
@@ -232,6 +240,7 @@
             });
 
         $checkoutLateFeePreview = 0;
+        $checkoutLateRequiredTotalPreview = 0;
         $checkoutLateHoursPreview = 0;
         $checkoutLateChargedHours = 0;
         $checkoutLatePercent = 0;
@@ -244,7 +253,6 @@
         if (
             in_array($booking->status, ['checked_in', 'inspection_requested'])
             && $booking->check_out_at
-            && $existingCheckoutLateFeeTotal <= 0
         ) {
             $nowVnForCheckout = \Carbon\Carbon::now('Asia/Ho_Chi_Minh');
             $plannedCheckOutForPreview = \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh');
@@ -335,11 +343,25 @@
                         : 'Trong thời gian miễn phí, phụ thu = 0đ.';
                 }
 
+                // serviceItemTotal đã bao gồm khoản phụ thu trả muộn từng ghi trước đó.
+                // Preview chỉ cộng phần còn thiếu so với mức phải thu tại thời điểm hiện tại,
+                // tránh cộng trùng và vẫn tăng phí nếu khách tiếp tục ở sang mốc chính sách cao hơn.
+                $checkoutLateRequiredTotalPreview = max(0, (float) $checkoutLateFeePreview);
+                $checkoutLateFeePreview = max(0, round(
+                    $checkoutLateRequiredTotalPreview - $existingCheckoutLateFeeTotal,
+                    0
+                ));
+
                 $checkoutLateNoteText = 'Giờ trả phòng dự kiến: '
                     . $plannedCheckOutForPreview->format('d/m/Y H:i')
                     . '. Thời điểm kiểm tra: '
                     . $nowVnForCheckout->format('d/m/Y H:i')
                     . '.';
+                if ($existingCheckoutLateFeeTotal > 0) {
+                    $checkoutLateNoteText .= ' Đã ghi nhận '
+                        . number_format($existingCheckoutLateFeeTotal, 0, ',', '.')
+                        . 'đ; hệ thống chỉ cộng thêm phần chênh lệch nếu mức phí hiện tại cao hơn.';
+                }
             }
         }
 
@@ -361,7 +383,9 @@
             ? (float) $booking->bookingPromotions->sum('room_upgrade_discount_amount')
             : 0;
 
-        $finalTotal = max(0, $roomTotal + $serviceItemTotal + $approvedInspectionTotal + $checkoutLateFeePreview - $promotionDiscountTotal);
+        $manualRoomSelectionFee = max(0, (float) ($booking->room_selection_fee ?? 0));
+        $finalTotal = max(0, $roomTotal + $serviceItemTotal + $approvedInspectionTotal
+            + $manualRoomSelectionFee + $checkoutLateFeePreview - $promotionDiscountTotal);
 
         // Lịch sử chuyển tiền giữ nguyên; chỉ phân bổ lại theo tổng booking và
         // mức cọc theo policy snapshot của booking sau khi đổi ngày/hạng.
@@ -381,7 +405,8 @@
         $adminPaymentDepositAmount = (float) $paymentAllocation['deposit_shortfall'];
         $remainingTotal = (float) $paymentAllocation['remaining'];
         $currentOverpaymentTotal = (float) $paymentAllocation['overpayment'];
-        $totalBeforeDiscount = (float) ($roomTotal + $serviceItemTotal + $approvedInspectionTotal + $checkoutLateFeePreview);
+        $totalBeforeDiscount = (float) ($roomTotal + $serviceItemTotal + $approvedInspectionTotal
+            + $manualRoomSelectionFee + $checkoutLateFeePreview);
         $confirmedServiceItemsForBreakdown = $booking->serviceItems
             ->where('billing_status', 'confirmed')
             ->values();
@@ -445,11 +470,19 @@
         $roomCategoriesForBookingManage = \App\Models\RoomCategory::where('status', 'active')
             ->withCount([
                 'rooms as available_rooms_count' => function ($query) use ($booking) {
-                    $query->availableForPeriod(
-                        $booking->check_in_at,
-                        $booking->check_out_at,
-                        $booking->id
-                    );
+                    if ($booking->status === 'checked_in') {
+                        $query->availableForPeriod(
+                            $booking->check_in_at,
+                            $booking->check_out_at,
+                            $booking->id
+                        )->where('status', 'available');
+                    } else {
+                        $query->bookableForPeriod(
+                            $booking->check_in_at,
+                            $booking->check_out_at,
+                            $booking->id
+                        );
+                    }
                 },
             ])
             ->orderBy('price')
@@ -466,7 +499,8 @@
         $allInspectionsConfirmed = $allInspectionsConfirmed ?? (
             $hasInspection
             && $inspectionCollection->every(function ($inspection) {
-                return in_array($inspection->status ?? null, ['confirmed', 'completed', 'approved']);
+                return ($inspection->status ?? null) === 'confirmed'
+                    || ($inspection->workflow_stage ?? null) === \App\Models\RoomInspection::STAGE_COMPLETED;
             })
         );
 
@@ -486,9 +520,31 @@
                 ->values()
                 ->toArray();
 
-            $timeAvailableRooms = \App\Models\Room::whereIn('room_category_id', $currentAssignedCategoryIds)
+            $sameRankRoomQuery = \App\Models\Room::whereIn('room_category_id', $currentAssignedCategoryIds)
                 ->whereNotIn('id', $assignedRoomIds)
-                ->availableForPeriod($changeRoomCheckInAt, $changeRoomCheckOutAt, $booking->id)
+                ->availableForPeriod($changeRoomCheckInAt, $changeRoomCheckOutAt, $booking->id);
+            if ($booking->status === 'checked_in') {
+                $sameRankRoomQuery->where('status', 'available');
+            }
+            $timeAvailableRooms = $sameRankRoomQuery
+                ->orderBy('floor_number')
+                ->orderBy('room_number')
+                ->get();
+        }
+
+
+        $categoryChangeAvailableRooms = collect();
+        if ($changeRoomCheckInAt && $changeRoomCheckOutAt) {
+            $categoryRoomQuery = \App\Models\Room::query()
+                ->whereNotIn('id', $assignedRoomIds)
+                ->bookableForPeriod($changeRoomCheckInAt, $changeRoomCheckOutAt, $booking->id);
+
+            if ($booking->status === 'checked_in') {
+                $categoryRoomQuery->where('status', 'available');
+            }
+
+            $categoryChangeAvailableRooms = $categoryRoomQuery
+                ->orderBy('room_category_id')
                 ->orderBy('floor_number')
                 ->orderBy('room_number')
                 ->get();
@@ -504,6 +560,12 @@
         $lateShowCheckOutAt = $booking->check_out_at
             ? \Carbon\Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh')
             : null;
+
+        $isLateCheckout = $booking->isLateCheckout($lateShowNowVn);
+        $lateCheckoutMinutesDisplay = $booking->lateCheckoutMinutes($lateShowNowVn);
+        $lateCheckoutText = $lateCheckoutMinutesDisplay >= 60
+            ? intdiv($lateCheckoutMinutesDisplay, 60) . ' giờ ' . ($lateCheckoutMinutesDisplay % 60) . ' phút'
+            : $lateCheckoutMinutesDisplay . ' phút';
 
         $usesLateArrivalNoShowPolicy = $booking->usesLateArrivalNoShowPolicy();
         $lateShowNoShowLimitAt = $booking->lateArrivalHoldLimitAt();
@@ -765,6 +827,12 @@
             border-color: #fed7aa;
         }
 
+        .status-late {
+            color: #6b21a8;
+            background: #f3e8ff;
+            border-color: #d8b4fe;
+        }
+
         .status-done {
             color: #166534;
             background: #dcfce7;
@@ -957,9 +1025,99 @@
 
         .payment-summary-note {
             color: var(--muted);
-            font-size: 12px;
+            font-size: 13px;
             margin-top: -6px;
             margin-bottom: 8px;
+        }
+
+        .payment-kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .payment-kpi {
+            min-width: 0;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 10px 11px;
+            background: #f8fafc;
+        }
+
+        button.payment-kpi {
+            width: 100%;
+            text-align: left;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        button.payment-kpi:hover,
+        button.payment-kpi:focus-visible {
+            border-color: #cbd5e1;
+            background: #f1f5f9;
+            outline: none;
+        }
+
+        .payment-kpi-label {
+            display: block;
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.3;
+        }
+
+        .payment-kpi-value {
+            display: block;
+            margin-top: 4px;
+            color: #0f172a;
+            font-size: 16px;
+            font-weight: 900;
+            line-height: 1.25;
+        }
+
+        .payment-components-details,
+        .history-details {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            background: #fff;
+        }
+
+        .payment-components-details > summary,
+        .history-details > summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 10px 12px;
+            color: #334155;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .payment-components-details > summary::-webkit-details-marker,
+        .history-details > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .payment-components-details > summary::after,
+        .history-details > summary::after {
+            content: '＋';
+            float: right;
+            color: #64748b;
+        }
+
+        .payment-components-details[open] > summary::after,
+        .history-details[open] > summary::after {
+            content: '−';
+        }
+
+        .payment-components-details .info-list {
+            border-top: 1px solid #eef2f7;
+            padding: 0 12px 8px;
+        }
+
+        .history-details .log-box {
+            border-top: 1px solid #eef2f7;
+            padding: 12px;
         }
 
         .payment-summary-section {
@@ -1232,31 +1390,28 @@
             }
         }
 
-        .reception-flow-panel {
-            border: 1px solid #dbe7f5;
-            background: linear-gradient(135deg, #f8fbff, #ffffff);
-            border-radius: 18px;
-            padding: 18px;
-            margin-bottom: 18px;
-        }
-        .reception-flow-steps { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin-top:14px; }
-        .reception-flow-step { border:1px solid #dbe3ed; border-radius:12px; padding:10px; background:#fff; text-align:center; font-weight:700; color:#475569; }
-        .reception-flow-step.is-current { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; }
-        .reception-request-hub { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:14px; }
-        .reception-request-item { border:1px solid #e2e8f0; border-radius:14px; padding:14px; background:#fff; }
-        .reception-request-item strong { display:block; margin-bottom:5px; }
-        .reception-request-item p { color:#64748b; font-size:.88rem; margin-bottom:10px; }
         .reception-compact .secondary-booking-card { display:none; }
         .reception-compact.show-secondary .secondary-booking-card { display:block; }
         .reception-compact .customer-request-card { border-left-width:4px !important; }
-        .reception-compact .booking-shell { grid-template-columns:minmax(0,1fr) 310px; align-items:start; }
+        .reception-compact .booking-shell { grid-template-columns:minmax(0,1fr) 340px; align-items:start; }
         .reception-compact .operation-row .text-muted.small { line-height:1.35; }
-        .reception-compact .side-stack { align-self:start; }
+        .reception-compact .side-stack { align-self:start; display:flex; flex-direction:column; gap:18px; }
+        .room-selection-request-highlight {
+            border:1px solid #bfdbfe;
+            background:#eff6ff;
+            border-radius:12px;
+            padding:11px 13px;
+            color:#1e293b;
+            line-height:1.45;
+        }
+        .room-selection-request-highlight strong { color:#1d4ed8; }
+        @media (max-width:1199px) {
+            .reception-compact .booking-shell { grid-template-columns:1fr; }
+        }
         .reception-compact:not(.show-secondary) .side-stack .secondary-booking-card { display:none; }
         .reception-compact .primary-operation-card { border-top:3px solid #2563eb; }
         .compact-toggle-bar { position:sticky; top:72px; z-index:20; display:flex; justify-content:flex-end; margin-bottom:12px; pointer-events:none; }
         .compact-toggle-bar button { pointer-events:auto; box-shadow:0 8px 24px rgba(15,23,42,.12); }
-        @media(max-width:991px){ .reception-flow-steps{grid-template-columns:repeat(2,minmax(0,1fr));}.reception-request-hub{grid-template-columns:1fr;} }
 
     </style>
 
@@ -1275,6 +1430,11 @@
                 </div>
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
+                    @if ($isReceptionDesk)
+                        <button type="button" class="btn btn-outline-secondary" id="toggleSecondaryBookingInfo">
+                            <i class="bx bx-layer me-1"></i> Xem thông tin bổ sung
+                        </button>
+                    @endif
                     <a href="{{ route('admin.bookings.index') }}" class="btn btn-outline-secondary">
                         Quay lại
                     </a>
@@ -1295,31 +1455,6 @@
                 </div>
             @endif
 
-
-            @if ($isReceptionDesk)
-                @php
-                    $flowStatuses = ['pending', 'confirmed', 'checked_in', 'inspection_requested', 'checked_out'];
-                    $currentFlowIndex = array_search($booking->status, $flowStatuses, true);
-                    $currentFlowIndex = $currentFlowIndex === false ? 4 : $currentFlowIndex;
-                    $isOnlineCustomer = !empty($booking->customer?->user_id);
-                @endphp
-                <section class="reception-flow-panel">
-                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-                        <div>
-                            <h5 class="fw-bold mb-1">Trạng thái booking</h5>
-                            <div class="text-muted small">Theo dõi lần lượt: nhận phòng → lưu trú → kiểm tra phòng → thanh toán → trả phòng.</div>
-                        </div>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" id="toggleSecondaryBookingInfo">
-                            <i class="bx bx-layer me-1"></i> Xem thông tin bổ sung
-                        </button>
-                    </div>
-                    <div class="reception-flow-steps">
-                        @foreach (['Xác nhận', 'Nhận phòng', 'Đang lưu trú', 'Kiểm tra phòng', 'Trả phòng'] as $flowIndex => $flowLabel)
-                            <div class="reception-flow-step {{ $flowIndex === $currentFlowIndex ? 'is-current' : '' }}">{{ $flowLabel }}</div>
-                        @endforeach
-                    </div>
-                </section>
-            @endif
 
             @if ($latestCancellationRequest && $latestCancellationRequest->status === 'pending')
                 <section class="card-clean mb-3 customer-request-card" style="border: 1px solid #f59e0b; background: #fffbeb;">
@@ -1407,41 +1542,45 @@
                         'no_room' => 'Giữ nguyên phòng và sửa gấp',
                     ];
                 @endphp
-                <section class="card-clean mb-3 customer-request-card" id="room-issue-admin">
-                    <div class="card-title-clean">
-                        <div>
-                            <h5>Sự cố phòng khách đã báo</h5>
-                            <p class="card-subtitle-clean">Phòng {{ $latestRoomIssueRequest->currentRoom?->room_number }} · {{ optional($latestRoomIssueRequest->created_at)->timezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') }}</p>
-                        </div>
+                <details class="compact-panel mb-3 customer-request-card" id="room-issue-admin">
+                    <summary>
+                        <span>
+                            Sự cố phòng khách đã báo
+                            <span class="text-muted fw-normal small ms-2">
+                                Phòng {{ $latestRoomIssueRequest->currentRoom?->room_number ?? '---' }} · {{ \Illuminate\Support\Str::limit($latestRoomIssueRequest->issue_description, 48) }}
+                            </span>
+                        </span>
                         <span class="badge-clean {{ $latestRoomIssueRequest->status === 'pending' ? 'status-warning' : 'status-done' }}">
                             {{ $issueStatusLabels[$issueDisplayStatus] ?? $issueDisplayStatus }}
                         </span>
+                    </summary>
+                    <div class="compact-panel-body">
+                        <div class="soft-note mb-3"><strong>Khách báo:</strong> {{ $latestRoomIssueRequest->issue_description }}</div>
+
+                        @if ($latestRoomIssueRequest->status === 'pending')
+                            <div class="alert alert-warning small mb-3">
+                                Yêu cầu đang chờ quản lý duyệt tại menu <strong>Sự cố phòng</strong>. Lễ tân không cần tự đổi phòng trong khung này.
+                            </div>
+                        @else
+                            <div class="row g-2 mb-3">
+                                <div class="col-md-4"><div class="soft-note h-100"><span class="text-muted small">Phương án đã duyệt</span><div class="fw-bold">{{ $issueResolutionLabels[$latestRoomIssueRequest->resolution_type] ?? '---' }}</div></div></div>
+                                <div class="col-md-4"><div class="soft-note h-100"><span class="text-muted small">Phòng mới</span><div class="fw-bold">{{ $latestRoomIssueRequest->approvedRoom?->room_number ?? 'Giữ phòng cũ' }}</div></div></div>
+                                <div class="col-md-4"><div class="soft-note h-100"><span class="text-muted small">Mã bù đắp</span><div class="fw-bold">{{ collect($latestRoomIssueRequest->promotion_codes)->implode(', ') ?: 'Không áp dụng' }}</div></div></div>
+                            </div>
+                            <div class="soft-note"><strong>Quản lý:</strong> {{ $latestRoomIssueRequest->admin_note }}</div>
+                        @endif
+
+                        @if($latestRoomIssueRequest->status === 'pending' && $latestRoomIssueRequest->workflow_status === 'waiting_guest_confirmation')
+                            <a href="{{ route('admin.bookings.room-issue-proposal', $booking) }}" class="btn btn-primary w-100 mt-3">
+                                <i class="bx bx-conversation me-1"></i> Xem phương án để trao đổi với khách
+                            </a>
+                        @endif
+
+                        <button type="button" class="btn btn-outline-primary w-100 mt-3" data-bs-toggle="modal" data-bs-target="#adminRoomIssueDetailModal">
+                            <i class="bx bx-detail me-1"></i> Xem chi tiết sự cố
+                        </button>
                     </div>
-                    <div class="soft-note mb-3"><strong>Khách báo:</strong> {{ $latestRoomIssueRequest->issue_description }}</div>
-
-                    @if ($latestRoomIssueRequest->status === 'pending')
-                        <div class="alert alert-warning small mb-3">
-                            Yêu cầu đang chờ quản lý duyệt tại menu <strong>Sự cố phòng</strong>. Lễ tân không cần tự đổi phòng trong khung này.
-                        </div>
-                    @else
-                        <div class="row g-2 mb-3">
-                            <div class="col-md-4"><div class="soft-note h-100"><span class="text-muted small">Phương án đã duyệt</span><div class="fw-bold">{{ $issueResolutionLabels[$latestRoomIssueRequest->resolution_type] ?? '---' }}</div></div></div>
-                            <div class="col-md-4"><div class="soft-note h-100"><span class="text-muted small">Phòng mới</span><div class="fw-bold">{{ $latestRoomIssueRequest->approvedRoom?->room_number ?? 'Giữ phòng cũ' }}</div></div></div>
-                            <div class="col-md-4"><div class="soft-note h-100"><span class="text-muted small">Mã bù đắp</span><div class="fw-bold">{{ collect($latestRoomIssueRequest->promotion_codes)->implode(', ') ?: 'Không áp dụng' }}</div></div></div>
-                        </div>
-                        <div class="soft-note"><strong>Quản lý:</strong> {{ $latestRoomIssueRequest->admin_note }}</div>
-                    @endif
-
-                    @if(in_array($latestRoomIssueRequest->workflow_status, ['waiting_guest_confirmation','guest_accepted','guest_requested_change'], true))
-                        <a href="{{ route('admin.bookings.room-issue-proposal', $booking) }}" class="btn btn-primary w-100 mt-3">
-                            <i class="bx bx-conversation me-1"></i> Xem phương án để trao đổi với khách
-                        </a>
-                    @endif
-
-                    <button type="button" class="btn btn-outline-primary w-100 mt-3" data-bs-toggle="modal" data-bs-target="#adminRoomIssueDetailModal">
-                        <i class="bx bx-detail me-1"></i> Xem chi tiết sự cố
-                    </button>
-                </section>
+                </details>
 
                 <div class="modal fade" id="adminRoomIssueDetailModal" tabindex="-1" aria-hidden="true">
                     <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
@@ -1509,13 +1648,16 @@
                         </div>
                         <div class="d-flex gap-2 flex-wrap">
                             <span class="badge-clean {{ $bookingStatusClass }}">{{ $bookingStatusLabels[$booking->status] ?? $booking->status }}</span>
+                            @if($isLateCheckout)
+                                <span class="badge-clean status-late">Trả muộn · {{ $lateCheckoutText }}</span>
+                            @endif
                             <span class="badge-clean {{ $paymentStatusClass }}">{{ $paymentStatusLabels[$effectivePaymentStatus] ?? $effectivePaymentStatus }}</span>
                         </div>
                     </div>
                     <div class="metric-grid">
                         <div class="metric-card"><span>Khách hàng</span><strong>{{ $customerName }}</strong></div>
                         <div class="metric-card"><span>Thời gian lưu trú</span><strong>{{ $lateShowCheckInAt?->format('d/m/Y H:i') ?? '---' }}<br>→ {{ $lateShowCheckOutAt?->format('d/m/Y H:i') ?? '---' }}</strong></div>
-                        <div class="metric-card"><span>Phòng / khách dự kiến</span><strong>{{ $booking->room_quantity }} phòng · {{ $booking->adult_count }} NL / {{ $booking->child_count }} TE<br><span class="text-muted small">Sức chứa: {{ $currentAdultCapacity }} NL / {{ $currentChildCapacity }} TE</span></strong></div>
+                        <div class="metric-card"><span>Hạng phòng khách đặt</span><strong>{{ $booking->roomCategory->name ?? 'Không xác định' }}<br><span class="text-muted small">{{ $booking->room_quantity }} phòng · {{ $booking->adult_count }} NL / {{ $booking->child_count }} TE · Sức chứa {{ $currentAdultCapacity }} NL / {{ $currentChildCapacity }} TE</span></strong></div>
                         <div class="metric-card"><span>Còn lại cần thu</span><strong class="text-danger fs-5">{{ number_format($remainingTotal, 0, ',', '.') }}đ</strong></div>
                     </div>
                 </div>
@@ -1679,8 +1821,6 @@
                                     <div class="operation-row-head">
                                         <div>
                                             <div class="operation-row-title">Nhận phòng thực tế</div>
-                                            <div class="text-muted small">Nhập số khách thực tế, kiểm tra sức chứa và phụ thu
-                                                nếu có.</div>
                                         </div>
                                     </div>
 
@@ -2923,7 +3063,7 @@
                                                 <br>
                                                 <strong>Chính sách:</strong> {{ $checkoutLatePolicyText }}
                                                 <br>
-                                                <strong>Số tiền phụ thu dự kiến:</strong>
+                                                <strong>Phụ thu cần ghi thêm lúc này:</strong>
                                                 <span
                                                     class="fw-bold">{{ number_format($checkoutLateFeePreview, 0, ',', '.') }}đ</span>
                                                 <br>
@@ -2938,6 +3078,7 @@
                                                 @if ($existingCheckoutLateFeeTotal > 0)
                                                     Khoản phụ thu check-out muộn đã được ghi nhận:
                                                     <strong>{{ number_format($existingCheckoutLateFeeTotal, 0, ',', '.') }}đ</strong>.
+                                                    Hệ thống vẫn kiểm tra lại theo giờ trả thực tế khi bấm check-out và chỉ cộng thêm nếu khách đã sang mốc phí cao hơn.
                                                 @endif
                                             </div>
                                         @endif
@@ -2965,7 +3106,7 @@
                                                     </tr>
                                                     @if ($checkoutLateFeePreview > 0)
                                                         <tr>
-                                                            <td>Phụ thu check-out muộn dự kiến</td>
+                                                            <td>Phụ thu check-out muộn cần ghi thêm</td>
                                                             <td class="text-end fw-bold text-danger">
                                                                 {{ number_format($checkoutLateFeePreview, 0, ',', '.') }}đ
                                                             </td>
@@ -3785,6 +3926,12 @@
                                             @foreach (($roomOperationPreview['payload'] ?? []) as $key => $value)
                                                 @if (is_bool($value))
                                                     <input type="hidden" name="{{ $key }}" value="{{ $value ? 1 : 0 }}">
+                                                @elseif (is_array($value))
+                                                    @foreach ($value as $arrayValue)
+                                                        @if (is_scalar($arrayValue) || is_null($arrayValue))
+                                                            <input type="hidden" name="{{ $key }}[]" value="{{ $arrayValue }}">
+                                                        @endif
+                                                    @endforeach
                                                 @elseif (is_scalar($value) || is_null($value))
                                                     <input type="hidden" name="{{ $key }}" value="{{ $value }}">
                                                 @endif
@@ -3845,7 +3992,7 @@
                                     </form>
 
                                     <form action="{{ route('admin.bookings.change-one-room-category', $booking->id) }}"
-                                        method="POST" class="mini-form-box">
+                                        method="POST" class="mini-form-box js-category-room-form" data-room-count="1">
                                         @csrf
                                         @method('PATCH')
 
@@ -3858,8 +4005,7 @@
                                                 @foreach ($booking->bookingRooms as $bookingRoom)
                                                     @if ($bookingRoom->room)
                                                         <option value="{{ $bookingRoom->id }}">
-                                                            Phòng {{ $bookingRoom->room->room_number }} -
-                                                            {{ $bookingRoom->room->category->name ?? 'Không rõ hạng' }}
+                                                            Phòng {{ $bookingRoom->room->room_number }} · {{ $bookingRoom->room->category->name ?? 'Không rõ hạng' }}
                                                         </option>
                                                     @endif
                                                 @endforeach
@@ -3868,12 +4014,31 @@
 
                                         <div class="mb-3">
                                             <label class="form-label small">Hạng mới</label>
-                                            <select name="new_room_category_id" class="form-select" required>
+                                            <select name="new_room_category_id" class="form-select js-room-category-target" required>
                                                 <option value="">-- Chọn hạng --</option>
                                                 @foreach ($roomCategoriesForBookingManage as $category)
                                                     <option value="{{ $category->id }}" @disabled($category->available_rooms_count <= 0)>
-                                                        {{ $category->name }} - Còn {{ $category->available_rooms_count }} -
-                                                        {{ number_format($category->price, 0, ',', '.') }}đ
+                                                        {{ $category->name }} · Còn {{ $category->available_rooms_count }} · {{ number_format($category->price, 0, ',', '.') }}đ
+                                                    </option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label small">Cách chọn phòng</label>
+                                            <select name="room_assignment_mode" class="form-select js-room-assignment-mode" required>
+                                                <option value="auto" selected>Hệ thống tự chọn</option>
+                                                <option value="manual">Chọn phòng thủ công</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3 d-none" data-manual-room-picker>
+                                            <label class="form-label small">Phòng cụ thể</label>
+                                            <select name="target_room_ids[]" class="form-select js-manual-room-select" disabled>
+                                                <option value="">-- Chọn phòng --</option>
+                                                @foreach ($categoryChangeAvailableRooms as $room)
+                                                    <option value="{{ $room->id }}" data-category-id="{{ $room->room_category_id }}">
+                                                        Phòng {{ $room->room_number }} · Tầng {{ $room->floor_number ?? '---' }}
                                                     </option>
                                                 @endforeach
                                             </select>
@@ -3890,7 +4055,7 @@
 
                                     @if ($booking->bookingRooms->count() >= 2)
                                     <form action="{{ route('admin.bookings.change-all-room-category', $booking->id) }}"
-                                        method="POST" class="mini-form-box">
+                                        method="POST" class="mini-form-box js-category-room-form" data-room-count="{{ $assignedRooms->count() }}">
                                         @csrf
                                         @method('PATCH')
 
@@ -3898,12 +4063,30 @@
 
                                         <div class="mb-3">
                                             <label class="form-label small">Hạng mới</label>
-                                            <select name="new_room_category_id" class="form-select" required>
+                                            <select name="new_room_category_id" class="form-select js-room-category-target" required>
                                                 <option value="">-- Chọn hạng --</option>
                                                 @foreach ($roomCategoriesForBookingManage as $category)
-                                                    <option value="{{ $category->id }}" @disabled($category->available_rooms_count < $booking->room_quantity)>
-                                                        {{ $category->name }} - Còn {{ $category->available_rooms_count }} - Cần
-                                                        {{ $booking->room_quantity }}
+                                                    <option value="{{ $category->id }}" @disabled($category->available_rooms_count < $assignedRooms->count())>
+                                                        {{ $category->name }} · Còn {{ $category->available_rooms_count }} · Cần {{ $assignedRooms->count() }}
+                                                    </option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label small">Cách chọn phòng</label>
+                                            <select name="room_assignment_mode" class="form-select js-room-assignment-mode" required>
+                                                <option value="auto" selected>Hệ thống tự chọn</option>
+                                                <option value="manual">Chọn phòng thủ công</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3 d-none" data-manual-room-picker>
+                                            <label class="form-label small">Chọn đúng {{ $assignedRooms->count() }} phòng</label>
+                                            <select name="target_room_ids[]" class="form-select js-manual-room-select" multiple size="6" disabled>
+                                                @foreach ($categoryChangeAvailableRooms as $room)
+                                                    <option value="{{ $room->id }}" data-category-id="{{ $room->room_category_id }}">
+                                                        Phòng {{ $room->room_number }} · Tầng {{ $room->floor_number ?? '---' }}
                                                     </option>
                                                 @endforeach
                                             </select>
@@ -3919,6 +4102,135 @@
                                     </form>
                                     @endif
                                 </div>
+                            </div>
+                        </details>
+                    @endif
+
+                    @if (($booking->room_selection_mode ?? 'automatic') === 'manual')
+                        @php
+                            $manualSelectionRooms = $assignedRooms
+                                ->concat($timeAvailableRooms)
+                                ->unique('id')
+                                ->sortBy(fn ($room) => sprintf('%04d-%s', (int) ($room->floor_number ?? 0), $room->room_number))
+                                ->values();
+                            $roomSelectionStatusLabels = [
+                                'pending' => 'Chờ lễ tân xử lý',
+                                'fulfilled' => 'Đã đáp ứng yêu cầu',
+                                'awaiting_guest' => 'Chờ khách xác nhận phòng dự phòng',
+                                'fallback_accepted' => 'Khách đã đồng ý phòng dự phòng',
+                                'fallback_declined' => 'Khách từ chối · booking đã hủy',
+                                'unfulfilled' => 'Không thể đáp ứng (dữ liệu cũ)',
+                            ];
+                            $manualSelectionFinal = in_array($booking->room_selection_status, ['fulfilled', 'fallback_accepted', 'fallback_declined', 'unfulfilled'], true);
+                        @endphp
+                        <details class="card-clean border border-warning-subtle" {{ $manualSelectionFinal ? '' : 'open' }}>
+                            <summary class="card-title-clean mb-0" style="cursor:pointer;list-style:none">
+                                <div>
+                                    <h5>Yêu cầu chọn phòng của khách</h5>
+                                </div>
+                                <span class="badge-clean {{ in_array($booking->room_selection_status, ['fulfilled', 'fallback_accepted'], true) ? 'status-success' : ($booking->room_selection_status === 'fallback_declined' ? 'status-muted' : 'status-warning') }}">
+                                    {{ $roomSelectionStatusLabels[$booking->room_selection_status] ?? $booking->room_selection_status }}
+                                </span>
+                            </summary>
+
+                            <div class="mt-3">
+                                <div class="room-selection-request-highlight mb-3">
+                                    <strong>Yêu cầu của khách:</strong>
+                                    <span>{{ $booking->room_selection_request ?: 'Khách chưa ghi yêu cầu cụ thể.' }}</span>
+                                </div>
+                                @if ($booking->room_selection_status === 'pending' && in_array($booking->status, ['pending', 'confirmed'], true))
+                                    <div class="alert alert-warning small">
+                                        Hệ thống đang giữ {{ $booking->room_quantity }} phòng dự phòng để tránh oversell. <strong>Không công bố số phòng dự phòng cho khách ở trạng thái này.</strong> Chỉ khi chọn <strong>Đáp ứng yêu cầu</strong> hệ thống mới cộng phí đảm bảo yêu cầu phòng.
+                                    </div>
+
+                                    <form action="{{ route('admin.bookings.manual-room-selection', $booking) }}" method="POST" class="mb-3">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="decision" value="fulfilled">
+
+                                        <label class="form-label fw-semibold">Chọn đúng {{ $booking->room_quantity }} phòng đáp ứng yêu cầu</label>
+                                        <select name="selected_room_ids[]" class="form-select" multiple size="{{ min(8, max(4, $manualSelectionRooms->count())) }}" required>
+                                            @foreach ($manualSelectionRooms as $room)
+                                                <option value="{{ $room->id }}" @selected($assignedRooms->contains('id', $room->id))>
+                                                    Phòng {{ $room->room_number }} · Tầng {{ $room->floor_number ?? '---' }}
+                                                    {{ $assignedRooms->contains('id', $room->id) ? '· đang giữ dự phòng' : '' }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        <div class="form-text">Có thể dùng chính phòng dự phòng nếu phòng đó thực sự đáp ứng yêu cầu khách đã ghi.</div>
+
+                                        <label class="form-label mt-2">Ghi chú gửi khách (không bắt buộc)</label>
+                                        <textarea name="handling_note" class="form-control" rows="2" placeholder="Ví dụ: Đã bố trí phòng tầng 6, khu vực yên tĩnh."></textarea>
+
+                                        <button class="btn btn-success w-100 mt-3">
+                                            Xác nhận đáp ứng yêu cầu và tính phí
+                                        </button>
+                                    </form>
+
+                                    <form action="{{ route('admin.bookings.manual-room-selection', $booking) }}" method="POST">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="decision" value="unfulfilled">
+                                        <label class="form-label fw-semibold">Nếu không thể đáp ứng</label>
+                                        <textarea name="handling_note" class="form-control" rows="2" required
+                                            placeholder="Ghi rõ lý do để khách quyết định có nhận phòng dự phòng hay không."></textarea>
+                                        <button class="btn btn-outline-danger w-100 mt-2">
+                                            Không thể đáp ứng · hỏi khách về phòng dự phòng
+                                        </button>
+                                    </form>
+                                @elseif ($booking->room_selection_status === 'awaiting_guest')
+                                    <div class="alert alert-warning small mb-2">
+                                        <strong>Đang chờ khách quyết định.</strong> Không thu phí đảm bảo yêu cầu phòng. Khách đã được thông báo số phòng dự phòng và có thể Đồng ý hoặc Từ chối/hủy đơn hoàn cọc.
+                                        @if ($booking->room_selection_handling_note)
+                                            <br><strong>Lý do đã gửi khách:</strong> {{ $booking->room_selection_handling_note }}
+                                        @endif
+                                    </div>
+                                    <div class="room-pill-list">
+                                        @foreach ($assignedRooms as $assignedRoom)
+                                            <span class="room-pill">Phòng dự phòng {{ $assignedRoom->room_number }}</span>
+                                        @endforeach
+                                    </div>
+                                @elseif ($booking->room_selection_status === 'fulfilled')
+                                    <div class="soft-note">
+                                        <strong>Đã đáp ứng.</strong>
+                                        Phí đảm bảo yêu cầu phòng: {{ number_format((float) $booking->room_selection_fee, 0, ',', '.') }}đ.
+                                        @if ($booking->room_selection_handling_note)
+                                            <br>Ghi chú: {{ $booking->room_selection_handling_note }}
+                                        @endif
+                                    </div>
+                                @elseif ($booking->room_selection_status === 'fallback_accepted')
+                                    <div class="soft-note">
+                                        <strong>Khách đã đồng ý sử dụng phòng dự phòng.</strong> Booking tiếp tục giữ nguyên, không thu phí đảm bảo yêu cầu phòng.
+                                    </div>
+                                @elseif ($booking->room_selection_status === 'fallback_declined')
+                                    <div class="soft-note mb-3">
+                                        <strong>Khách từ chối phòng dự phòng.</strong> Booking đã hủy do khách sạn không đáp ứng yêu cầu; không tính đây là lỗi hủy của khách.
+                                    </div>
+                                    @if ((float) ($booking->refund_due_amount ?? 0) > 0)
+                                        <div class="alert {{ $booking->refund_status === 'completed' ? 'alert-success' : 'alert-danger' }} small">
+                                            Cần hoàn khách: <strong>{{ number_format((float) $booking->refund_due_amount, 0, ',', '.') }}đ</strong> ·
+                                            {{ $booking->refund_status === 'completed' ? 'Đã xác nhận hoàn tất' : 'Đang chờ hoàn tiền' }}.
+                                            @if ($booking->refund_status === 'completed' && $booking->refund_processed_at)
+                                                <br>Hoàn tất lúc {{ $booking->refund_processed_at->timezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') }}.
+                                            @endif
+                                        </div>
+                                        @if ($booking->refund_status === 'pending')
+                                            <form action="{{ route('admin.bookings.manual-room-selection.refund-completed', $booking) }}" method="POST">
+                                                @csrf
+                                                @method('PATCH')
+                                                <label class="form-label small fw-semibold">Xác nhận sau khi đã thực sự hoàn tiền cho khách</label>
+                                                <textarea name="refund_note" class="form-control" rows="2" placeholder="Ví dụ: Đã hoàn qua cổng VNPay / hoàn tiền mặt tại quầy..."></textarea>
+                                                <button class="btn btn-success w-100 mt-2" onclick="return confirm('Chỉ xác nhận khi tiền đã thực sự được hoàn cho khách. Tiếp tục?');">Xác nhận đã hoàn tiền</button>
+                                            </form>
+                                        @endif
+                                    @else
+                                        <div class="alert alert-info small mb-0">Booking chưa phát sinh khoản thanh toán cần hoàn.</div>
+                                    @endif
+                                @elseif ($booking->room_selection_status === 'unfulfilled')
+                                    <div class="soft-note">
+                                        <strong>Dữ liệu cũ:</strong> Booking được ghi nhận không thể đáp ứng yêu cầu theo luồng cũ. Hãy kiểm tra trực tiếp với khách nếu booking vẫn còn hiệu lực.
+                                    </div>
+                                @endif
                             </div>
                         </details>
                     @endif
@@ -3950,59 +4262,64 @@
                             <details class="compact-panel">
                                 <summary>Đổi phòng cùng hạng</summary>
                                 <div class="compact-panel-body">
-                                    <form action="{{ route('admin.bookings.change-room', $booking->id) }}" method="POST">
+                                    <form action="{{ route('admin.bookings.change-room', $booking->id) }}" method="POST" class="js-same-rank-room-form">
                                         @csrf
 
                                         <div class="row g-2">
                                             <div class="col-md-6">
                                                 <label class="form-label">Phòng cần đổi</label>
-                                                <select name="old_room_id" class="form-select" required>
+                                                <select name="old_room_id" class="form-select js-old-room-select" required>
                                                     <option value="">-- Chọn phòng đang gán --</option>
                                                     @foreach ($assignedRooms as $assignedRoom)
-                                                        <option value="{{ $assignedRoom->id }}">
-                                                            Phòng {{ $assignedRoom->room_number }} - Tầng
-                                                            {{ $assignedRoom->floor_number ?? '---' }}
+                                                        <option value="{{ $assignedRoom->id }}" data-category-id="{{ $assignedRoom->room_category_id }}">
+                                                            Phòng {{ $assignedRoom->room_number }} · Tầng {{ $assignedRoom->floor_number ?? '---' }}
                                                         </option>
                                                     @endforeach
                                                 </select>
                                             </div>
 
                                             <div class="col-md-6">
+                                                <label class="form-label">Cách chọn phòng</label>
+                                                <select name="room_assignment_mode" class="form-select js-room-assignment-mode" required>
+                                                    <option value="auto" selected>Hệ thống tự chọn</option>
+                                                    <option value="manual">Chọn phòng thủ công</option>
+                                                </select>
+                                            </div>
+
+                                            <div class="col-md-6 d-none" data-manual-room-picker>
                                                 <label class="form-label">Phòng thay thế cùng hạng</label>
-                                                <select name="new_room_id" class="form-select" required>
-                                                    <option value="">-- Chọn phòng trống --</option>
+                                                <select name="new_room_id" class="form-select js-manual-room-select" disabled>
+                                                    <option value="">-- Chọn phòng --</option>
                                                     @foreach ($timeAvailableRooms as $room)
-                                                        <option value="{{ $room->id }}">
-                                                            Phòng {{ $room->room_number }} - Tầng {{ $room->floor_number ?? '---' }}
+                                                        <option value="{{ $room->id }}" data-category-id="{{ $room->room_category_id }}">
+                                                            Phòng {{ $room->room_number }} · Tầng {{ $room->floor_number ?? '---' }}
                                                         </option>
                                                     @endforeach
                                                 </select>
                                             </div>
 
-                                            <div class="col-md-6">
-                                                <label class="form-label">Trạng thái phòng cũ</label>
-                                                <select name="old_room_new_status" class="form-select" required>
-                                                    <option value="maintenance">Bảo trì</option>
-                                                    <option value="cleaning">Cần dọn</option>
-                                                    @if ($booking->status !== 'checked_in')
-                                                        <option value="available">Trống</option>
-                                                    @endif
-                                                </select>
-                                                @if ($booking->status === 'checked_in')
-                                                    <div class="form-text">Khách đã ở phòng này nên phòng cũ phải được dọn hoặc bảo trì trước khi mở bán lại.</div>
-                                                @endif
-                                            </div>
+                                            @if ($booking->status === 'checked_in')
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Phòng cũ sau khi chuyển</label>
+                                                    <select name="old_room_new_status" class="form-select" required>
+                                                        <option value="cleaning">Cần dọn</option>
+                                                        <option value="maintenance">Bảo trì</option>
+                                                    </select>
+                                                </div>
+                                            @else
+                                                <input type="hidden" name="old_room_new_status" value="available">
+                                            @endif
 
                                             <div class="col-md-6">
                                                 <label class="form-label">Lý do đổi phòng</label>
                                                 <input type="text" name="change_reason" class="form-control"
-                                                    placeholder="Ví dụ: Hỏng điều hòa, khóa lỗi..." required>
+                                                    placeholder="Ví dụ: Khách muốn chuyển sang phòng khác" required>
                                             </div>
                                         </div>
 
                                         @if ($timeAvailableRooms->count() == 0)
                                             <div class="alert alert-warning small mt-3 mb-0">
-                                                Không còn phòng cùng hạng trống trong khoảng thời gian của booking này.
+                                                Không còn phòng cùng hạng phù hợp trong khoảng thời gian booking.
                                             </div>
                                         @endif
 
@@ -4236,27 +4553,28 @@
                     </section>
 
                     <section class="card-clean">
-                        <div class="card-title-clean">
-                            <div>
-                                <h5>Lịch sử thao tác</h5>
-                            </div>
-                        </div>
+                        <details class="history-details">
+                            <summary>
+                                Lịch sử thao tác
+                                <span class="text-muted fw-normal ms-1">({{ $booking->logs->count() }})</span>
+                            </summary>
 
-                        <div class="log-box">
-                            @forelse ($booking->logs as $log)
-                                <div class="log-item">
-                                    <div class="fw-bold">
-                                        {{ $log->created_at ? $log->created_at->format('d/m/Y - H:i') : '---' }}
-                                        - {{ $log->user?->name ?? 'Hệ thống' }}
+                            <div class="log-box">
+                                @forelse ($booking->logs as $log)
+                                    <div class="log-item">
+                                        <div class="fw-bold">
+                                            {{ $log->created_at ? $log->created_at->format('d/m/Y - H:i') : '---' }}
+                                            - {{ $log->user?->name ?? 'Hệ thống' }}
+                                        </div>
+                                        <div class="text-muted mt-1" style="white-space: pre-line;">
+                                            {{ $log->description }}
+                                        </div>
                                     </div>
-                                    <div class="text-muted mt-1" style="white-space: pre-line;">
-                                        {{ $log->description }}
-                                    </div>
-                                </div>
-                            @empty
-                                <p class="text-muted mb-0">Chưa có lịch sử thao tác.</p>
-                            @endforelse
-                        </div>
+                                @empty
+                                    <p class="text-muted mb-0">Chưa có lịch sử thao tác.</p>
+                                @endforelse
+                            </div>
+                        </details>
                     </section>
                 </div>
 
@@ -4266,89 +4584,94 @@
                             <h5>Thanh toán</h5>
                         </div>
 
-                        <div class="payment-summary-note">Bấm vào từng dòng để xem công thức và các khoản cấu thành.</div>
+                        <div class="payment-summary-note">Các số cần nhìn ngay; bấm vào ô để xem công thức.</div>
 
-                        <div class="info-list">
-                            <div class="payment-summary-section">Các khoản phát sinh</div>
-
-                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailRoom" data-payment-title="Chi tiết tiền phòng">
-                                <span class="info-label">Tiền phòng</span>
-                                <span class="info-value">{{ number_format($roomTotal, 0, ',', '.') }}đ</span>
+                        <div class="payment-kpi-grid">
+                            <button type="button" class="payment-kpi payment-detail-trigger" data-payment-detail="paymentDetailFinalTotal" data-payment-title="Tổng cần thanh toán">
+                                <span class="payment-kpi-label">Tổng đơn</span>
+                                <span class="payment-kpi-value">{{ number_format($finalTotal, 0, ',', '.') }}đ</span>
                             </button>
-                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailServices" data-payment-title="Dịch vụ khách gọi thêm và phụ thu">
-                                <span class="info-label">Dịch vụ khách gọi thêm / phụ thu</span>
-                                <span class="info-value {{ $serviceItemTotal > 0 ? 'text-danger' : '' }}">
-                                    {{ $serviceItemTotal > 0 ? '+' : '' }}{{ number_format((float) $serviceItemTotal, 0, ',', '.') }}đ
-                                </span>
+                            <button type="button" class="payment-kpi payment-detail-trigger" data-payment-detail="paymentDetailPayments" data-payment-title="Lịch sử tiền khách đã thanh toán">
+                                <span class="payment-kpi-label">Đã thu</span>
+                                <span class="payment-kpi-value text-success">{{ number_format($adminPaymentPaidAmount, 0, ',', '.') }}đ</span>
                             </button>
-                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailMinibar" data-payment-title="Dịch vụ tại phòng đã duyệt">
-                                <span class="info-label">Dịch vụ tại phòng đã duyệt</span>
-                                <span class="info-value {{ $approvedMinibarTotal > 0 ? 'text-danger' : '' }}">
-                                    {{ $approvedMinibarTotal > 0 ? '+' : '' }}{{ number_format((float) $approvedMinibarTotal, 0, ',', '.') }}đ
-                                </span>
+                            <button type="button" class="payment-kpi payment-detail-trigger" data-payment-detail="paymentDetailRemaining" data-payment-title="Số tiền còn phải thu">
+                                <span class="payment-kpi-label">Còn phải thu</span>
+                                <span class="payment-kpi-value {{ $remainingTotal > 0 ? 'text-danger' : 'text-success' }}">{{ number_format($remainingTotal, 0, ',', '.') }}đ</span>
                             </button>
-                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailDamage" data-payment-title="Phí hư hại đã duyệt">
-                                <span class="info-label">Phí hư hại đã duyệt</span>
-                                <span class="info-value {{ $approvedDamageTotal > 0 ? 'text-danger' : '' }}">
-                                    {{ $approvedDamageTotal > 0 ? '+' : '' }}{{ number_format((float) $approvedDamageTotal, 0, ',', '.') }}đ
-                                </span>
+                            <button type="button" class="payment-kpi payment-detail-trigger" data-payment-detail="paymentDetailDeposit" data-payment-title="Mức cọc {{ $depositPercentLabel }} hiện tại">
+                                <span class="payment-kpi-label">Còn thiếu cọc</span>
+                                <span class="payment-kpi-value {{ $adminPaymentDepositAmount > 0 ? 'text-warning' : 'text-success' }}">{{ number_format($adminPaymentDepositAmount, 0, ',', '.') }}đ</span>
                             </button>
-                            @if ($checkoutLateFeePreview > 0)
-                                <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailLateCheckout" data-payment-title="Dự kiến phụ thu trả phòng muộn">
-                                    <span class="info-label">Dự kiến trả phòng muộn</span>
-                                    <span class="info-value text-danger">+{{ number_format((float) $checkoutLateFeePreview, 0, ',', '.') }}đ</span>
-                                </button>
-                            @endif
-                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailSubtotal" data-payment-title="Tổng phát sinh trước ưu đãi">
-                                <span class="info-label">Tổng phát sinh trước ưu đãi</span>
-                                <span class="info-value">{{ number_format($totalBeforeDiscount, 0, ',', '.') }}đ</span>
-                            </button>
-                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailPromotions" data-payment-title="Mã giảm giá và hỗ trợ">
-                                <span class="info-label">Mã giảm giá / hỗ trợ</span>
-                                <span class="info-value {{ $promotionDiscountTotal > 0 ? 'text-success' : '' }}">
-                                    {{ $promotionDiscountTotal > 0 ? '-' : '' }}{{ number_format($promotionDiscountTotal, 0, ',', '.') }}đ
-                                </span>
-                            </button>
-                            <button type="button" class="info-line payment-detail-trigger payment-total-highlight" data-payment-detail="paymentDetailFinalTotal" data-payment-title="Tổng cần thanh toán">
-                                <span class="info-label fw-bold text-dark">Tổng cần thanh toán</span>
-                                <span class="info-value fs-5">{{ number_format($finalTotal, 0, ',', '.') }}đ</span>
-                            </button>
-
-                            <div class="payment-summary-section mt-3">Tiền khách đã thanh toán</div>
-
-                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailDeposit" data-payment-title="Mức cọc {{ $depositPercentLabel }} hiện tại">
-                                <span class="info-label">Mức cọc {{ $depositPercentLabel }} hiện tại</span>
-                                <span class="info-value">{{ number_format($adminPaymentDepositTarget, 0, ',', '.') }}đ</span>
-                            </button>
-                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailPayments" data-payment-title="Lịch sử tiền khách đã thanh toán">
-                                <span class="info-label">Tổng khách đã thanh toán</span>
-                                <span class="info-value">-{{ number_format($adminPaymentPaidAmount, 0, ',', '.') }}đ</span>
-                            </button>
-                            <div class="info-line ps-2">
-                                <span class="info-label">↳ Đã phân bổ vào cọc</span>
-                                <span class="info-value">-{{ number_format($actualDepositPaid, 0, ',', '.') }}đ</span>
-                            </div>
-                            <div class="info-line ps-2">
-                                <span class="info-label">↳ Phần đã thanh toán ngoài cọc</span>
-                                <span class="info-value">-{{ number_format($additionalPaidTotal, 0, ',', '.') }}đ</span>
-                            </div>
-                            <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailPrepayment" data-payment-title="Tiền trả trước còn dư để bù trừ">
-                                <span class="info-label">Tiền trả trước còn dư để bù trừ</span>
-                                <span class="info-value {{ $currentOverpaymentTotal > 0 ? 'text-warning fw-bold' : '' }}">{{ number_format($currentOverpaymentTotal, 0, ',', '.') }}đ</span>
-                            </button>
-                            <button type="button" class="info-line payment-detail-trigger payment-total-highlight" data-payment-detail="paymentDetailRemaining" data-payment-title="Số tiền còn phải thu">
-                                <span class="info-label fw-bold text-dark">Còn lại cần thu</span>
-                                <span class="info-value text-danger fs-5">{{ number_format($remainingTotal, 0, ',', '.') }}đ</span>
-                            </button>
-                            <div class="info-line">
-                                <span class="info-label">Trạng thái</span>
-                                <span class="info-value">
-                                    <span class="badge-clean {{ $paymentStatusClass }}">
-                                        {{ $paymentStatusLabels[$effectivePaymentStatus] ?? $effectivePaymentStatus }}
-                                    </span>
-                                </span>
-                            </div>
                         </div>
+
+                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2 px-1">
+                            <span class="small text-muted">Trạng thái thanh toán</span>
+                            <span class="badge-clean {{ $paymentStatusClass }}">
+                                {{ $paymentStatusLabels[$effectivePaymentStatus] ?? $effectivePaymentStatus }}
+                            </span>
+                        </div>
+
+                        <details class="payment-components-details">
+                            <summary>Xem chi tiết cấu thành và phân bổ tiền</summary>
+                            <div class="info-list">
+                                <div class="payment-summary-section">Các khoản phát sinh</div>
+                                <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailRoom" data-payment-title="Chi tiết tiền phòng">
+                                    <span class="info-label">Tiền phòng</span>
+                                    <span class="info-value">{{ number_format($roomTotal, 0, ',', '.') }}đ</span>
+                                </button>
+                                <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailServices" data-payment-title="Dịch vụ khách gọi thêm và phụ thu">
+                                    <span class="info-label">Dịch vụ / phụ thu</span>
+                                    <span class="info-value {{ $serviceItemTotal > 0 ? 'text-danger' : '' }}">{{ $serviceItemTotal > 0 ? '+' : '' }}{{ number_format((float) $serviceItemTotal, 0, ',', '.') }}đ</span>
+                                </button>
+                                @if ($manualRoomSelectionFee > 0)
+                                    <div class="info-line">
+                                        <span class="info-label">Phí chọn phòng thủ công</span>
+                                        <span class="info-value text-danger">+{{ number_format($manualRoomSelectionFee, 0, ',', '.') }}đ</span>
+                                    </div>
+                                @endif
+                                <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailMinibar" data-payment-title="Dịch vụ tại phòng đã duyệt">
+                                    <span class="info-label">Dịch vụ tại phòng</span>
+                                    <span class="info-value {{ $approvedMinibarTotal > 0 ? 'text-danger' : '' }}">{{ $approvedMinibarTotal > 0 ? '+' : '' }}{{ number_format((float) $approvedMinibarTotal, 0, ',', '.') }}đ</span>
+                                </button>
+                                <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailDamage" data-payment-title="Phí hư hại đã duyệt">
+                                    <span class="info-label">Hư hại đã duyệt</span>
+                                    <span class="info-value {{ $approvedDamageTotal > 0 ? 'text-danger' : '' }}">{{ $approvedDamageTotal > 0 ? '+' : '' }}{{ number_format((float) $approvedDamageTotal, 0, ',', '.') }}đ</span>
+                                </button>
+                                @if ($checkoutLateFeePreview > 0)
+                                    <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailLateCheckout" data-payment-title="Dự kiến phụ thu trả phòng muộn">
+                                        <span class="info-label">Dự kiến trả muộn</span>
+                                        <span class="info-value text-danger">+{{ number_format((float) $checkoutLateFeePreview, 0, ',', '.') }}đ</span>
+                                    </button>
+                                @endif
+                                <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailSubtotal" data-payment-title="Tổng phát sinh trước ưu đãi">
+                                    <span class="info-label">Trước ưu đãi</span>
+                                    <span class="info-value">{{ number_format($totalBeforeDiscount, 0, ',', '.') }}đ</span>
+                                </button>
+                                <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailPromotions" data-payment-title="Mã giảm giá và hỗ trợ">
+                                    <span class="info-label">Giảm giá / hỗ trợ</span>
+                                    <span class="info-value {{ $promotionDiscountTotal > 0 ? 'text-success' : '' }}">{{ $promotionDiscountTotal > 0 ? '-' : '' }}{{ number_format($promotionDiscountTotal, 0, ',', '.') }}đ</span>
+                                </button>
+
+                                <div class="payment-summary-section mt-2">Phân bổ tiền đã thu</div>
+                                <div class="info-line">
+                                    <span class="info-label">Mức cọc {{ $depositPercentLabel }}</span>
+                                    <span class="info-value">{{ number_format($adminPaymentDepositTarget, 0, ',', '.') }}đ</span>
+                                </div>
+                                <div class="info-line">
+                                    <span class="info-label">Đã phân bổ vào cọc</span>
+                                    <span class="info-value">{{ number_format($actualDepositPaid, 0, ',', '.') }}đ</span>
+                                </div>
+                                <div class="info-line">
+                                    <span class="info-label">Đã thu ngoài cọc</span>
+                                    <span class="info-value">{{ number_format($additionalPaidTotal, 0, ',', '.') }}đ</span>
+                                </div>
+                                <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailPrepayment" data-payment-title="Tiền trả trước còn dư để bù trừ">
+                                    <span class="info-label">Trả trước còn dư</span>
+                                    <span class="info-value {{ $currentOverpaymentTotal > 0 ? 'text-warning fw-bold' : '' }}">{{ number_format($currentOverpaymentTotal, 0, ',', '.') }}đ</span>
+                                </button>
+                            </div>
+                        </details>
 
                         @if (!in_array($booking->status, ['canceled', 'cancelled', 'no_show']) && $remainingTotal > 0.01)
                             <hr class="my-3">
@@ -4366,23 +4689,11 @@
 
                             <div class="soft-note mb-2">
                                 <div class="d-flex justify-content-between gap-2">
-                                    <span>Tổng cần thanh toán</span>
-                                    <strong>{{ number_format($finalTotal, 0, ',', '.') }}đ</strong>
-                                </div>
-                                <div class="d-flex justify-content-between gap-2 mt-1">
-                                    <span>Mức cọc {{ $depositPercentLabel }} hiện tại</span>
-                                    <strong>{{ number_format($adminPaymentDepositTarget, 0, ',', '.') }}đ</strong>
-                                </div>
-                                <div class="d-flex justify-content-between gap-2 mt-1">
-                                    <span>Đã thu thực tế</span>
-                                    <strong>{{ number_format($adminPaymentPaidAmount, 0, ',', '.') }}đ</strong>
-                                </div>
-                                <div class="d-flex justify-content-between gap-2 mt-1">
-                                    <span>Còn thiếu để đủ cọc</span>
+                                    <span>Thiếu cọc</span>
                                     <strong class="{{ $adminPaymentDepositAmount > 0 ? 'text-warning' : 'text-success' }}">{{ number_format($adminPaymentDepositAmount, 0, ',', '.') }}đ</strong>
                                 </div>
                                 <div class="d-flex justify-content-between gap-2 mt-1">
-                                    <span>Còn lại cần thu toàn bộ</span>
+                                    <span>Còn phải thu</span>
                                     <strong class="text-danger">{{ number_format($remainingTotal, 0, ',', '.') }}đ</strong>
                                 </div>
                             </div>
@@ -4792,6 +5103,7 @@
         <div class="payment-breakdown-item">
             <div class="d-flex justify-content-between"><span>Tiền phòng</span><strong>{{ number_format($roomTotal, 0, ',', '.') }}đ</strong></div>
             <div class="d-flex justify-content-between mt-2"><span>Dịch vụ / phụ thu</span><strong>+{{ number_format($serviceItemTotal, 0, ',', '.') }}đ</strong></div>
+            @if ($manualRoomSelectionFee > 0)<div class="d-flex justify-content-between mt-2"><span>Phí chọn phòng thủ công</span><strong>+{{ number_format($manualRoomSelectionFee, 0, ',', '.') }}đ</strong></div>@endif
             <div class="d-flex justify-content-between mt-2"><span>Dịch vụ tại phòng / hư hại</span><strong>+{{ number_format($approvedInspectionTotal, 0, ',', '.') }}đ</strong></div>
             @if ($checkoutLateFeePreview > 0)<div class="d-flex justify-content-between mt-2"><span>Trả phòng muộn dự kiến</span><strong>+{{ number_format($checkoutLateFeePreview, 0, ',', '.') }}đ</strong></div>@endif
         </div>
@@ -4821,6 +5133,7 @@
     <template id="paymentDetailFinalTotal">
         <div class="payment-breakdown-item">
             <div class="d-flex justify-content-between"><span>Tổng phát sinh trước ưu đãi</span><strong>{{ number_format($totalBeforeDiscount, 0, ',', '.') }}đ</strong></div>
+            @if ($manualRoomSelectionFee > 0)<div class="small text-muted mt-1">Đã gồm {{ number_format($manualRoomSelectionFee, 0, ',', '.') }}đ phí chọn phòng thủ công.</div>@endif
             <div class="d-flex justify-content-between mt-2"><span>Mã giảm giá / hỗ trợ</span><strong class="text-success">-{{ number_format($promotionDiscountTotal, 0, ',', '.') }}đ</strong></div>
         </div>
         <div class="payment-breakdown-total"><span>Tổng cần thanh toán</span><span>{{ number_format($finalTotal, 0, ',', '.') }}đ</span></div>
@@ -5825,6 +6138,70 @@
                     locale: 'vn'
                 });
             }
+
+            document.querySelectorAll('.js-category-room-form').forEach(function (form) {
+                const mode = form.querySelector('.js-room-assignment-mode');
+                const category = form.querySelector('.js-room-category-target');
+                const picker = form.querySelector('[data-manual-room-picker]');
+                const roomSelect = form.querySelector('.js-manual-room-select');
+
+                const sync = function () {
+                    const isManual = mode?.value === 'manual';
+                    picker?.classList.toggle('d-none', !isManual);
+                    if (roomSelect) {
+                        roomSelect.disabled = !isManual;
+                        roomSelect.required = isManual;
+                        const categoryId = category?.value || '';
+                        Array.from(roomSelect.options).forEach(function (option) {
+                            if (!option.value) return;
+                            const visible = categoryId !== '' && option.dataset.categoryId === categoryId;
+                            option.hidden = !visible;
+                            option.disabled = !visible;
+                            if (!visible) option.selected = false;
+                        });
+                    }
+                };
+
+                mode?.addEventListener('change', sync);
+                category?.addEventListener('change', sync);
+                form.addEventListener('submit', function (event) {
+                    if (mode?.value !== 'manual' || !roomSelect) return;
+                    const expected = Number(form.dataset.roomCount || 1);
+                    const chosen = Array.from(roomSelect.selectedOptions).filter(option => option.value).length;
+                    if (chosen !== expected) {
+                        event.preventDefault();
+                        alert('Vui lòng chọn đúng ' + expected + ' phòng.');
+                    }
+                });
+                sync();
+            });
+
+            document.querySelectorAll('.js-same-rank-room-form').forEach(function (form) {
+                const mode = form.querySelector('.js-room-assignment-mode');
+                const oldRoom = form.querySelector('.js-old-room-select');
+                const picker = form.querySelector('[data-manual-room-picker]');
+                const roomSelect = form.querySelector('.js-manual-room-select');
+
+                const sync = function () {
+                    const isManual = mode?.value === 'manual';
+                    picker?.classList.toggle('d-none', !isManual);
+                    if (!roomSelect) return;
+                    roomSelect.disabled = !isManual;
+                    roomSelect.required = isManual;
+                    const categoryId = oldRoom?.selectedOptions?.[0]?.dataset?.categoryId || '';
+                    Array.from(roomSelect.options).forEach(function (option) {
+                        if (!option.value) return;
+                        const visible = categoryId !== '' && option.dataset.categoryId === categoryId;
+                        option.hidden = !visible;
+                        option.disabled = !visible;
+                        if (!visible) option.selected = false;
+                    });
+                };
+
+                mode?.addEventListener('change', sync);
+                oldRoom?.addEventListener('change', sync);
+                sync();
+            });
 
             const bookingDetailRoot = document.getElementById('bookingDetailRoot');
             const toggleSecondaryBookingInfo = document.getElementById('toggleSecondaryBookingInfo');

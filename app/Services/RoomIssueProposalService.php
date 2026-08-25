@@ -15,9 +15,9 @@ class RoomIssueProposalService
     /**
      * Tạo hoặc làm mới phương án cho toàn bộ nhóm sự cố.
      *
-     * Phương án đổi phòng đã được giữ còn hiệu lực sẽ được giữ nguyên và gia hạn
-     * thêm 30 phút. Chỉ khi phòng giữ cũ hết hạn/không tồn tại hệ thống mới dò lại
-     * theo thứ tự: cùng hạng -> nâng hạng -> giữ nguyên sửa gấp.
+     * Phương án đổi phòng đã được giữ còn hiệu lực sẽ được giữ nguyên và gia hạn.
+     * Khi buồng phòng xác nhận không thể sửa ngay tại phòng, hệ thống bắt buộc phải
+     * tìm phòng thay thế; không được tự rơi về phương án giữ nguyên phòng.
      */
     public function prepareGroup(
         Booking $booking,
@@ -45,6 +45,14 @@ class RoomIssueProposalService
             if (!$proposal) {
                 $this->releaseIssueHolds($issue, $now, 'Phương án cũ hết hiệu lực, hệ thống tự chọn lại');
                 $proposal = $this->resolveAutomaticProposal($issue, $booking, $usedTargetRoomIds);
+            }
+
+            if (($proposal['type'] ?? null) === 'replacement_required') {
+                throw new \RuntimeException(
+                    'Phòng ' . ($issue->currentRoom?->room_number ?? $issue->current_room_id)
+                    . ': buồng phòng xác nhận có lỗi và không thể sửa ngay tại phòng, nhưng hiện chưa có phòng thay thế phù hợp. '
+                    . 'Không thể đóng yêu cầu hoặc gửi phương án giữ nguyên phòng.'
+                );
             }
 
             $targetRoom = $proposal['room'];
@@ -91,7 +99,10 @@ class RoomIssueProposalService
 
             if ($resetGuestResponse) {
                 $preservedGuestChoice = $issue->guest_selected_resolution_type;
-                $allowedGuestChoices = ['repair_only'];
+                $allowedGuestChoices = [];
+                if ($issue->housekeeping_can_repair_in_room) {
+                    $allowedGuestChoices[] = 'repair_only';
+                }
                 if ($targetRoom && in_array($proposal['type'], ['same_category', 'upgrade_category'], true)) {
                     $allowedGuestChoices[] = $proposal['type'];
                 }
@@ -145,9 +156,9 @@ class RoomIssueProposalService
         $to = $booking->check_out_at;
 
         if (!$to) {
-            return $this->repairOnlyProposal(
-                'Booking không có thời gian trả phòng hợp lệ để giữ phòng thay thế.'
-            );
+            return $issue->housekeeping_can_repair_in_room
+                ? $this->repairOnlyProposal('Booking không có thời gian trả phòng hợp lệ để giữ phòng thay thế.')
+                : $this->replacementRequiredProposal('Booking không có thời gian trả phòng hợp lệ để tìm phòng thay thế.');
         }
 
         $sameCategoryRoom = Room::with('category')
@@ -198,8 +209,14 @@ class RoomIssueProposalService
             ];
         }
 
-        return $this->repairOnlyProposal(
-            'Không còn phòng cùng hạng hoặc hạng cao hơn phù hợp đến hết thời gian lưu trú.'
+        if ($issue->housekeeping_can_repair_in_room) {
+            return $this->repairOnlyProposal(
+                'Không còn phòng cùng hạng hoặc hạng cao hơn phù hợp; buồng phòng xác nhận có thể sửa ngay tại phòng.'
+            );
+        }
+
+        return $this->replacementRequiredProposal(
+            'Không còn phòng cùng hạng hoặc hạng cao hơn phù hợp đến hết thời gian lưu trú. Khách bắt buộc phải chuyển vì sự cố không thể sửa ngay tại phòng.'
         );
     }
 
@@ -258,6 +275,16 @@ class RoomIssueProposalService
             'type' => 'repair_only',
             'room' => null,
             'label' => 'Giữ nguyên phòng, sửa gấp',
+            'description' => $description,
+        ];
+    }
+
+    private function replacementRequiredProposal(string $description): array
+    {
+        return [
+            'type' => 'replacement_required',
+            'room' => null,
+            'label' => 'Bắt buộc chuyển phòng',
             'description' => $description,
         ];
     }

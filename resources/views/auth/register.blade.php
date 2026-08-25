@@ -55,7 +55,7 @@
                                             Họ
                                         </label>
 
-                                        <input name="last_name" type="text" class="form-control" required />
+                                        <input name="last_name" type="text" class="form-control" value="{{ old('last_name') }}" autocomplete="family-name" required />
 
                                     </div>
 
@@ -66,7 +66,7 @@
                                             Tên
                                         </label>
 
-                                        <input name="first_name" type="text" class="form-control" required />
+                                        <input name="first_name" type="text" class="form-control" value="{{ old('first_name') }}" autocomplete="given-name" required />
 
                                     </div>
 
@@ -92,8 +92,8 @@
                                             Số CCCD
                                         </label>
 
-                                        <input name="cccd" type="text" class="form-control" maxlength="12"
-                                            pattern="[0-9]{12}" required />
+                                        <input name="cccd" type="text" class="form-control" maxlength="12" inputmode="numeric"
+                                            pattern="[0-9]{12}" value="{{ old('cccd') }}" autocomplete="off" required />
 
                                     </div>
 
@@ -104,7 +104,7 @@
                                             Số điện thoại
                                         </label>
 
-                                        <input name="phone" type="tel" class="form-control" pattern="0[0-9]{9}" required />
+                                        <input name="phone" type="tel" class="form-control" pattern="0[0-9]{9}" value="{{ old('phone') }}" autocomplete="tel" required />
 
                                     </div>
 
@@ -115,7 +115,7 @@
                                             Email
                                         </label>
 
-                                        <input name="email" type="email" class="form-control" required />
+                                        <input name="email" type="email" class="form-control" value="{{ old('email') }}" autocomplete="email" required />
 
                                     </div>
 
@@ -143,22 +143,28 @@
                                             Giới tính
                                         </label>
 
-                                        <select name="gender" class="form-select">
+                                        <select name="gender" class="form-select" autocomplete="sex">
 
-                                            <option value="male">
+                                            <option value="male" @selected(old('gender', 'male') === 'male')>
                                                 Nam
                                             </option>
 
-                                            <option value="female">
+                                            <option value="female" @selected(old('gender') === 'female')>
                                                 Nữ
                                             </option>
 
-                                            <option value="other">
+                                            <option value="other" @selected(old('gender') === 'other')>
                                                 Khác
                                             </option>
 
                                         </select>
 
+                                    </div>
+
+                                    {{-- ĐỊA CHỈ --}}
+                                    <div class="col-12">
+                                        <label class="form-label">Địa chỉ liên hệ</label>
+                                        <textarea name="address" class="form-control" rows="2" autocomplete="street-address">{{ old('address') }}</textarea>
                                     </div>
 
                                     {{-- PASSWORD --}}
@@ -168,7 +174,7 @@
                                             Mật khẩu
                                         </label>
 
-                                        <input name="password" type="password" class="form-control" required />
+                                        <input name="password" type="password" class="form-control" autocomplete="new-password" required />
 
                                     </div>
 
@@ -179,20 +185,10 @@
                                             Xác nhận mật khẩu
                                         </label>
 
-                                        <input name="password_confirmation" type="password" class="form-control" required />
+                                        <input name="password_confirmation" type="password" class="form-control" autocomplete="new-password" required />
 
                                     </div>
 
-                                    {{-- ADDRESS --}}
-                                    <div class="col-12">
-
-                                        <label class="form-label">
-                                            Địa chỉ liên hệ
-                                        </label>
-
-                                        <textarea name="address" class="form-control" rows="2"></textarea>
-
-                                    </div>
 
                                 </div>
 

@@ -59,8 +59,8 @@
 
             <div class="admin-page-head">
                 <div>
-                    <h2>Phân công lễ tân</h2>
-                    <p class="text-muted mb-0">Mỗi booking chỉ có một lễ tân chịu trách nhiệm chính cho toàn bộ vòng đời xử lý.</p>
+                    <h2>Gán riêng lễ tân</h2>
+                    <p class="text-muted mb-0">Bình thường hệ thống tự chia đều booking + chat theo khách. Trang này chỉ dùng cho trường hợp cần ghim đặc biệt.</p>
                 </div>
 
                 <div class="d-flex gap-2 flex-wrap">
@@ -83,10 +83,8 @@
             @endif
 
             <div class="assignment-flow-note mb-3">
-                <strong>Quy tắc:</strong>
-                Khi gán một booking cho lễ tân, người đó chịu trách nhiệm <strong>toàn bộ quy trình</strong> của booking trong phạm vi nghiệp vụ lễ tân:
-                theo dõi đơn, check-in, khách lưu trú, dịch vụ/phụ thu, thanh toán, yêu cầu khách, sự cố liên quan booking, kiểm tra trước checkout và checkout.
-                Khi đổi lễ tân, phân công cũ được dừng và toàn bộ booking chuyển sang người mới.
+                <strong>Phân phối mặc định là tự động:</strong> booking mới và chat của cùng một khách được giữ cùng một lễ tân; khi lễ tân Offline hệ thống tự bàn giao.
+                Chỉ dùng nút gán ở trang này khi quản lý muốn <strong>ghim riêng</strong> khách/booking cho một lễ tân Online. Gói đã ghim không bị soft-rebalance khi người đó vẫn Online.
             </div>
 
             <div class="settings-section mb-3">
@@ -170,7 +168,9 @@
                                                 <div class="assignment-owner-name">
                                                     {{ $primaryAssignment->staff->staff->full_name ?? $primaryAssignment->staff->name ?? '---' }}
                                                 </div>
-                                                <div class="assignment-owner-meta">Phụ trách toàn bộ booking</div>
+                                                <div class="assignment-owner-meta">
+                                                    {{ $primaryAssignment->assigned_by ? 'Gán riêng bởi quản lý' : 'Hệ thống tự phân phối' }} · booking + chat cùng khách
+                                                </div>
                                                 <div class="assignment-owner-meta">
                                                     Gán {{ optional($primaryAssignment->created_at)->format('d/m/Y H:i') ?? '---' }}
                                                 </div>
@@ -183,7 +183,7 @@
                                         @else
                                             <div class="assignment-owner-box">
                                                 <div class="assignment-owner-name text-muted">Chưa gán</div>
-                                                <div class="assignment-owner-meta">Lễ tân chưa có người chịu trách nhiệm chính.</div>
+                                                <div class="assignment-owner-meta">Chưa có lễ tân Online phù hợp hoặc đang chờ auto-assign.</div>
                                             </div>
                                         @endif
                                     </td>
@@ -196,8 +196,11 @@
                                                 <select name="staff_id" class="form-select form-select-sm" required>
                                                     <option value="">Chọn lễ tân chịu trách nhiệm</option>
                                                     @foreach ($receptionists as $receptionist)
-                                                        <option value="{{ $receptionist->id }}" @selected($primaryAssignment && (int) $primaryAssignment->staff_id === (int) $receptionist->id)>
-                                                            {{ $receptionist->staff->full_name ?? $receptionist->name }}
+                                                        @php($receptionistOnline = app(\App\Services\ChatPresenceService::class)->isOnline($receptionist))
+                                                        <option value="{{ $receptionist->id }}"
+                                                            @selected($primaryAssignment && (int) $primaryAssignment->staff_id === (int) $receptionist->id)
+                                                            @disabled(!$receptionistOnline)>
+                                                            {{ $receptionist->staff->full_name ?? $receptionist->name }} · {{ $receptionistOnline ? 'ONLINE' : 'OFFLINE' }}
                                                         </option>
                                                     @endforeach
                                                 </select>
@@ -205,20 +208,20 @@
 
                                             <div class="col-md-4">
                                                 <button class="btn btn-sm btn-primary w-100">
-                                                    {{ $primaryAssignment ? 'Chuyển / lưu' : 'Gán booking' }}
+                                                    {{ $primaryAssignment ? 'Ghim / chuyển' : 'Gán riêng' }}
                                                 </button>
                                             </div>
 
                                             <div class="col-12">
-                                                <input type="text" name="note" class="form-control form-control-sm" placeholder="Ghi chú bàn giao nếu cần">
+                                                <input type="text" name="note" class="form-control form-control-sm" placeholder="Lý do gán riêng / ghi chú bàn giao">
                                             </div>
                                         </form>
 
-                                        @if ($primaryAssignment)
-                                            <form action="{{ route('admin.staff-assignments.receptionists.cancel', $primaryAssignment->id) }}" method="POST" class="mt-2" onsubmit="return confirm('Dừng phân công booking này? Sau khi dừng, booking sẽ trở về trạng thái chưa có lễ tân phụ trách.')">
+                                        @if ($primaryAssignment?->assigned_by)
+                                            <form action="{{ route('admin.staff-assignments.receptionists.cancel', $primaryAssignment->id) }}" method="POST" class="mt-2" onsubmit="return confirm('Bỏ ghim thủ công? Hệ thống sẽ tự chia lại booking + chat của khách cho lễ tân Online phù hợp.')">
                                                 @csrf
                                                 @method('PATCH')
-                                                <button class="btn btn-sm btn-outline-danger">Dừng phân công</button>
+                                                <button class="btn btn-sm btn-outline-danger">Bỏ ghim / trả về tự động</button>
                                             </form>
                                         @endif
                                     </td>

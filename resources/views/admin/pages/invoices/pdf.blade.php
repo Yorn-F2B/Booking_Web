@@ -210,6 +210,9 @@
         @if($inspectionTotal > 0)
             <tr><td>Minibar/hư hại:</td><td class="text-right">{{ number_format($inspectionTotal, 0, ',', '.') }}đ</td></tr>
         @endif
+        @if((float) ($booking->room_selection_fee ?? 0) > 0)
+            <tr><td>Phí chọn phòng thủ công:</td><td class="text-right">{{ number_format((float) $booking->room_selection_fee, 0, ',', '.') }}đ</td></tr>
+        @endif
         @if((float) $booking->discount_amount > 0)
             <tr><td>Giảm giá:</td><td class="text-right">-{{ number_format($booking->discount_amount, 0, ',', '.') }}đ</td></tr>
         @endif

@@ -48,6 +48,10 @@ Route::post('bookings/suggestions/store', [BookingCreateController::class, 'stor
 
 Route::post('bookings/{booking}/assign-rooms', [BookingRoomController::class, 'assignRooms'])
     ->name('admin.bookings.assign-rooms');
+Route::patch('bookings/{booking}/manual-room-selection', [BookingRoomController::class, 'resolveManualRoomSelection'])
+    ->name('admin.bookings.manual-room-selection');
+Route::patch('bookings/{booking}/manual-room-selection/refund-completed', [BookingRoomController::class, 'markRoomSelectionRefundCompleted'])
+    ->name('admin.bookings.manual-room-selection.refund-completed');
 
 Route::post('bookings/{booking}/change-room', [BookingRoomController::class, 'changeRoom'])
     ->name('admin.bookings.change-room');
@@ -121,6 +125,8 @@ Route::patch('bookings/{booking}/extend-stay', [BookingLifecycleController::clas
 
 Route::post('bookings/room-category-availability', [BookingCreateController::class, 'checkRoomCategoryAvailability'])
     ->name('admin.bookings.room-category-availability');
+Route::post('bookings/manual-room-options', [BookingCreateController::class, 'manualRoomOptions'])
+    ->name('admin.bookings.manual-room-options');
 
 Route::post('bookings/hourly-inventory-check', [BookingCreateController::class, 'checkHourlyInventory'])
     ->name('admin.bookings.hourly-inventory-check');

@@ -14,6 +14,8 @@ class RoomIssueRequest extends Model
         'group_uuid','workflow_status','proposed_resolution_type','proposed_room_id','proposed_room_category_id',
         'proposal_note','proposal_created_by','proposal_created_at','guest_response','guest_selected_resolution_type','guest_response_note',
         'guest_responded_by','guest_responded_at','proposal_expires_at',
+        'housekeeping_verdict','housekeeping_can_repair_in_room','housekeeping_note',
+        'housekeeping_verified_by','housekeeping_verified_at',
     ];
 
     protected $casts = [
@@ -23,6 +25,8 @@ class RoomIssueRequest extends Model
         'proposal_created_at' => 'datetime',
         'guest_responded_at' => 'datetime',
         'proposal_expires_at' => 'datetime',
+        'housekeeping_can_repair_in_room' => 'boolean',
+        'housekeeping_verified_at' => 'datetime',
     ];
 
     public function scopeNeedsManagerAction($query)
@@ -30,11 +34,21 @@ class RoomIssueRequest extends Model
         return $query
             ->where('status', 'pending')
             ->whereIn('workflow_status', [
-                'pending',
+                'housekeeping_verified',
+                'housekeeping_not_found',
                 'proposal_ready',
                 'guest_accepted',
                 'guest_requested_change',
-            ]);
+            ])
+            // Quản lý chỉ xử lý cả nhóm sau khi buồng phòng đã kiểm tra hết
+            // các phòng được khách báo trong cùng một lần.
+            ->whereNotExists(function ($subQuery) {
+                $subQuery->selectRaw('1')
+                    ->from('room_issue_requests as pending_housekeeping')
+                    ->whereColumn('pending_housekeeping.group_uuid', 'room_issue_requests.group_uuid')
+                    ->where('pending_housekeeping.status', 'pending')
+                    ->where('pending_housekeeping.workflow_status', 'awaiting_housekeeping');
+            });
     }
 
     public function scopeWaitingGuestConfirmation($query)
@@ -54,6 +68,7 @@ class RoomIssueRequest extends Model
     public function approvedRoom(){ return $this->belongsTo(Room::class, 'approved_room_id'); }
     public function approvedCategory(){ return $this->belongsTo(RoomCategory::class, 'approved_room_category_id'); }
     public function reviewer(){ return $this->belongsTo(User::class, 'reviewed_by'); }
+    public function housekeepingVerifier(){ return $this->belongsTo(User::class, 'housekeeping_verified_by'); }
     public function repairCompleter(){ return $this->belongsTo(User::class, 'repair_completed_by'); }
     public function roomChanges(){ return $this->hasMany(BookingRoomChange::class, 'room_issue_request_id'); }
     public function attachments(){ return $this->hasMany(RoomIssueAttachment::class); }

@@ -52,10 +52,14 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        // Operational accounts and customers remain authenticated until an
+        // explicit logout. Presence/online status for chat is handled separately
+        // by heartbeat, so a persistent login does not make an absent employee
+        // appear online.
         if (! Auth::attempt([
             'email' => $email,
             'password' => (string) $this->input('password'),
-        ], $this->boolean('remember'))) {
+        ], true)) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([

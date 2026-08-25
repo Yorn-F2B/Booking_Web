@@ -10,6 +10,8 @@ use App\Models\StaffFloorAssignment;
 use App\Models\StaffRoomAssignment;
 use App\Models\User;
 use App\Support\StaffShiftSchedule;
+use App\Services\ChatAssignmentService;
+use App\Services\ChatPresenceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,6 +21,12 @@ use Illuminate\Validation\ValidationException;
 
 class StaffAssignmentController extends Controller
 {
+    public function __construct(
+        private ChatAssignmentService $chatAssignmentService,
+        private ChatPresenceService $chatPresenceService,
+    ) {
+    }
+
     private const ACTIVE_BOOKING_STATUSES = [
         'pending',
         'confirmed',
@@ -187,7 +195,7 @@ class StaffAssignmentController extends Controller
     {
         $this->ensureCanManageReceptionistAssignments();
 
-        $receptionists = User::with('staff')
+        $receptionists = User::with(['staff', 'chatPresence'])
             ->whereIn('role', ['receptionist', 'receptionist_lead'])
             ->where('status', 'active')
             ->orderBy('name')
@@ -256,60 +264,51 @@ class StaffAssignmentController extends Controller
             return back()->withInput()->with('error', 'Nhân viên được chọn không phải lễ tân/trưởng lễ tân đang hoạt động.');
         }
 
-        DB::transaction(function () use ($data) {
-            $booking = Booking::whereKey($data['booking_id'])->lockForUpdate()->firstOrFail();
-            if (!in_array($booking->status, self::ACTIVE_BOOKING_STATUSES, true)) {
-                throw ValidationException::withMessages([
-                    'booking_id' => 'Booking đã kết thúc/hủy nên không thể gán lễ tân phụ trách.',
-                ]);
-            }
-
-            $activeAssignments = BookingStaffAssignment::query()
-                ->where('booking_id', $booking->id)
-                ->where('status', 'active')
-                ->lockForUpdate()
-                ->get();
-
-            if (
-                $activeAssignments->count() === 1
-                && (int) $activeAssignments->first()->staff_id === (int) $data['staff_id']
-                && $activeAssignments->first()->role_in_booking === 'owner'
-            ) {
-                $activeAssignments->first()->update([
-                    'assigned_by' => Auth::id(),
-                    'note' => $data['note'] ?? $activeAssignments->first()->note,
-                ]);
-                return;
-            }
-
-            BookingStaffAssignment::query()
-                ->where('booking_id', $booking->id)
-                ->where('status', 'active')
-                ->update(['status' => 'canceled']);
-
-            BookingStaffAssignment::create([
-                'booking_id' => $booking->id,
-                'staff_id' => $data['staff_id'],
-                'role_in_booking' => 'owner',
-                'assigned_by' => Auth::id(),
-                'status' => 'active',
-                'note' => $data['note'] ?? null,
+        $booking = Booking::whereKey($data['booking_id'])->firstOrFail();
+        if (!in_array($booking->status, self::ACTIVE_BOOKING_STATUSES, true)) {
+            throw ValidationException::withMessages([
+                'booking_id' => 'Booking đã kết thúc/hủy nên không thể gán lễ tân phụ trách.',
             ]);
-        });
+        }
 
-        return back()->with('success', 'Đã giao toàn bộ quy trình booking cho lễ tân được chọn.');
+        if (!$this->chatPresenceService->isOnline($staff)) {
+            throw ValidationException::withMessages([
+                'staff_id' => 'Gán riêng chỉ áp dụng cho lễ tân đang Online. Nếu không gán riêng, hệ thống sẽ tự chia đều.',
+            ]);
+        }
+
+        $this->chatAssignmentService->assignBooking(
+            $booking,
+            $staff,
+            true,
+            Auth::id(),
+            $data['note'] ?? null,
+            'Quản lý gán riêng booking cho lễ tân'
+        );
+
+        return back()->with('success', 'Đã ghim gói booking + chat của khách cho lễ tân được chọn.');
     }
 
     public function cancelBookingAssignment(BookingStaffAssignment $bookingStaffAssignment)
     {
         $this->ensureCanManageReceptionistAssignments();
 
+        abort_unless(
+            $bookingStaffAssignment->status === 'active' && $bookingStaffAssignment->assigned_by !== null,
+            422,
+            'Chỉ assignment được quản lý ghim thủ công mới có thể bỏ ghim.'
+        );
+
+        $booking = Booking::findOrFail($bookingStaffAssignment->booking_id);
+
         BookingStaffAssignment::query()
-            ->where('booking_id', $bookingStaffAssignment->booking_id)
+            ->where('booking_id', $booking->id)
             ->where('status', 'active')
             ->update(['status' => 'canceled']);
 
-        return back()->with('success', 'Đã dừng phân công toàn bộ booking. Booking trở về trạng thái chưa có lễ tân phụ trách.');
+        $this->chatAssignmentService->ensureAvailableBookingAssignment($booking);
+
+        return back()->with('success', 'Đã bỏ ghim thủ công. Hệ thống đã đưa gói khách trở lại cơ chế chia đều tự động.');
     }
 
     public function housekeeping(Request $request)

@@ -196,12 +196,10 @@
         root.querySelectorAll?.('[data-realtime-refresh]').forEach(node => refreshNodes.push(node));
         refreshNodes.forEach(function (notice) {
             if (!notice.isConnected) return;
-            show('Trang có dữ liệu mới. Bạn có thể cập nhật sau khi hoàn tất nội dung đang nhập.', 'info', {
-                title: 'Có dữ liệu mới',
-                duration: 9000,
-                actionLabel: 'Cập nhật',
-                onAction: function () { window.location.reload(); },
-            });
+            // Build cũ của realtime-global từng tạo thông báo "Có dữ liệu mới"
+            // cho heartbeat/chat/assignment. Cơ chế mới đã cập nhật cục bộ, vì vậy
+            // nếu trình duyệt còn cache module cũ thì chỉ loại bỏ notice legacy,
+            // không biến nó thành toast và không cho phép nó kéo người dùng reload.
             notice.remove();
         });
 

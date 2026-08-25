@@ -146,27 +146,6 @@
         </article>
     </section>
 
-    <section class="exec-card">
-        <div class="exec-card-head">
-            <div>
-                <h2>Điểm bất thường cần Super Admin kiểm tra</h2>
-                <p>Không phải danh sách công việc hằng ngày. Chỉ hiện khi một chỉ số vượt ngưỡng: công nợ sắp đến hạn, thanh toán treo/failed, phòng chậm sẵn sàng, sự cố tồn đọng hoặc khách chờ chat quá lâu.</p>
-            </div>
-            <span class="exec-pill">Snapshot hiện tại</span>
-        </div>
-        <div class="exec-alerts">
-            @foreach($operationAlerts as $alert)
-                <div class="exec-alert {{ $alert['level'] }}">
-                    <div class="title">{{ $alert['title'] }}</div>
-                    <div class="value">{{ $alert['value'] }}</div>
-                    <div class="detail">{{ $alert['detail'] }}</div>
-                    @if(!empty($alert['url']) && !empty($alert['action']))
-                        <a class="exec-alert-action" href="{{ $alert['url'] }}">{{ $alert['action'] }} <i class="bx bx-right-arrow-alt"></i></a>
-                    @endif
-                </div>
-            @endforeach
-        </div>
-    </section>
 </div>
     </div>
 </div>

@@ -109,14 +109,27 @@ class StayPricingPolicyService
         $arrivalMinutes = $this->minuteOfDay($expectedArrivalAt->format('H:i'));
         $tier1End = $this->minuteOfDay((string) $policy->forBooking($booking, 'stay.late_arrival_tier1_end', '21:00'));
 
+        $lateArrivalPercent = function (string $key, float $fallback) use ($policy, $booking): float {
+            $value = (float) $policy->forBooking($booking, $key, $fallback);
+
+            // Một số booking test cũ có snapshot lưu 0/rỗng cho % đến muộn.
+            // Đây là nghiệp vụ có phụ thu bắt buộc sau giờ G, nên nếu snapshot lỗi
+            // thì lấy policy hiện hành; nếu vẫn không hợp lệ mới dùng mặc định chuẩn.
+            if ($value <= 0) {
+                $value = (float) $policy->get($key, $fallback);
+            }
+
+            return $value > 0 ? $value : $fallback;
+        };
+
         if ($expectedArrivalAt->toDateString() !== $cutoffAt->toDateString() || $arrivalMinutes === 0) {
-            $percent = (float) $policy->forBooking($booking, 'stay.late_arrival_percent_next_day', 100);
+            $percent = $lateArrivalPercent('stay.late_arrival_percent_next_day', 100);
             $text = 'Khách dự kiến đến từ ngày hôm sau, phụ thu ' . $this->formatPercent($percent) . '% giá 1 đêm để tiếp tục giữ phòng.';
         } elseif ($arrivalMinutes <= $tier1End) {
-            $percent = (float) $policy->forBooking($booking, 'stay.late_arrival_percent_1', 20);
+            $percent = $lateArrivalPercent('stay.late_arrival_percent_1', 20);
             $text = 'Khách dự kiến đến sau giờ G đến ' . $this->formatMinutes($tier1End) . ', phụ thu ' . $this->formatPercent($percent) . '% giá 1 đêm để tiếp tục giữ phòng.';
         } else {
-            $percent = (float) $policy->forBooking($booking, 'stay.late_arrival_percent_2', 50);
+            $percent = $lateArrivalPercent('stay.late_arrival_percent_2', 50);
             $text = 'Khách dự kiến đến sau ' . $this->formatMinutes($tier1End) . ' đến trước 00:00, phụ thu ' . $this->formatPercent($percent) . '% giá 1 đêm để tiếp tục giữ phòng.';
         }
 

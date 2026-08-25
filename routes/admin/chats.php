@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('chats')->name('admin.chats.')->group(function () {
     Route::get('/', [ChatController::class, 'index'])->name('index');
+    Route::get('/unread-count', [ChatController::class, 'unreadCount'])->name('unread-count');
 
     Route::post('/presence/heartbeat', [ChatController::class, 'heartbeat'])->name('presence.heartbeat');
     Route::post('/presence', [ChatController::class, 'updatePresence'])->name('presence.update');

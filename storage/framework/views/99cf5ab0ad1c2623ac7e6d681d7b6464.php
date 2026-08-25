@@ -10,6 +10,7 @@
         $standardCheckInTime = (string) $policyService->get('stay.standard_check_in_time', '14:00');
         $standardCheckOutTime = (string) $policyService->get('stay.standard_check_out_time', '12:00');
         $earlyCheckInFreeFrom = (string) $policyService->get('stay.early_checkin_free_from', '12:00');
+        $manualRoomSelectionFee = max(0, (float) $policyService->get('booking.manual_room_selection_fee', 50000));
     ?>
 
     <style>
@@ -285,6 +286,63 @@ unset($__errorArgs, $__bag); ?>
 
                                 </div>
 
+                            </div>
+                        </div>
+
+                        <div class="card border-0 shadow-sm mb-4">
+                            <div class="card-body">
+                                <h2 class="h5 fw-bold mb-2">Cách khách sạn phân phòng</h2>
+                                <p class="text-muted small mb-3">
+                                    Hệ thống luôn giữ một phòng phù hợp để tránh hết phòng. Nếu chọn theo yêu cầu, lễ tân sẽ đọc nội dung và chọn lại phòng nếu đáp ứng được.
+                                </p>
+
+                                <div class="d-grid gap-2">
+                                    <label class="border rounded-3 p-3 d-flex gap-2 align-items-start">
+                                        <input class="form-check-input mt-1" type="radio" name="room_selection_mode" value="automatic"
+                                            <?php if(old('room_selection_mode', 'automatic') === 'automatic'): echo 'checked'; endif; ?>>
+                                        <span>
+                                            <strong>Hệ thống tự chọn phòng</strong>
+                                            <span class="d-block text-muted small">Miễn phí. Hệ thống tự chọn một phòng đang khả dụng.</span>
+                                        </span>
+                                    </label>
+
+                                    <label class="border rounded-3 p-3 d-flex gap-2 align-items-start">
+                                        <input class="form-check-input mt-1" type="radio" name="room_selection_mode" value="manual"
+                                            <?php if(old('room_selection_mode') === 'manual'): echo 'checked'; endif; ?>>
+                                        <span>
+                                            <strong>Chọn phòng theo yêu cầu</strong>
+                                            <span class="d-block text-muted small">
+                                                Lễ tân chọn thủ công theo nội dung khách ghi. Chỉ khi đáp ứng được mới thu
+                                                <strong><?php echo e(number_format($manualRoomSelectionFee, 0, ',', '.')); ?>đ/phòng</strong>.
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div id="manualRoomRequestBox" class="mt-3 <?php echo e(old('room_selection_mode') === 'manual' ? '' : 'd-none'); ?>">
+                                    <label for="roomSelectionRequest" class="form-label fw-semibold">Yêu cầu phòng</label>
+                                    <textarea id="roomSelectionRequest" name="room_selection_request" rows="3"
+                                        class="form-control <?php $__errorArgs = ['room_selection_request'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>"
+                                        placeholder="Ví dụ: muốn tầng cao, yên tĩnh, xa thang máy; nếu còn thì ưu tiên phòng 605..."><?php echo e(old('room_selection_request')); ?></textarea>
+                                    <?php $__errorArgs = ['room_selection_request'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?>
+                                        <div class="invalid-feedback"><?php echo e($message); ?></div>
+                                    <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>
+                                    <div class="form-text">Đây là yêu cầu ưu tiên, không phải cam kết cho tới khi lễ tân xác nhận phòng.</div>
+                                </div>
                             </div>
                         </div>
 
@@ -693,6 +751,22 @@ unset($__errorArgs, $__bag); ?>
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            const roomSelectionModeInputs = Array.from(document.querySelectorAll('input[name="room_selection_mode"]'));
+            const manualRoomRequestBox = document.getElementById('manualRoomRequestBox');
+            const roomSelectionRequest = document.getElementById('roomSelectionRequest');
+
+            function syncRoomSelectionMode() {
+                const selected = roomSelectionModeInputs.find((input) => input.checked)?.value || 'automatic';
+                const isManual = selected === 'manual';
+                manualRoomRequestBox?.classList.toggle('d-none', !isManual);
+                if (roomSelectionRequest) {
+                    roomSelectionRequest.required = isManual;
+                }
+            }
+
+            roomSelectionModeInputs.forEach((input) => input.addEventListener('change', syncRoomSelectionMode));
+            syncRoomSelectionMode();
+
             const serviceSelect = document.getElementById('serviceSelect');
             const serviceQuantity = document.getElementById('serviceQuantity');
             const serviceNote = document.getElementById('serviceNote');

@@ -8,6 +8,7 @@ use App\Models\Booking;
 use App\Models\BookingLog;
 use App\Services\BookingCancellationService;
 use App\Services\BookingFinancialService;
+use App\Services\RoomSelectionFallbackService;
 use App\Support\Realtime;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -178,6 +179,57 @@ class GuestBookingLookupController extends Controller
         ));
     }
 
+    public function respondToRoomSelectionFallback(
+        Request $request,
+        string $token,
+        RoomSelectionFallbackService $fallbackService
+    ) {
+        $data = $request->validate([
+            'decision' => ['required', 'in:accept,decline'],
+        ], [
+            'decision.required' => 'Vui lòng chọn Đồng ý hoặc Từ chối phòng dự phòng.',
+            'decision.in' => 'Phản hồi phòng dự phòng không hợp lệ.',
+        ]);
+
+        [$booking] = $this->resolveAccess($token);
+
+        try {
+            $result = $fallbackService->respond(
+                $booking,
+                (string) $data['decision'],
+                null,
+                'Khách xác nhận qua trang tra cứu OTP'
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Khách vãng lai phản hồi phòng dự phòng thất bại.', [
+                'booking_id' => $booking->id,
+                'decision' => $data['decision'],
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'Chưa thể ghi nhận phản hồi phòng dự phòng: ' . $e->getMessage());
+        }
+
+        $freshBooking = $booking->fresh();
+        Realtime::booking(
+            $freshBooking,
+            ($result['accepted'] ?? false) ? 'manual_room_fallback_accepted' : 'manual_room_fallback_declined'
+        );
+
+        if ($result['accepted'] ?? false) {
+            return back()->with('success', 'Đã xác nhận sử dụng phòng dự phòng. Booking tiếp tục giữ nguyên và không thu phí đảm bảo yêu cầu phòng.');
+        }
+
+        $refundDue = (float) ($result['refund_due'] ?? 0);
+
+        return back()->with(
+            'success',
+            $refundDue > 0
+                ? 'Đã hủy booking. Khách sạn phải hoàn lại toàn bộ ' . number_format($refundDue, 0, ',', '.') . 'đ đã thanh toán.'
+                : 'Đã hủy booking. Booking chưa phát sinh khoản thanh toán nên không có tiền cần hoàn.'
+        );
+    }
+
     public function cancel(
         Request $request,
         string $token,
@@ -197,6 +249,10 @@ class GuestBookingLookupController extends Controller
 
         if (!in_array($booking->status, ['pending', 'confirmed'], true) || $booking->actual_check_in) {
             return back()->with('error', 'Booking không còn ở trạng thái có thể hủy.');
+        }
+
+        if ($booking->room_selection_mode === 'manual' && $booking->room_selection_status === 'awaiting_guest') {
+            return back()->with('error', 'Khách sạn chưa đáp ứng được yêu cầu phòng. Vui lòng dùng lựa chọn Đồng ý hoặc Từ chối phòng dự phòng để được áp dụng đúng chính sách hoàn tiền.');
         }
 
         if ($cancelLimitAt && now('Asia/Ho_Chi_Minh')->greaterThanOrEqualTo($cancelLimitAt)) {

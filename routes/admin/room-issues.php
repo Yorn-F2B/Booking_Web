@@ -10,5 +10,7 @@ Route::get('room-issues/{roomIssueRequest}', [RoomIssueGroupController::class, '
     ->name('admin.room-issues.show');
 Route::patch('room-issues/{roomIssueRequest}/proposal', [RoomIssueGroupController::class, 'saveProposal'])
     ->name('admin.room-issues.proposal');
+Route::patch('room-issues/{roomIssueRequest}/reject', [RoomIssueGroupController::class, 'reject'])
+    ->name('admin.room-issues.reject');
 Route::patch('room-issues/{roomIssueRequest}/finalize', [RoomIssueGroupController::class, 'finalize'])
     ->name('admin.room-issues.finalize');

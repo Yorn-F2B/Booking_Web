@@ -5,12 +5,22 @@ namespace App\Observers;
 use App\Models\Booking;
 use App\Models\BookingStaffAssignment;
 use App\Support\Realtime;
+use App\Services\ChatAssignmentService;
+use App\Services\RoomReservationStatusService;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
 
 class BookingObserver implements ShouldHandleEventsAfterCommit
 {
+    public function __construct(
+        private ChatAssignmentService $assignmentService,
+        private RoomReservationStatusService $roomReservationStatusService
+    ) {
+    }
+
     public function created(Booking $booking): void
     {
+        $this->assignmentService->ensureAvailableBookingAssignment($booking);
+        $this->syncRoomReservationStatus($booking);
         Realtime::booking($booking, 'created');
     }
 
@@ -21,6 +31,14 @@ class BookingObserver implements ShouldHandleEventsAfterCommit
                 ->where('booking_id', $booking->id)
                 ->where('status', 'active')
                 ->update(['status' => 'done']);
+        } elseif (in_array($booking->status, ['pending', 'confirmed', 'checked_in', 'inspection_requested'], true)) {
+            $this->assignmentService->ensureAvailableBookingAssignment($booking);
+        }
+
+        if ($booking->wasChanged('status')
+            || $booking->wasChanged('payment_expires_at')
+            || $booking->wasChanged('payment_status')) {
+            $this->syncRoomReservationStatus($booking);
         }
 
         Realtime::booking($booking, $this->detectAction($booking));
@@ -29,6 +47,18 @@ class BookingObserver implements ShouldHandleEventsAfterCommit
     public function deleted(Booking $booking): void
     {
         Realtime::booking($booking, 'deleted');
+    }
+
+    private function syncRoomReservationStatus(Booking $booking): void
+    {
+        $roomIds = $booking->bookingRooms()
+            ->pluck('room_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $this->roomReservationStatusService->syncRoomIds($roomIds);
     }
 
     private function detectAction(Booking $booking): string

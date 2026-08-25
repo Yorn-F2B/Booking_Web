@@ -7,8 +7,6 @@ use App\Models\BookingLog;
 use App\Models\Customer;
 use App\Models\RoomIssueAttachment;
 use App\Models\RoomIssueRequest;
-use App\Services\RoomIssueProposalService;
-use App\Services\HotelPolicyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -18,11 +16,6 @@ use Illuminate\Support\Str;
 
 class RoomIssueRequestController extends Controller
 {
-    public function __construct(
-        private readonly RoomIssueProposalService $proposalService
-    ) {
-    }
-
     public function store(Request $request, Booking $booking)
     {
         $customer = Auth::user()?->customer;
@@ -50,7 +43,7 @@ class RoomIssueRequestController extends Controller
 
         return back()->with(
             'success',
-            "Đã gửi 1 phiếu sự cố gồm {$createdCount} phòng tới quản lý."
+            "Đã gửi 1 phiếu sự cố gồm {$createdCount} phòng tới bộ phận buồng phòng kiểm tra."
         );
     }
 
@@ -107,7 +100,7 @@ class RoomIssueRequestController extends Controller
 
         return back()->with(
             'success',
-            "Đã gửi thành công 1 phiếu sự cố gồm {$createdCount} phòng tới quản lý."
+            "Đã gửi thành công 1 phiếu sự cố gồm {$createdCount} phòng tới bộ phận buồng phòng kiểm tra."
         );
     }
 
@@ -218,7 +211,7 @@ class RoomIssueRequestController extends Controller
                     'issue_description' => $description,
                     'status' => 'pending',
                     'group_uuid' => $groupUuid,
-                    'workflow_status' => 'pending',
+                    'workflow_status' => 'awaiting_housekeeping',
                 ]);
 
                 $images = $request->file("issues.{$roomId}.images", []);
@@ -247,51 +240,15 @@ class RoomIssueRequestController extends Controller
                     'action' => 'room_issue_requested',
                     'description' => $submissionSource
                         . ' báo sự cố tại phòng ' . $bookingRoom->room->room_number
-                        . ' và gửi yêu cầu xử lý. Nội dung: ' . $description,
+                        . ' và gửi yêu cầu để buồng phòng kiểm tra thực tế trước khi quản lý duyệt. Nội dung: ' . $description,
                 ]);
             }
-
-            // Giữ phòng thay thế ngay khi khách vừa báo sự cố, không đợi quản lý
-            // mở phiếu hoặc gửi phương án sang lễ tân. Mỗi phòng trong nhóm được
-            // hệ thống chọn độc lập theo thứ tự cùng hạng -> nâng hạng -> sửa gấp.
-            $createdIssues = RoomIssueRequest::where('group_uuid', $groupUuid)
-                ->with(['currentRoom.category', 'currentCategory', 'proposedRoom.category'])
-                ->lockForUpdate()
-                ->orderBy('id')
-                ->get();
-
-            $lockedBooking->loadMissing(['bookingRooms.room.category']);
-            $proposalResult = $this->proposalService->prepareGroup(
-                $lockedBooking,
-                $createdIssues,
-                $userId,
-                'proposal_ready',
-                true
-            );
-
-            $holdMinutes = max(5, (int) app(HotelPolicyService::class)
-                ->forBooking($lockedBooking, 'room_issue.proposal_hold_minutes', 30));
-
-            $proposalSummary = collect($proposalResult['items'])
-                ->map(function (array $item) {
-                    $text = 'phòng ' . ($item['current_room_number'] ?: $item['issue_id'])
-                        . ': ' . $item['label'];
-
-                    if ($item['target_room_number']) {
-                        $text .= ' sang phòng ' . $item['target_room_number'];
-                    }
-
-                    return $text;
-                })
-                ->implode('; ');
 
             BookingLog::create([
                 'booking_id' => $booking->id,
                 'user_id' => $userId,
-                'action' => 'room_issue_proposal_reserved_immediately',
-                'description' => 'Hệ thống lập phương án ngay khi nhận báo cáo: '
-                    . $proposalSummary
-                    . '. Các phòng thay thế được giữ ' . $holdMinutes . ' phút kể từ thời điểm khách báo sự cố.',
+                'action' => 'room_issue_waiting_housekeeping_verification',
+                'description' => 'Phiếu sự cố đang chờ buồng phòng kiểm tra thực tế. Hệ thống chưa giữ phòng thay thế để tránh chiếm tồn phòng khi sự cố chưa được xác minh.',
             ]);
         });
 

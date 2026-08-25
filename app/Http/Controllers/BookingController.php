@@ -35,6 +35,7 @@ use Illuminate\Validation\Rule;
 use App\Services\BookingCodeGenerator;
 use App\Services\HotelPolicyService;
 use App\Services\PendingPaymentRequestService;
+use App\Services\RoomSelectionFallbackService;
 
 
 class BookingController extends Controller
@@ -147,7 +148,12 @@ class BookingController extends Controller
             ->get();
 
         $availablePromotions = app(PromotionService::class)->availablePromotions([
+            // Email là khóa quyền lợi ưu đãi chính. Phải dùng cùng identity với lúc
+            // submit để UI không hiện mã mà backend sau đó mới báo đã hết lượt.
             'customer_id' => $customer?->id,
+            'customer_email' => $customer?->email ?? Auth::user()?->email,
+            'customer_phone' => $customer?->phone,
+            'customer_cccd' => $customer?->cccd,
             'subtotal_amount' => $estimatedTotal,
             'check_in_at' => $checkInAt,
             'check_out_at' => $checkOutAt,
@@ -212,6 +218,8 @@ class BookingController extends Controller
             'address' => ['required', 'string', 'max:1000'],
 
             'note' => ['nullable', 'string', 'max:1000'],
+            'room_selection_mode' => ['required', Rule::in(['automatic', 'manual'])],
+            'room_selection_request' => ['nullable', 'required_if:room_selection_mode,manual', 'string', 'min:5', 'max:1000'],
             'payment_type' => ['required', Rule::in(['deposit_30'])],
 
             'services' => ['nullable', 'array'],
@@ -240,6 +248,10 @@ class BookingController extends Controller
             'gender.required' => 'Vui lòng quét CCCD hoặc chọn giới tính.',
             'gender.in' => 'Giới tính không hợp lệ.',
             'address.required' => 'Vui lòng nhập địa chỉ liên hệ.',
+            'room_selection_mode.required' => 'Vui lòng chọn cách khách sạn phân phòng.',
+            'room_selection_mode.in' => 'Cách phân phòng không hợp lệ.',
+            'room_selection_request.required_if' => 'Vui lòng ghi rõ yêu cầu phòng để lễ tân xử lý.',
+            'room_selection_request.min' => 'Yêu cầu phòng cần có ít nhất 5 ký tự.',
             'payment_type.required' => 'Vui lòng chọn hình thức thanh toán.',
             'payment_type.in' => 'Hình thức thanh toán không hợp lệ.',
         ]);
@@ -350,7 +362,13 @@ class BookingController extends Controller
             $promotionResult = app(PromotionService::class)->validateCodes(
                 $data['promotion_codes'] ?? [],
                 [
+                    // Dùng đúng cùng một identity với màn xác nhận để mã được
+                    // hiển thị là mã backend thực sự cho phép áp dụng. Email là
+                    // khóa quyền lợi chính; phone/CCCD chỉ fallback khi không có email.
                     'customer_id' => $customer->id,
+                    'customer_email' => $customer->email ?: $currentUser?->email,
+                    'customer_phone' => $customer->phone,
+                    'customer_cccd' => $customer->cccd,
                     'subtotal_amount' => $subtotalAmount,
                     'service_items' => $serviceItems,
                     'check_in_at' => $checkInAt,
@@ -402,6 +420,12 @@ class BookingController extends Controller
                 'child_count' => $data['child_count'] ?? 0,
                 'room_quantity' => $requestedRoomQuantity,
                 'prefer_adjacent_rooms' => 0,
+                'room_selection_mode' => $data['room_selection_mode'],
+                'room_selection_request' => $data['room_selection_mode'] === 'manual'
+                    ? trim((string) $data['room_selection_request'])
+                    : null,
+                'room_selection_status' => $data['room_selection_mode'] === 'manual' ? 'pending' : 'not_required',
+                'room_selection_fee' => 0,
                 'subtotal_amount' => $subtotalAmount,
                 'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
@@ -477,6 +501,17 @@ class BookingController extends Controller
                         . 'đ, tổng ưu đãi: '
                         . number_format($discountAmount, 0, ',', '.')
                         . 'đ.',
+                ]);
+            }
+
+            if ($data['room_selection_mode'] === 'manual') {
+                BookingLog::create([
+                    'booking_id' => $booking->id,
+                    'user_id' => Auth::id(),
+                    'action' => 'manual_room_selection_requested',
+                    'description' => 'Khách yêu cầu lễ tân chọn phòng thủ công: '
+                        . trim((string) $data['room_selection_request'])
+                        . '. Hệ thống vẫn giữ một phòng dự phòng và chỉ thu phí nếu yêu cầu được đáp ứng.',
                 ]);
             }
 
@@ -678,6 +713,62 @@ class BookingController extends Controller
         ));
     }
 
+    public function respondToRoomSelectionFallback(
+        Request $request,
+        Booking $booking,
+        RoomSelectionFallbackService $fallbackService
+    ) {
+        $customer = Customer::where('user_id', Auth::id())->first();
+
+        if (!$customer || (int) $booking->customer_id !== (int) $customer->id) {
+            abort(403);
+        }
+
+        $data = $request->validate([
+            'decision' => ['required', Rule::in(['accept', 'decline'])],
+        ], [
+            'decision.required' => 'Vui lòng chọn Đồng ý hoặc Từ chối phòng dự phòng.',
+            'decision.in' => 'Phản hồi phòng dự phòng không hợp lệ.',
+        ]);
+
+        try {
+            $result = $fallbackService->respond(
+                $booking,
+                (string) $data['decision'],
+                Auth::id(),
+                'Khách hàng'
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Khách phản hồi phòng dự phòng thất bại.', [
+                'booking_id' => $booking->id,
+                'user_id' => Auth::id(),
+                'decision' => $data['decision'],
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'Chưa thể ghi nhận phản hồi phòng dự phòng: ' . $e->getMessage());
+        }
+
+        $freshBooking = $booking->fresh();
+        Realtime::booking(
+            $freshBooking,
+            ($result['accepted'] ?? false) ? 'manual_room_fallback_accepted' : 'manual_room_fallback_declined'
+        );
+
+        if ($result['accepted'] ?? false) {
+            return back()->with('success', 'Đã xác nhận sử dụng phòng dự phòng. Booking tiếp tục giữ nguyên và không thu phí đảm bảo yêu cầu phòng.');
+        }
+
+        $refundDue = (float) ($result['refund_due'] ?? 0);
+
+        return back()->with(
+            'success',
+            $refundDue > 0
+                ? 'Đã hủy booking theo yêu cầu. Khách sạn phải hoàn lại toàn bộ ' . number_format($refundDue, 0, ',', '.') . 'đ đã thanh toán; khoản hoàn đang được theo dõi trên đơn.'
+                : 'Đã hủy booking theo yêu cầu. Booking chưa phát sinh khoản thanh toán nên không có tiền cần hoàn.'
+        );
+    }
+
     public function cancel(
         Request $request,
         Booking $booking,
@@ -692,6 +783,10 @@ class BookingController extends Controller
 
         if (!in_array($booking->status, ['pending', 'confirmed'], true) || $booking->actual_check_in) {
             return back()->with('error', 'Không thể hủy đơn vì khách đã nhận phòng hoặc đơn không còn hiệu lực.');
+        }
+
+        if ($booking->room_selection_mode === 'manual' && $booking->room_selection_status === 'awaiting_guest') {
+            return back()->with('error', 'Khách sạn chưa đáp ứng được yêu cầu phòng. Vui lòng chọn Đồng ý hoặc Từ chối phòng dự phòng để hệ thống áp dụng đúng chính sách hoàn tiền.');
         }
 
         $policy = $financials->cancellationPolicy($booking);
@@ -859,17 +954,24 @@ class BookingController extends Controller
             ->orderBy('name')
             ->get();
 
-        // Ở màn chỉnh sửa hiển thị toàn bộ mã công khai đang bật. Điều kiện cuối
-        // cùng vẫn được backend kiểm lại theo dữ liệu mới khi bấm Lưu.
-        $availablePromotions = Promotion::query()
-            ->with(['serviceOffers.service'])
-            ->where('status', 'active')
-            ->where('user_can_apply', true)
-            ->where('is_public', true)
-            ->where('promotion_type', '!=', Promotion::TYPE_SUPPORT)
-            ->orderByRaw("FIELD(promotion_type, 'normal_discount', 'event_discount', 'conditional_discount', 'support_discount')")
-            ->orderBy('code')
-            ->get();
+        // Chỉ hiển thị mã mà chính booking/tài khoản này còn đủ điều kiện dùng.
+        // current booking được loại khỏi bộ đếm usage để mã đang áp dụng cho đơn
+        // không tự làm chính nó hết lượt trong màn chỉnh sửa.
+        $availablePromotions = app(PromotionService::class)->availablePromotions([
+            'booking_id' => $booking->id,
+            'customer_id' => $booking->customer_id,
+            'customer_email' => $booking->customer_email_snapshot ?: $customer?->email,
+            'customer_phone' => $booking->customer_phone_snapshot ?: $customer?->phone,
+            'customer_cccd' => $booking->customer_cccd_snapshot ?: $customer?->cccd,
+            'subtotal_amount' => (float) $booking->subtotal_amount,
+            'check_in_at' => $booking->check_in_at,
+            'check_out_at' => $booking->check_out_at,
+            'night_count' => max(1, $this->getNightCount(
+                optional($booking->check_in_at)->format('Y-m-d') ?? $booking->check_in_date,
+                optional($booking->check_out_at)->format('Y-m-d') ?? $booking->check_out_date
+            )),
+            'room_quantity' => max(1, (int) $booking->room_quantity),
+        ], 'user');
 
         $promotionGeneratedServiceIds = $booking->promotionServiceOffers
             ->pluck('service_id')

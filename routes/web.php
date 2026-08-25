@@ -160,6 +160,9 @@ Route::post('/tra-cuu-booking/xac-thuc', [GuestBookingLookupController::class, '
     ->name('guest-bookings.verify');
 Route::get('/tra-cuu-booking/chi-tiet/{token}', [GuestBookingLookupController::class, 'show'])
     ->name('guest-bookings.show');
+Route::post('/tra-cuu-booking/chi-tiet/{token}/xac-nhan-phong-du-phong', [GuestBookingLookupController::class, 'respondToRoomSelectionFallback'])
+    ->middleware('throttle:10,10')
+    ->name('guest-bookings.room-selection-fallback');
 Route::post('/tra-cuu-booking/chi-tiet/{token}/huy', [GuestBookingLookupController::class, 'cancel'])
     ->middleware('throttle:10,10')
     ->name('guest-bookings.cancel');
@@ -257,6 +260,9 @@ Route::middleware(['auth', 'role:customer'])->group(function () {
         ->name('bookings.customer-requests.store');
     Route::get('/bookings/{booking}/customer-request/attachments/{attachment}', [CustomerRequestController::class, 'attachment'])
         ->name('bookings.customer-requests.attachment');
+
+    Route::post('/bookings/{booking}/room-selection-fallback', [BookingController::class, 'respondToRoomSelectionFallback'])
+        ->name('bookings.room-selection-fallback');
 
     Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel'])
         ->name('bookings.cancel');

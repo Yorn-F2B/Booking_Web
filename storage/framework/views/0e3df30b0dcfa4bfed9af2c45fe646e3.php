@@ -56,6 +56,9 @@
 
     $bookingTypeText = $booking->booking_type === 'hourly' ? 'Theo giờ' : 'Qua đêm';
     $bookingModeText = $booking->booking_mode === 'walk_in' ? 'Ở ngay' : 'Đặt trước';
+    $manualRoomSelection = ($booking->room_selection_mode ?? 'automatic') === 'manual';
+    $roomSelectionStatus = $booking->room_selection_status ?? 'not_required';
+    $showRoomNumbers = $roomNumbers !== '' && (!$manualRoomSelection || $roomSelectionStatus !== 'pending');
     $isPaymentSuccessMail = ($source ?? '') === 'payment_success';
     $emailTitle = $isPaymentSuccessMail ? 'Xác nhận thanh toán và đặt phòng' : 'Xác nhận đặt phòng';
 ?>
@@ -116,7 +119,7 @@
                                         <td style="padding:12px 14px;color:#64748b;font-size:13px;border-top:1px solid #eef2f7;">Hạng phòng</td>
                                         <td style="padding:12px 14px;text-align:right;font-weight:700;border-top:1px solid #eef2f7;"><?php echo e($booking->roomCategory->name ?? '---'); ?></td>
                                     </tr>
-                                    <?php if($roomNumbers): ?>
+                                    <?php if($showRoomNumbers): ?>
                                         <tr>
                                             <td style="padding:12px 14px;color:#64748b;font-size:13px;border-top:1px solid #eef2f7;">Phòng dự kiến</td>
                                             <td style="padding:12px 14px;text-align:right;font-weight:700;border-top:1px solid #eef2f7;"><?php echo e($roomNumbers); ?></td>
@@ -136,6 +139,25 @@
                                     </tr>
                                 </table>
                             </div>
+
+                            <?php if($manualRoomSelection): ?>
+                                <div style="border:1px solid #f59e0b;background:#fffbeb;border-radius:14px;padding:14px;margin-bottom:18px;font-size:14px;line-height:1.6;">
+                                    <strong>Yêu cầu chọn phòng:</strong> <?php echo e($booking->room_selection_request ?: '---'); ?><br>
+                                    <?php if($roomSelectionStatus === 'pending'): ?>
+                                        Lễ tân đang xử lý yêu cầu. Khách sạn đang giữ đủ số lượng phòng để tránh bán vượt nhưng chưa công bố số phòng dự phòng; chưa thu phí đảm bảo yêu cầu phòng.
+                                    <?php elseif($roomSelectionStatus === 'fulfilled'): ?>
+                                        Yêu cầu đã được đáp ứng. Phí đảm bảo yêu cầu phòng: <strong><?php echo e(number_format((float) ($booking->room_selection_fee ?? 0), 0, ',', '.')); ?>đ</strong>.
+                                    <?php elseif($roomSelectionStatus === 'awaiting_guest'): ?>
+                                        Khách sạn không thể đáp ứng đầy đủ yêu cầu và đang chờ quý khách xác nhận có đồng ý với phòng dự phòng hay không. Không thu phí đảm bảo yêu cầu phòng.
+                                    <?php elseif($roomSelectionStatus === 'fallback_accepted'): ?>
+                                        Quý khách đã đồng ý sử dụng phòng dự phòng. Không thu phí đảm bảo yêu cầu phòng.
+                                    <?php elseif($roomSelectionStatus === 'fallback_declined'): ?>
+                                        Quý khách đã từ chối phòng dự phòng và booking đã được hủy theo lỗi không đáp ứng từ phía khách sạn.
+                                    <?php elseif($roomSelectionStatus === 'unfulfilled'): ?>
+                                        Booking này dùng trạng thái không đáp ứng của luồng cũ; vui lòng liên hệ lễ tân nếu cần xác nhận lại.
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
 
                             <?php if($booking->serviceItems->count() > 0): ?>
                                 <div style="border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;margin-bottom:18px;">

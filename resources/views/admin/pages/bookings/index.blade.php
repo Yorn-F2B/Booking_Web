@@ -38,6 +38,10 @@
             'partial' => 'payment-status-partial',
             'paid' => 'payment-status-paid',
         ];
+
+        $bookingFilterKeys = ['keyword', 'status', 'payment_status', 'date_from', 'date_to', 'time_from', 'time_to', 'filter_date'];
+        $hasActiveBookingFilters = collect($bookingFilterKeys)->contains(fn ($key) => request()->filled($key));
+        $showBookingHistory = request()->boolean('show_history');
     @endphp
 
     <style>
@@ -79,6 +83,26 @@
             margin-bottom: 14px;
             box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
         }
+
+        .booking-filter-card > summary {
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 900;
+            color: #334155;
+        }
+
+        .booking-filter-card > summary::-webkit-details-marker { display: none; }
+        .booking-filter-card > summary .filter-chevron { transition: transform .18s ease; }
+        .booking-filter-card[open] > summary .filter-chevron { transform: rotate(180deg); }
+        .booking-filter-card[open] > summary { margin-bottom: 14px; }
+        .booking-filter-summary-note { color: var(--booking-muted); font-size: 12px; font-weight: 700; }
+
+        .booking-page-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 
         .booking-filter-card .form-label {
             font-size: 12px;
@@ -141,6 +165,10 @@
             box-shadow: inset 4px 0 0 #ef4444;
         }
 
+        .booking-row-late td:first-child {
+            box-shadow: inset 4px 0 0 #7e22ce;
+        }
+
         .booking-priority-label {
             display: inline-flex;
             align-items: center;
@@ -157,6 +185,7 @@
         .booking-priority-label.is-urgent { background: #fee2e2; color: #991b1b; }
         .booking-priority-label.is-active { background: #dcfce7; color: #166534; }
         .booking-priority-label.is-done { background: #f1f5f9; color: #64748b; }
+        .booking-priority-label.is-late { background: #f3e8ff; color: #7e22ce; }
 
         .booking-code {
             display: inline-flex;
@@ -223,6 +252,12 @@
             color: #92400e;
             background: #ffedd5;
             border-color: #fed7aa;
+        }
+
+        .booking-status-late {
+            color: #6b21a8;
+            background: #f3e8ff;
+            border-color: #d8b4fe;
         }
 
         .booking-status-done {
@@ -319,6 +354,12 @@
             background: #fef2f2;
             color: #991b1b;
             border: 1px solid #fecaca;
+        }
+
+        .booking-attention-late {
+            background: #faf5ff;
+            color: #7e22ce;
+            border: 1px solid #d8b4fe;
         }
 
         .booking-action-group {
@@ -453,10 +494,24 @@
                     <p>Mặc định sắp theo thay đổi mới nhất để booking vừa tạo, vừa thanh toán hoặc vừa tự hủy luôn hiện ngay.</p>
                 </div>
 
-                <a href="{{ route('admin.bookings.create') }}" class="btn btn-gold">
-                    <i class="bx bx-plus"></i>
-                    Tạo booking
-                </a>
+                <div class="booking-page-actions">
+                    @if($showBookingHistory)
+                        <a href="{{ route('admin.bookings.index', request()->except(['show_history', 'page'])) }}" class="btn btn-outline-secondary">
+                            <i class="bx bx-hide"></i>
+                            Ẩn đơn đã xong
+                        </a>
+                    @elseif(!$hasActiveBookingFilters)
+                        <a href="{{ route('admin.bookings.index', array_merge(request()->except('page'), ['show_history' => 1])) }}" class="btn btn-outline-secondary">
+                            <i class="bx bx-show"></i>
+                            Hiển thị toàn bộ đơn
+                        </a>
+                    @endif
+
+                    <a href="{{ route('admin.bookings.create') }}" class="btn btn-gold">
+                        <i class="bx bx-plus"></i>
+                        Tạo booking
+                    </a>
+                </div>
             </div>
 
 @if ($errors->any())
@@ -470,8 +525,24 @@
                 </div>
             @endif
 
-            <div class="booking-filter-card">
+            <details class="booking-filter-card" @if($hasActiveBookingFilters) open @endif>
+                <summary>
+                    <span class="d-flex align-items-center gap-2">
+                        <i class="bx bx-filter-alt"></i>
+                        Bộ lọc
+                        @if($hasActiveBookingFilters)
+                            <span class="badge rounded-pill text-bg-primary">Đang áp dụng</span>
+                        @endif
+                    </span>
+                    <span class="d-flex align-items-center gap-2 booking-filter-summary-note">
+                        {{ $hasActiveBookingFilters ? 'Bấm để thu gọn' : 'Mặc định ẩn để danh sách gọn hơn' }}
+                        <i class="bx bx-chevron-down filter-chevron"></i>
+                    </span>
+                </summary>
                 <form action="{{ route('admin.bookings.index') }}" method="GET">
+                    @if($showBookingHistory)
+                        <input type="hidden" name="show_history" value="1">
+                    @endif
                     <div class="row g-2 align-items-end">
                         <div class="col-xl-4 col-lg-4 col-md-6">
                             <label class="form-label">Tìm kiếm</label>
@@ -551,8 +622,8 @@
 
                         <div class="col-12 d-flex justify-content-between align-items-center gap-2 flex-wrap mt-3">
                             <div class="booking-muted-line">
-                                @if (request()->hasAny(['keyword', 'status', 'payment_status', 'sort', 'date_from', 'date_to', 'time_from', 'time_to', 'filter_date']))
-                                    Đang lọc danh sách. Bấm "Xem tất cả" để reset.
+                                @if ($hasActiveBookingFilters)
+                                    Đang lọc danh sách. Bấm "Xóa bộ lọc" để reset.
                                 @else
                                     Có thể tìm theo mã booking, tên khách hoặc số điện thoại.
                                 @endif
@@ -561,7 +632,7 @@
                             <div class="booking-filter-actions">
                                 <a href="{{ route('admin.bookings.index') }}" class="btn btn-outline-secondary btn-sm px-3">
                                     <i class="bx bx-refresh"></i>
-                                    Xem tất cả
+                                    Xóa bộ lọc
                                 </a>
 
                                 <button type="submit" class="btn btn-primary btn-sm px-4">
@@ -572,7 +643,17 @@
                         </div>
                     </div>
                 </form>
-            </div>
+            </details>
+
+            @if(!$showBookingHistory && !$hasActiveBookingFilters)
+                <div class="booking-muted-line mb-2">
+                    Đang ẩn các đơn đã hoàn tất/đã hủy. Đơn hủy còn chờ hoàn tiền vẫn được giữ lại để xử lý.
+                </div>
+            @elseif($hasActiveBookingFilters && !$showBookingHistory)
+                <div class="booking-muted-line mb-2">
+                    Đang tìm trong toàn bộ lịch sử, bao gồm cả đơn đã hoàn tất/đã hủy.
+                </div>
+            @endif
 
             <div class="booking-table-card">
                 <div class="table-responsive">
@@ -632,6 +713,10 @@
 
                                         return $mins . ' phút';
                                     };
+
+                                    $isLateCheckout = $booking->isLateCheckout($nowVn);
+                                    $lateCheckoutMinutes = $booking->lateCheckoutMinutes($nowVn);
+                                    $lateCheckoutText = $formatDuration($lateCheckoutMinutes);
 
                                     $stayMainText = 'Chưa có thời gian';
                                     $staySubText = $booking->booking_type == 'hourly' ? 'Theo giờ' : 'Qua đêm';
@@ -714,13 +799,24 @@
                                         }
                                     }
 
+                                    if ($isLateCheckout) {
+                                        $attention = [
+                                            'class' => 'booking-attention-late',
+                                            'icon' => 'bx-time-five',
+                                            'text' => 'Trả muộn ' . $lateCheckoutText,
+                                            'level' => 'late',
+                                        ];
+                                    }
+
                                     $priority = [
                                         'class' => '',
                                         'icon' => 'bx-list-check',
                                         'text' => 'Theo dõi',
                                     ];
 
-                                    if ($booking->status === 'inspection_requested' || $booking->pendingCancellationRequest || $booking->pendingRoomIssueRequest) {
+                                    if ($isLateCheckout) {
+                                        $priority = ['class' => 'is-late', 'icon' => 'bx-time-five', 'text' => 'Trả muộn · cần xử lý'];
+                                    } elseif ($booking->status === 'inspection_requested' || $booking->pendingCancellationRequest || $booking->pendingRoomIssueRequest) {
                                         $priority = ['class' => 'is-urgent', 'icon' => 'bx-alarm-exclamation', 'text' => 'Cần xử lý ngay'];
                                     } elseif ($booking->status === 'checked_in') {
                                         $priority = ['class' => 'is-active', 'icon' => 'bx-hotel', 'text' => 'Khách đang lưu trú'];
@@ -737,7 +833,9 @@
                                     }
 
                                     $rowClass = '';
-                                    if ($attention['level'] === 'danger') {
+                                    if ($attention['level'] === 'late') {
+                                        $rowClass = 'booking-row-late';
+                                    } elseif ($attention['level'] === 'danger') {
                                         $rowClass = 'booking-row-danger';
                                     } elseif ($attention['level'] === 'warning') {
                                         $rowClass = 'booking-row-warning';
@@ -774,12 +872,24 @@
                                             <i class="bx bx-calendar"></i>
                                             {{ $staySubText }}
                                         </span>
+                                        @if ($isLateCheckout && $booking->actual_check_out)
+                                            <div class="booking-sub-text" style="color:#7e22ce;font-weight:800">
+                                                Trả thực tế: {{ $booking->actual_check_out->timezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') }}
+                                            </div>
+                                        @endif
                                     </td>
 
                                     <td>
                                         <span class="booking-badge {{ $bookingStatusClass }}">
                                             {{ $bookingStatusLabels[$booking->status] ?? $booking->status }}
                                         </span>
+                                        @if ($isLateCheckout)
+                                            <div class="mt-1">
+                                                <span class="booking-badge booking-status-late">
+                                                    Trả muộn · {{ $lateCheckoutText }}
+                                                </span>
+                                            </div>
+                                        @endif
                                         @if ($booking->pendingCancellationRequest)
                                             <div class="mt-1">
                                                 <span class="booking-badge booking-status-warning">

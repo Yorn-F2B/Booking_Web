@@ -727,13 +727,8 @@ class VnpayController extends Controller
                 app(\App\Services\RoomPreparationService::class)
                     ->flagPriorityIfNeeded($booking, $room, 'xác nhận sau thanh toán VNPay');
 
-                if (!in_array($room->status, ['cleaning', 'inspection', 'maintenance'], true)) {
-                    $room->update([
-                        'status' => 'reserved',
-                        'status_from' => now('Asia/Ho_Chi_Minh'),
-                        'status_until' => null,
-                    ]);
-                }
+                // Thanh toán chỉ xác nhận lịch giữ phòng trong booking_rooms; không đổi
+                // room.status trước check-in vì phòng có thể đang phục vụ khách khác.
             }
 
             return true;
@@ -765,13 +760,8 @@ class VnpayController extends Controller
         app(\App\Services\RoomPreparationService::class)
             ->flagPriorityIfNeeded($booking, $room, 'gán phòng sau thanh toán VNPAY');
 
-        if (!in_array($room->status, ['cleaning', 'inspection', 'maintenance'], true)) {
-            $room->update([
-                'status' => 'reserved',
-                'status_from' => now('Asia/Ho_Chi_Minh'),
-                'status_until' => null,
-            ]);
-        }
+        // Không đổi room.status khi mới gán phòng cho booking chưa check-in.
+        // Xung đột lịch được kiểm soát bởi booking_rooms + bookableForPeriod().
 
         return true;
     }

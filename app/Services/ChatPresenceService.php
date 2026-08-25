@@ -39,10 +39,10 @@ class ChatPresenceService
 
         $presence = ChatStaffPresence::query()->firstOrNew(['user_id' => $user->id]);
 
-        if (!$presence->exists) {
-            $presence->status = 'online';
-        }
-
+        // Nhân viên còn đăng nhập và vẫn gửi heartbeat thì được xem là Online.
+        // Không bắt lễ tân tự chọn Online/Away/Offline trên màn chat nữa; logout
+        // hoặc quá TTL mới chuyển Offline và kích hoạt bàn giao tự động.
+        $presence->status = 'online';
         $presence->last_seen_at = now();
         $presence->save();
 

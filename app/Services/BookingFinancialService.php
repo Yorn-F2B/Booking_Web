@@ -39,9 +39,45 @@ class BookingFinancialService
         }
         $services = (float) $booking->serviceItems->where('billing_status', 'confirmed')->sum('total');
         $inspection = (float) $booking->roomInspections->flatMap->items->where('status', 'approved')->sum('total');
-        return max(0, round($roomTotal + $services + $inspection - (float) $booking->discount_amount, 0));
+        $manualRoomSelectionFee = max(0, (float) ($booking->room_selection_fee ?? 0));
+
+        return max(0, round(
+            $roomTotal + $services + $inspection + $manualRoomSelectionFee - (float) $booking->discount_amount,
+            0
+        ));
     }
 
+
+    /**
+     * Phí chọn phòng thủ công phát sinh thêm khi khách ĐANG Ở và chủ động
+     * yêu cầu lễ tân chọn chính xác phòng thay thế. Chế độ hệ thống tự chọn
+     * và mọi đổi phòng do sự cố khách sạn không thu khoản này.
+     */
+    public function manualRoomChangeSelectionFee(Booking $booking, string $assignmentMode, int $roomCount = 1): float
+    {
+        if ($booking->status !== 'checked_in' || $assignmentMode !== 'manual') {
+            return 0.0;
+        }
+
+        $unitFee = max(0, (float) app(HotelPolicyService::class)
+            ->forBooking($booking, 'booking.manual_room_selection_fee', 50000));
+
+        return round($unitFee * max(1, $roomCount), 0);
+    }
+
+    public function addManualRoomChangeSelectionFee(Booking $booking, string $assignmentMode, int $roomCount = 1): float
+    {
+        $fee = $this->manualRoomChangeSelectionFee($booking, $assignmentMode, $roomCount);
+        if ($fee <= 0) {
+            return 0.0;
+        }
+
+        $booking->forceFill([
+            'room_selection_fee' => round(max(0, (float) ($booking->room_selection_fee ?? 0)) + $fee, 0),
+        ])->save();
+
+        return $fee;
+    }
 
     public function requiredDeposit(Booking $booking): float
     {

@@ -138,13 +138,14 @@ class BookingRepricingService
             ->where('status', 'approved')
             ->sum('total');
         $oldDiscountTotal = (float) $booking->discount_amount;
+        $manualRoomSelectionFee = max(0, (float) ($booking->room_selection_fee ?? 0));
         $oldTotal = max(0, round(
-            $oldRoomTotal + $oldServiceTotal + $approvedInspectionTotal - $oldDiscountTotal,
+            $oldRoomTotal + $oldServiceTotal + $approvedInspectionTotal + $manualRoomSelectionFee - $oldDiscountTotal,
             0
         ));
 
         $newSubtotal = round(
-            $newRoomTotal + (float) $servicePreview['new_total'] + $approvedInspectionTotal,
+            $newRoomTotal + (float) $servicePreview['new_total'] + $approvedInspectionTotal + $manualRoomSelectionFee,
             0
         );
         $newDiscountTotal = round((float) $promotionPreview['discount_total'], 0);
@@ -160,7 +161,11 @@ class BookingRepricingService
             (float) $promotionPreview['money_discount_total']
                 + (float) $promotionPreview['room_upgrade_discount_total']
         );
-        $requiredDeposit = round(max(0, $newRoomBaseTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate($booking), 0);
+        // Phí đảm bảo yêu cầu phòng là một phần của giá booking đã chốt khi khách sạn
+        // thực sự đáp ứng yêu cầu, nên phải tham gia mức cọc hiện hành. Dịch vụ/phụ thu
+        // khác vẫn không làm tăng ngưỡng cọc trước check-in.
+        $depositBase = max(0, $newRoomBaseTotal - $roomDiscountForDeposit + $manualRoomSelectionFee);
+        $requiredDeposit = round($depositBase * app(HotelPolicyService::class)->depositRate($booking), 0);
         $depositShortfall = max(0, round($requiredDeposit - $paidTotal, 0));
 
         return [
@@ -169,6 +174,7 @@ class BookingRepricingService
                 'room_total' => $oldRoomTotal,
                 'service_total' => $oldServiceTotal,
                 'inspection_total' => $approvedInspectionTotal,
+                'manual_room_selection_fee' => $manualRoomSelectionFee,
                 'discount_total' => $oldDiscountTotal,
                 'total' => $oldTotal,
                 'required_deposit' => $this->financialService->requiredDeposit($booking),
@@ -181,6 +187,7 @@ class BookingRepricingService
                 'room_surcharge_total' => $newRoomSurchargeTotal,
                 'service_total' => (float) $servicePreview['new_total'],
                 'inspection_total' => $approvedInspectionTotal,
+                'manual_room_selection_fee' => $manualRoomSelectionFee,
                 'subtotal' => $newSubtotal,
                 'discount_total' => $newDiscountTotal,
                 'total' => $newTotal,

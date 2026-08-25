@@ -34,34 +34,8 @@ class BookingCancellationService
                     'note' => DB::raw("CONCAT(COALESCE(note, ''), ' | Đã hủy cùng booking trước khi nhận phòng.')"),
                 ]);
 
-            $locked->load('bookingRooms.room');
-            foreach ($locked->bookingRooms as $bookingRoom) {
-                $room = $bookingRoom->room;
-                if (!$room || !in_array($room->status, ['reserved', 'occupied'], true)) {
-                    continue;
-                }
-
-                $hasOtherActiveBooking = DB::table('booking_rooms')
-                    ->join('bookings', 'bookings.id', '=', 'booking_rooms.booking_id')
-                    ->where('booking_rooms.room_id', $room->id)
-                    ->where('bookings.id', '!=', $locked->id)
-                    ->whereNull('bookings.deleted_at')
-                    ->where(function ($query) {
-                        $query->whereIn('bookings.status', ['confirmed', 'checked_in', 'inspection_requested'])
-                            ->orWhere(function ($pending) {
-                                $pending->where('bookings.status', 'pending')
-                                    ->whereNotNull('bookings.payment_expires_at')
-                                    ->where('bookings.payment_expires_at', '>', now('Asia/Ho_Chi_Minh'));
-                            });
-                    })
-                    ->exists();
-
-                $room->update([
-                    'status' => $hasOtherActiveBooking ? 'reserved' : 'available',
-                    'status_from' => $hasOtherActiveBooking ? now('Asia/Ho_Chi_Minh') : null,
-                    'status_until' => null,
-                ]);
-            }
+            // Booking chưa check-in: hủy lịch giữ phòng bằng trạng thái booking.
+            // Không cập nhật room.status vì đó là trạng thái vận hành tại thời điểm hiện tại.
 
             BookingPayment::where('booking_id', $locked->id)
                 ->where('status', 'pending')
@@ -121,4 +95,86 @@ class BookingCancellationService
             return $creditAmount;
         });
     }
+
+    /**
+     * Hủy booking do khách sạn không thể đáp ứng yêu cầu phòng đã cam kết xử lý.
+     * Đây không phải lỗi/hủy tự nguyện của khách: toàn bộ số đã thanh toán phải hoàn lại,
+     * không ghi nhận vi phạm hủy/no-show và không áp khóa tài khoản.
+     */
+    public function cancelForRoomRequestFailure(
+        Booking $booking,
+        ?int $actorUserId,
+        string $action,
+        string $actorLabel,
+        string $reason
+    ): float {
+        return DB::transaction(function () use ($booking, $actorUserId, $action, $actorLabel, $reason) {
+            $locked = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
+
+            if ($locked->room_selection_mode !== 'manual'
+                || $locked->room_selection_status !== 'awaiting_guest') {
+                throw new \RuntimeException('Yêu cầu phòng không còn chờ khách phản hồi.');
+            }
+
+            if (!in_array($locked->status, ['pending', 'confirmed'], true) || $locked->actual_check_in) {
+                throw new \RuntimeException('Đơn không còn ở trạng thái có thể hủy và hoàn cọc.');
+            }
+
+            $refundDue = round((float) BookingPayment::where('booking_id', $locked->id)
+                ->where('status', 'success')
+                ->sum('amount'), 0);
+
+            BookingServiceItem::where('booking_id', $locked->id)
+                ->where('billing_status', 'pending')
+                ->update([
+                    'billing_status' => 'cancelled',
+                    'used_quantity' => 0,
+                    'total' => 0,
+                    'note' => DB::raw("CONCAT(COALESCE(note, ''), ' | Đã hủy do khách sạn không đáp ứng yêu cầu phòng.')"),
+                ]);
+
+            // Booking chưa check-in: hủy lịch giữ phòng bằng trạng thái booking.
+            // Không cập nhật room.status vì đó là trạng thái vận hành tại thời điểm hiện tại.
+
+            BookingPayment::where('booking_id', $locked->id)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'failed',
+                    'response_code' => 'BOOKING_CANCELLED_HOTEL_REQUEST_FAILURE',
+                    'transaction_status' => 'BOOKING_CANCELLED_HOTEL_REQUEST_FAILURE',
+                ]);
+
+            $now = now('Asia/Ho_Chi_Minh');
+            $locked->forceFill([
+                'status' => 'cancelled',
+                'payment_expires_at' => null,
+                'room_selection_status' => 'fallback_declined',
+                'room_selection_fee' => 0,
+                'room_selection_guest_decided_at' => $now,
+                'refund_due_amount' => $refundDue,
+                'refund_status' => $refundDue > 0 ? 'pending' : 'completed',
+                'refund_reason' => trim($reason),
+                'refund_processed_at' => $refundDue > 0 ? null : $now,
+                'refund_processed_by' => null,
+                'note' => trim(($locked->note ? $locked->note . "\n" : '')
+                    . $now->format('d/m/Y H:i') . ' - ' . $actorLabel
+                    . ' từ chối phòng dự phòng do khách sạn không đáp ứng yêu cầu. Booking được hủy không phạt khách.'
+                    . ($refundDue > 0
+                        ? ' Cần hoàn lại toàn bộ ' . number_format($refundDue, 0, ',', '.') . 'đ đã thanh toán.'
+                        : ' Booking chưa phát sinh khoản đã thanh toán nên không có tiền cần hoàn.')),
+            ])->save();
+
+            BookingLog::create([
+                'booking_id' => $locked->id,
+                'user_id' => $actorUserId,
+                'action' => $action,
+                'description' => $actorLabel . ' từ chối phòng dự phòng vì khách sạn không đáp ứng yêu cầu chọn phòng. '
+                    . 'Booking hủy không phạt khách; số tiền cần hoàn: '
+                    . number_format($refundDue, 0, ',', '.') . 'đ.',
+            ]);
+
+            return $refundDue;
+        });
+    }
+
 }

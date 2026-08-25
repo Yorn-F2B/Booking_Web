@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\BookingLog;
 use App\Models\RoomInspection;
+use App\Models\RoomActionLog;
 use Illuminate\Support\Facades\Auth;
 
 class RoomInspectionFinalizationService
@@ -19,7 +20,7 @@ class RoomInspectionFinalizationService
         // Luôn nạp lại các hạng mục vì cùng instance có thể đã cache quan hệ items
         // trước khi buồng phòng/khách vừa cập nhật. loadMissing() ở đây có thể dùng
         // collection cũ và chốt nhầm một tranh chấp chưa xử lý.
-        $inspection->load(['items', 'booking', 'room']);
+        $inspection->load(['items', 'booking.bookingRooms', 'room']);
 
         $unresolvedItems = $inspection->items->filter(function ($item) {
             if ($item->guest_response !== 'accepted') {
@@ -83,6 +84,35 @@ class RoomInspectionFinalizationService
             'damage_total' => $approvedDamageTotal,
             'approved_total' => $approvedTotal,
         ]);
+
+        // Phiếu đã hoàn tất nghĩa là phòng không còn ở bước "đang kiểm tra".
+        // Khách vẫn chưa check-out nên trạng thái vận hành đúng phải quay lại occupied.
+        // Chỉ self-heal đúng phòng vẫn thuộc booking hiện tại và chỉ khi room đang
+        // ở trạng thái inspection để không ghi đè maintenance/cleaning hoặc trạng thái
+        // đã được một luồng khác cập nhật hợp lệ.
+        if ($inspection->booking
+            && $inspection->booking->status === 'inspection_requested'
+            && $inspection->room
+            && $inspection->room->status === 'inspection'
+            && $inspection->booking->bookingRooms->contains(
+                fn ($bookingRoom) => (int) $bookingRoom->room_id === (int) $inspection->room_id
+            )) {
+            $inspection->room->update([
+                'status' => 'occupied',
+                'status_from' => $completedAt,
+                'status_until' => null,
+            ]);
+
+            RoomActionLog::create([
+                'room_id' => $inspection->room_id,
+                'user_id' => $actorId,
+                'action_type' => 'inspection_completed',
+                'action_time' => $completedAt,
+                'note' => 'Hoàn tất kiểm tra trước check-out cho booking #'
+                    . ($inspection->booking->booking_code ?? $inspection->booking_id)
+                    . '. Khách vẫn đang lưu trú nên phòng trở lại trạng thái đang ở.',
+            ]);
+        }
 
         $summary = trim((string) $reason);
         if ($summary === '') {

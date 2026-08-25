@@ -179,10 +179,14 @@
                                             </div>
                                         </div>
 
-                                        @if ($hasAvailableRoom)
+                                        @if ($hasAvailableRoom && ($searchData['quick_booking_available'] ?? true))
                                             <a href="{{ route('admin.bookings.create', $createParams) }}" class="btn btn-success mt-auto">
                                                 Tạo booking hạng này
                                             </a>
+                                        @elseif ($hasAvailableRoom)
+                                            <button type="button" class="btn btn-outline-secondary mt-auto" disabled>
+                                                Ở ngay chỉ áp dụng hôm nay
+                                            </button>
                                         @else
                                             <button type="button" class="btn btn-outline-secondary mt-auto" disabled>
                                                 Không thể tạo booking

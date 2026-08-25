@@ -57,6 +57,10 @@ class AuthenticatedSessionController extends Controller
             $this->chatPresenceService->markOnline($user);
             $this->chatAssignmentService->handoffStaleOnlineStaff();
             $this->chatAssignmentService->assignWaitingConversations();
+            $this->chatAssignmentService->assignUnassignedBookings();
+            // Nhân viên mới vào ca nhận một phần các gói an toàn, không giật booking
+            // đã check-in/đang thao tác hay assignment được quản lý ghim thủ công.
+            $this->chatAssignmentService->softRebalance();
         }
 
         return match ($user->role) {

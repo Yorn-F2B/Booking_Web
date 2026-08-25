@@ -72,6 +72,21 @@
         $pendingBookingCount = $pendingBookingQuery->count();
     }
 
+    $unreadChatCount = 0;
+    if ($canUseFrontDesk) {
+        $unreadChatQuery = \App\Models\ChatConversation::query()
+            ->whereIn('status', ['waiting', 'assigned', 'active'])
+            ->whereHas('messages', fn ($query) => $query
+                ->where('sender_type', 'customer')
+                ->where('is_read', false));
+
+        if ($isReceptionist) {
+            $unreadChatQuery->where('assigned_staff_id', $currentUser->id);
+        }
+
+        $unreadChatCount = $unreadChatQuery->count();
+    }
+
     $pendingRoomIssueCount = $canManageRoomIssues
         ? \App\Models\RoomIssueRequest::query()
             ->needsManagerAction()
@@ -80,12 +95,19 @@
         : 0;
 
     $pendingHousekeepingCount = 0;
+    $pendingRoomIssueVerificationCount = 0;
     $pendingFloorInspectionCount = 0;
     $pendingRoomRepairCount = 0;
     if ($canUseHousekeeping) {
         $cleaningQuery = \App\Models\Room::query()->where('status', 'cleaning');
         \App\Support\HousekeepingWorkScope::applyToRooms($cleaningQuery, $currentUser);
         $pendingHousekeepingCount = $cleaningQuery->count();
+
+        $verificationQuery = \App\Models\RoomIssueRequest::query()
+            ->where('status', 'pending')
+            ->where('workflow_status', 'awaiting_housekeeping');
+        \App\Support\HousekeepingWorkScope::applyToIssues($verificationQuery, $currentUser);
+        $pendingRoomIssueVerificationCount = $verificationQuery->count();
 
         $inspectionQuery = \App\Models\RoomInspection::query()
             ->where(function ($query) {
@@ -126,6 +148,7 @@
 
     $roomsOpen = request()->routeIs([
         'admin.housekeeping.*',
+        'admin.room-issue-verifications.*',
         'admin.floor-inspections.*',
         'admin.room-repairs.*',
     ]);
@@ -299,6 +322,10 @@
                     class="admin-nav-link {{ request()->routeIs('admin.chats.*') ? 'active' : '' }}">
                     <i class="bx bx-message-rounded-dots"></i>
                     Tin nhắn khách hàng
+                    <span class="admin-menu-count is-warning"
+                        data-realtime-menu-count="unread-chats"
+                        data-chat-unread-url="{{ route('admin.chats.unread-count') }}"
+                        @if($unreadChatCount < 1) hidden @endif>{{ $unreadChatCount }}</span>
                 </a>
             </details>
         @endif
@@ -350,6 +377,15 @@
                     <span class="admin-menu-count is-warning"
                         data-realtime-menu-count="pending-housekeeping"
                         @if($pendingHousekeepingCount < 1) hidden @endif>{{ $pendingHousekeepingCount }}</span>
+                </a>
+
+                <a href="{{ route('admin.room-issue-verifications.index') }}"
+                    class="admin-nav-link {{ request()->routeIs('admin.room-issue-verifications.*') ? 'active' : '' }}">
+                    <i class="bx bx-error-circle"></i>
+                    Kiểm tra sự cố khách báo
+                    <span class="admin-menu-count is-warning"
+                        data-realtime-menu-count="pending-room-issue-verifications"
+                        @if($pendingRoomIssueVerificationCount < 1) hidden @endif>{{ $pendingRoomIssueVerificationCount }}</span>
                 </a>
 
                 <a href="{{ route('admin.room-repairs.index') }}"

@@ -206,6 +206,13 @@
                                         <td>{{ $booking->prefer_adjacent_rooms ? 'Có' : 'Không' }}</td>
                                     </tr>
 
+                                    @if ((float) ($booking->room_selection_fee ?? 0) > 0)
+                                        <tr>
+                                            <th>Phí chọn phòng thủ công</th>
+                                            <td>{{ number_format((float) $booking->room_selection_fee, 0, ',', '.') }}đ</td>
+                                        </tr>
+                                    @endif
+
                                     @if ((float) ($booking->discount_amount ?? 0) > 0)
                                         <tr>
                                             <th>Tổng trước ưu đãi</th>
@@ -492,9 +499,15 @@
 
                     <div class="settings-section mb-4">
 
-                        <h3 class="h6 fw-bold mb-3">
-                            Phòng đã được gán
-                        </h3>
+                        @php
+                            $roomSelectionStatus = $booking->room_selection_status ?? 'not_required';
+                            $isManualRoomSelection = ($booking->room_selection_mode ?? 'automatic') === 'manual';
+                            $hideFallbackRoomNumbers = $isManualRoomSelection && $roomSelectionStatus === 'pending';
+                            $showAssignedRoomNumbers = !$hideFallbackRoomNumbers
+                                && !in_array($roomSelectionStatus, ['fallback_declined'], true);
+                        @endphp
+
+                        <h3 class="h6 fw-bold mb-3">Thông tin phòng</h3>
 
                         @if ($booking->status == 'pending' && $booking->payment_status == 'unpaid')
                             <div class="alert alert-warning small mb-3">
@@ -502,26 +515,83 @@
                             </div>
                         @endif
 
-                        @forelse ($booking->bookingRooms as $bookingRoom)
-
-                            <div class="border rounded p-3 mb-2">
-                                <div class="fw-bold">
-                                    Phòng {{ $bookingRoom->room->room_number ?? 'Không xác định' }}
+                        @if ($isManualRoomSelection)
+                            @if ($roomSelectionStatus === 'pending')
+                                <div class="alert alert-info small mb-3">
+                                    <strong>Đang chờ lễ tân xử lý yêu cầu phòng.</strong><br>
+                                    Yêu cầu của bạn: {{ $booking->room_selection_request ?: '---' }}<br>
+                                    Khách sạn đang giữ đủ số lượng phòng để tránh bán vượt, nhưng <strong>chưa công bố số phòng dự phòng</strong> cho đến khi có kết quả xử lý yêu cầu. Chưa thu phí đảm bảo yêu cầu phòng.
                                 </div>
-
-                                <div class="small text-muted">
-                                    Tầng {{ $bookingRoom->room->floor_number ?? '---' }}
+                            @elseif ($roomSelectionStatus === 'fulfilled')
+                                <div class="alert alert-success small mb-3">
+                                    <strong>Khách sạn đã đáp ứng yêu cầu phòng.</strong><br>
+                                    Phí đảm bảo yêu cầu phòng: {{ number_format((float) ($booking->room_selection_fee ?? 0), 0, ',', '.') }}đ.
+                                    @if ($booking->room_selection_handling_note)
+                                        <br>Ghi chú: {{ $booking->room_selection_handling_note }}
+                                    @endif
                                 </div>
-                            </div>
+                            @elseif ($roomSelectionStatus === 'awaiting_guest')
+                                <div class="alert alert-warning small mb-3">
+                                    <strong>Khách sạn không thể đáp ứng đầy đủ yêu cầu đã ghi.</strong><br>
+                                    @if ($booking->room_selection_handling_note)
+                                        Lý do: {{ $booking->room_selection_handling_note }}<br>
+                                    @endif
+                                    Phòng dự phòng bên dưới vẫn đang được giữ cho bạn và <strong>không thu phí đảm bảo yêu cầu phòng</strong>. Vui lòng chọn Đồng ý nếu muốn tiếp tục, hoặc Từ chối để hủy booking. Nếu từ chối, khách sạn phải hoàn lại toàn bộ số tiền đã thanh toán.
+                                </div>
+                                <div class="d-grid gap-2 mb-3">
+                                    <form action="{{ route('bookings.room-selection-fallback', $booking) }}" method="POST">
+                                        @csrf
+                                        <input type="hidden" name="decision" value="accept">
+                                        <button class="btn btn-success w-100" type="submit"
+                                            onclick="return confirm('Bạn đồng ý sử dụng phòng dự phòng đang được khách sạn giữ?');">
+                                            Đồng ý sử dụng phòng dự phòng
+                                        </button>
+                                    </form>
+                                    <form action="{{ route('bookings.room-selection-fallback', $booking) }}" method="POST">
+                                        @csrf
+                                        <input type="hidden" name="decision" value="decline">
+                                        <button class="btn btn-outline-danger w-100" type="submit"
+                                            onclick="return confirm('Từ chối phòng dự phòng sẽ hủy booking. Khách sạn sẽ phải hoàn lại toàn bộ số tiền bạn đã thanh toán. Tiếp tục?');">
+                                            Từ chối phòng dự phòng và hủy booking
+                                        </button>
+                                    </form>
+                                    <a href="{{ route('rooms') }}" class="btn btn-outline-primary w-100">Xem hạng phòng khác</a>
+                                </div>
+                            @elseif ($roomSelectionStatus === 'fallback_accepted')
+                                <div class="alert alert-success small mb-3">
+                                    <strong>Bạn đã đồng ý sử dụng phòng dự phòng.</strong><br>
+                                    Booking tiếp tục giữ nguyên và không thu phí đảm bảo yêu cầu phòng.
+                                </div>
+                            @elseif ($roomSelectionStatus === 'fallback_declined')
+                                <div class="alert alert-secondary small mb-3">
+                                    <strong>Bạn đã từ chối phòng dự phòng và booking đã được hủy.</strong><br>
+                                    @if ((float) ($booking->refund_due_amount ?? 0) > 0)
+                                        Số tiền khách sạn phải hoàn lại: <strong>{{ number_format((float) $booking->refund_due_amount, 0, ',', '.') }}đ</strong>.
+                                        Trạng thái hoàn tiền: <strong>{{ $booking->refund_status === 'completed' ? 'Đã hoàn tất' : 'Đang chờ xử lý' }}</strong>.
+                                    @else
+                                        Booking chưa phát sinh khoản thanh toán cần hoàn.
+                                    @endif
+                                    <div class="mt-2"><a href="{{ route('rooms') }}">Xem các hạng phòng khác phù hợp hơn</a>.</div>
+                                </div>
+                            @endif
+                        @endif
 
-                        @empty
-
-                            <div class="alert alert-warning mb-0">
-                                Khách sạn chưa gán phòng cụ thể cho đơn này.
-                            </div>
-
-                        @endforelse
-
+                        @if ($showAssignedRoomNumbers)
+                            @forelse ($booking->bookingRooms as $bookingRoom)
+                                <div class="border rounded p-3 mb-2">
+                                    <div class="fw-bold">
+                                        Phòng {{ $bookingRoom->room->room_number ?? 'Không xác định' }}
+                                    </div>
+                                    <div class="small text-muted">
+                                        Tầng {{ $bookingRoom->room->floor_number ?? '---' }}
+                                    </div>
+                                </div>
+                            @empty
+                                <div class="alert alert-warning mb-0">
+                                    Khách sạn chưa gán phòng cụ thể cho đơn này.
+                                </div>
+                            @endforelse
+                        @endif
                     </div>
 
 
@@ -538,12 +608,15 @@
                                         'waiting_guest_confirmation' => 'Đang trao đổi phương án',
                                         'guest_accepted' => 'Khách đã chọn phương án',
                                         'guest_requested_change' => 'Đang điều chỉnh phương án',
+                                        'awaiting_housekeeping' => 'Chờ buồng phòng kiểm tra',
+                                        'housekeeping_verified' => 'Buồng phòng đã xác nhận lỗi · chờ quản lý',
+                                        'housekeeping_not_found' => 'Buồng phòng không phát hiện lỗi · chờ quản lý kết luận',
                                         default => 'Đang chờ quản lý',
                                     },
                                     'approved' => 'Đã đổi phòng',
                                     'repair_only' => 'Đang khắc phục',
                                     'repair_completed' => 'Đã sửa xong',
-                                    'rejected' => 'Đã từ chối',
+                                    'rejected' => 'Không được đổi phòng · yêu cầu đã đóng',
                                 ];
                                 $issueStatusClasses = [
                                     'pending' => 'text-bg-warning',
@@ -609,22 +682,64 @@
                                                 @php
                                                     $displayResolution = $groupIssue->resolution_type ?: $groupIssue->guest_selected_resolution_type ?: $groupIssue->proposed_resolution_type;
                                                     $targetRoom = $groupIssue->approvedRoom ?: $groupIssue->proposedRoom;
+                                                    $inspectionNotFound = $groupIssue->housekeeping_verdict === 'not_found'
+                                                        || $groupIssue->workflow_status === 'housekeeping_not_found';
+                                                    $requestRejected = $groupIssue->status === 'rejected'
+                                                        || $groupIssue->workflow_status === 'rejected';
                                                 @endphp
                                                 <div class="border rounded-3 p-3 mb-3">
                                                     <div class="d-flex justify-content-between gap-2 flex-wrap">
-                                                        <div><strong>Phòng {{ $groupIssue->currentRoom?->room_number ?? '---' }}</strong><div class="small text-muted">{{ $groupIssue->issue_description }}</div></div>
-                                                        <span class="badge text-bg-light border">{{ $issueResolutionLabels[$displayResolution] ?? ($displayResolution==='repair_only'?'Giữ nguyên phòng và sửa gấp':'Chưa có phương án') }}</span>
-                                                    </div>
-                                                    @if($targetRoom)<div class="alert alert-info py-2 mt-3 mb-0">{{ $groupIssue->status==='pending'?'Dự kiến đổi':'Đã đổi' }} sang phòng <strong>{{ $targetRoom->room_number }}</strong> · {{ $targetRoom->category?->name }}</div>@else<div class="alert alert-warning py-2 mt-3 mb-0">Giữ nguyên phòng và chuyển buồng phòng sửa gấp.</div>@endif
-                                                    @if($groupIssue->repair_status === 'completed')
-                                                        <div class="alert alert-success py-2 mt-2 mb-0">
-                                                            Đã sửa xong
-                                                            @if($groupIssue->repair_note)
-                                                                : {{ $groupIssue->repair_note }}
-                                                            @endif
+                                                        <div>
+                                                            <strong>Phòng {{ $groupIssue->currentRoom?->room_number ?? '---' }}</strong>
+                                                            <div class="small text-muted">{{ $groupIssue->issue_description }}</div>
                                                         </div>
-                                                    @elseif($groupIssue->repair_status === 'waiting')
-                                                        <div class="alert alert-secondary py-2 mt-2 mb-0">Buồng phòng đang xử lý riêng phòng này.</div>
+                                                        @if ($requestRejected)
+                                                            <span class="badge text-bg-secondary">Không được đổi phòng · đã đóng</span>
+                                                        @elseif ($inspectionNotFound)
+                                                            <span class="badge text-bg-light border">Không phát hiện sự cố</span>
+                                                        @else
+                                                            <span class="badge text-bg-light border">{{ $issueResolutionLabels[$displayResolution] ?? ($displayResolution === 'repair_only' ? 'Giữ nguyên phòng và sửa tại chỗ' : 'Đang chờ phương án') }}</span>
+                                                        @endif
+                                                    </div>
+
+                                                    @if ($inspectionNotFound || $requestRejected)
+                                                        @if ($groupIssue->housekeeping_note)
+                                                            <div class="alert alert-light border py-2 mt-3 mb-0">
+                                                                <strong>Kết quả kiểm tra:</strong>
+                                                                @if ($inspectionNotFound) Không phát hiện sự cố. @endif
+                                                                {{ $groupIssue->housekeeping_note }}
+                                                            </div>
+                                                        @elseif ($inspectionNotFound)
+                                                            <div class="alert alert-light border py-2 mt-3 mb-0"><strong>Kết quả kiểm tra:</strong> Không phát hiện sự cố.</div>
+                                                        @endif
+
+                                                        @if ($requestRejected)
+                                                            <div class="alert alert-secondary py-2 mt-2 mb-0">
+                                                                <strong>Kết luận:</strong> Yêu cầu đổi phòng không được chấp thuận.
+                                                                @if ($groupIssue->admin_note)
+                                                                    <br><strong>Lý do:</strong> {{ $groupIssue->admin_note }}
+                                                                @endif
+                                                            </div>
+                                                        @else
+                                                            <div class="alert alert-info py-2 mt-2 mb-0">Đang chờ quản lý kết luận sau kết quả kiểm tra của buồng phòng.</div>
+                                                        @endif
+                                                    @else
+                                                        @if ($targetRoom)
+                                                            <div class="alert alert-info py-2 mt-3 mb-0">{{ $groupIssue->status === 'pending' ? 'Dự kiến đổi' : 'Đã đổi' }} sang phòng <strong>{{ $targetRoom->room_number }}</strong> · {{ $targetRoom->category?->name }}</div>
+                                                        @elseif ($displayResolution === 'no_room' || $displayResolution === 'repair_only')
+                                                            <div class="alert alert-warning py-2 mt-3 mb-0">Giữ nguyên phòng và chuyển buồng phòng khắc phục.</div>
+                                                        @endif
+
+                                                        @if($groupIssue->repair_status === 'completed')
+                                                            <div class="alert alert-success py-2 mt-2 mb-0">
+                                                                Đã sửa xong
+                                                                @if($groupIssue->repair_note)
+                                                                    : {{ $groupIssue->repair_note }}
+                                                                @endif
+                                                            </div>
+                                                        @elseif($groupIssue->repair_status === 'waiting')
+                                                            <div class="alert alert-secondary py-2 mt-2 mb-0">Buồng phòng đang xử lý riêng phòng này.</div>
+                                                        @endif
                                                     @endif
                                                 </div>
                                             @endforeach
@@ -859,7 +974,7 @@
                         </div>
                     @endif
 
-                    @if ($canCustomerCancel ?? false)
+                    @if (($canCustomerCancel ?? false) && (($booking->room_selection_status ?? null) !== 'awaiting_guest'))
                         <div class="settings-section" id="cancel-policy">
                             <h3 class="h6 fw-bold mb-3">Thao tác hủy đơn</h3>
                             <form action="{{ route('bookings.cancel', $booking->id) }}" method="POST"

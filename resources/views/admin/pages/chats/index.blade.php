@@ -3,6 +3,7 @@
 @section('title', 'Tin nhắn khách hàng')
 
 @section('content')
+    <script>document.body?.setAttribute('data-realtime-local-only', 'true');</script>
     @php
         $currentFilter = $filter ?? 'messages';
         $counts = [
@@ -354,105 +355,6 @@
                 <p class="text-muted mb-0">Tin cần phản hồi được đánh dấu vàng; hội thoại đã xử lý giữ trạng thái bình thường.</p>
             </div>
 
-            <div class="card border-0 shadow-sm mb-3">
-                <div class="card-body py-3">
-                    <div class="row g-3 align-items-end">
-                        @if($myPresenceStatus)
-                            <div class="col-xl-6">
-                                <form method="POST" action="{{ route('admin.chats.presence.update') }}" class="row g-2 align-items-end">
-                                    @csrf
-                                    <div class="col-md-4">
-                                        <label class="form-label small fw-semibold mb-1">Trạng thái trực chat</label>
-                                        <select name="status" class="form-select form-select-sm">
-                                            <option value="online" @selected($myPresenceStatus === 'online')>Online · nhận chat mới</option>
-                                            <option value="away" @selected($myPresenceStatus === 'away')>Away · không nhận chat mới</option>
-                                            <option value="offline" @selected($myPresenceStatus === 'offline')>Offline · bàn giao toàn bộ</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label small fw-semibold mb-1">Khi Offline</label>
-                                        <select name="handoff_mode" class="form-select form-select-sm">
-                                            <option value="rebalance">Chia đều người đang online</option>
-                                            <option value="target">Chuyển hết cho một người</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label small fw-semibold mb-1">Người nhận nếu chuyển hết</label>
-                                        <select name="target_staff_id" class="form-select form-select-sm">
-                                            <option value="">-- Chọn khi cần --</option>
-                                            @foreach($onlineStaffs as $staff)
-                                                @if($staff->id !== auth()->id())
-                                                    <option value="{{ $staff->id }}">{{ $staff->name }} · {{ $staffLoads[$staff->id] ?? 0 }} chat</option>
-                                                @endif
-                                            @endforeach
-                                        </select>
-                                    </div>
-                                    <div class="col-12">
-                                        <button class="btn btn-sm btn-primary">Cập nhật trạng thái</button>
-                                        <span class="small text-muted ms-2">Away giữ khách hiện tại; Offline sẽ bàn giao toàn bộ chat đang mở.</span>
-                                    </div>
-                                </form>
-                            </div>
-                        @endif
-
-                        <div class="col-xl-{{ $myPresenceStatus ? '6' : '12' }}">
-                            <div class="small fw-semibold mb-2">Tải trực chat hiện tại</div>
-                            <div class="d-flex flex-wrap gap-2">
-                                @foreach($chatStaffs as $staff)
-                                    @php
-                                        $presenceStatus = app(\App\Services\ChatPresenceService::class)->statusFor($staff);
-                                        $statusClass = $presenceStatus === 'online' ? 'success' : ($presenceStatus === 'away' ? 'warning' : 'secondary');
-                                    @endphp
-                                    <span class="badge text-bg-{{ $statusClass }} fw-normal">
-                                        {{ $staff->name }} · {{ strtoupper($presenceStatus) }} · {{ $staffLoads[$staff->id] ?? 0 }} chat
-                                    </span>
-                                @endforeach
-                            </div>
-                        </div>
-                    </div>
-
-                    @if(in_array(auth()->user()->role, ['super_admin', 'manager', 'receptionist_lead'], true))
-                        <hr class="my-3">
-                        <form method="POST" action="{{ route('admin.chats.handoff') }}" class="row g-2 align-items-end">
-                            @csrf
-                            <div class="col-md-3">
-                                <label class="form-label small fw-semibold mb-1">Bàn giao toàn bộ chat của</label>
-                                <select name="from_staff_id" class="form-select form-select-sm" required>
-                                    <option value="">-- Chọn nhân viên --</option>
-                                    @foreach($chatStaffs as $staff)
-                                        <option value="{{ $staff->id }}">{{ $staff->name }} · {{ $staffLoads[$staff->id] ?? 0 }} chat</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label small fw-semibold mb-1">Cách bàn giao</label>
-                                <select name="handoff_mode" class="form-select form-select-sm">
-                                    <option value="rebalance">Chia đều người online</option>
-                                    <option value="target">Chuyển hết cho một người</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label small fw-semibold mb-1">Người nhận</label>
-                                <select name="target_staff_id" class="form-select form-select-sm">
-                                    <option value="">-- Chỉ cần khi chuyển hết --</option>
-                                    @foreach($onlineStaffs as $staff)
-                                        <option value="{{ $staff->id }}">{{ $staff->name }} · {{ $staffLoads[$staff->id] ?? 0 }} chat</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                            <div class="col-md-2">
-                                <div class="form-check mt-4">
-                                    <input class="form-check-input" type="checkbox" value="1" id="markOffline" name="mark_offline">
-                                    <label class="form-check-label small" for="markOffline">Đánh dấu Offline</label>
-                                </div>
-                            </div>
-                            <div class="col-md-1 d-grid">
-                                <button class="btn btn-sm btn-outline-primary">Bàn giao</button>
-                            </div>
-                        </form>
-                    @endif
-                </div>
-            </div>
 @if($errors->any())
                 <div class="alert alert-danger">{{ $errors->first() }}</div>
             @endif
@@ -656,6 +558,65 @@
             const olderWrap = document.getElementById('adminChatOlderWrap');
             let hasOlderMessages = root?.dataset.hasOlderMessages === '1';
             let selectedFiles = [];
+            let conversationListRefreshing = false;
+            let sidebarUnreadTimer = null;
+
+            const refreshSidebarUnreadBadge = async function () {
+                const badge = document.querySelector('[data-realtime-menu-count="unread-chats"]');
+                const url = badge?.dataset.chatUnreadUrl;
+                if (!badge || !url) return;
+
+                try {
+                    const response = await fetch(url, {
+                        credentials: 'same-origin',
+                        cache: 'no-store',
+                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    if (!response.ok) return;
+                    const payload = await response.json();
+                    const count = Math.max(0, Number.parseInt(payload.count, 10) || 0);
+                    badge.textContent = count > 99 ? '99+' : String(count);
+                    badge.hidden = count < 1;
+                } catch (error) {
+                    console.debug('Không thể cập nhật badge chat.', error);
+                }
+            };
+
+            const scheduleSidebarUnreadRefresh = function () {
+                window.clearTimeout(sidebarUnreadTimer);
+                sidebarUnreadTimer = window.setTimeout(refreshSidebarUnreadBadge, 120);
+            };
+
+            const refreshConversationList = async function () {
+                if (conversationListRefreshing) return;
+                conversationListRefreshing = true;
+
+                try {
+                    const response = await fetch(window.location.href, {
+                        credentials: 'same-origin',
+                        cache: 'no-store',
+                        headers: { 'Accept': 'text/html', 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    if (!response.ok) return;
+                    const next = new DOMParser().parseFromString(await response.text(), 'text/html');
+                    const currentScroll = document.querySelector('.chat-scroll');
+                    const nextScroll = next.querySelector('.chat-scroll');
+                    if (currentScroll && nextScroll) currentScroll.innerHTML = nextScroll.innerHTML;
+
+                    ['messagesUnreadBadge', 'archivedUnreadBadge'].forEach(function (id) {
+                        const current = document.getElementById(id);
+                        const replacement = next.getElementById(id);
+                        if (!current || !replacement) return;
+                        current.textContent = replacement.textContent;
+                        current.classList.toggle('is-empty', replacement.classList.contains('is-empty'));
+                    });
+                    scheduleSidebarUnreadRefresh();
+                } catch (error) {
+                    console.debug('Không thể đồng bộ danh sách hội thoại.', error);
+                } finally {
+                    conversationListRefreshing = false;
+                }
+            };
 
             const conversationId = Number(
                 root?.dataset.conversationId || 0
@@ -744,6 +705,7 @@
                     setUnreadCount(filterName, getUnreadCount(filterName) - 1);
                 }
 
+                scheduleSidebarUnreadRefresh();
                 return true;
             };
 
@@ -1108,8 +1070,10 @@
                                 : true;
 
                             // Chat mới vừa được phân cho mình / hàng đợi supervisor chưa có trong DOM.
+                            // Chỉ refresh cột hội thoại, không reload cả trang và không làm mất tin đang nhập.
                             if (!found && message?.sender_type === 'customer') {
-                                window.location.reload();
+                                refreshConversationList();
+                                scheduleSidebarUnreadRefresh();
                             }
                         });
                 }

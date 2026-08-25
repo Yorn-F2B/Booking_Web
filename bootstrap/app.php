@@ -22,6 +22,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => \App\Http\Middleware\CheckRole::class,
         ]);
+
+        $middleware->web(append: [
+            \App\Http\Middleware\RedirectStaffFromCustomerArea::class,
+            \App\Http\Middleware\QaBusinessTime::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

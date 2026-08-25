@@ -41,6 +41,19 @@ class Booking extends Model
         'baby_count',
         'room_quantity',
         'prefer_adjacent_rooms',
+        'room_selection_mode',
+        'room_selection_request',
+        'room_selection_status',
+        'room_selection_fee',
+        'room_selection_handled_by',
+        'room_selection_handled_at',
+        'room_selection_handling_note',
+        'room_selection_guest_decided_at',
+        'refund_due_amount',
+        'refund_status',
+        'refund_reason',
+        'refund_processed_at',
+        'refund_processed_by',
         'subtotal_amount',
         'discount_amount',
         'estimated_total',
@@ -68,6 +81,9 @@ class Booking extends Model
         'actual_check_out' => 'datetime',
         'payment_expires_at' => 'datetime',
         'late_arrival_confirmed_at' => 'datetime',
+        'room_selection_handled_at' => 'datetime',
+        'room_selection_guest_decided_at' => 'datetime',
+        'refund_processed_at' => 'datetime',
         'customer_birthday_snapshot' => 'date',
         'subtotal_amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
@@ -76,6 +92,8 @@ class Booking extends Model
         'deposit_amount' => 'decimal:2',
         'required_deposit_amount' => 'decimal:2',
         'overpayment_amount' => 'decimal:2',
+        'room_selection_fee' => 'decimal:2',
+        'refund_due_amount' => 'decimal:2',
         'policy_snapshot' => 'array',
     ];
 
@@ -193,6 +211,11 @@ class Booking extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function roomSelectionHandler()
+    {
+        return $this->belongsTo(User::class, 'room_selection_handled_by');
+    }
+
     public function roomCategory()
     {
         return $this->belongsTo(RoomCategory::class);
@@ -238,7 +261,7 @@ class Booking extends Model
     /**
      * Giới hạn phạm vi vận hành booking theo phân công lễ tân.
      * Trưởng lễ tân/quản lý có thể điều phối toàn bộ. Lễ tân thường chỉ thấy
-     * booking chưa có người nhận hoặc booking đang được phân công cho chính họ.
+     * booking đang được phân công trực tiếp cho chính họ.
      */
     public function scopeVisibleToOperationsUser(Builder $query, ?User $user): Builder
     {
@@ -250,10 +273,12 @@ class Booking extends Model
             return $query;
         }
 
-        return $query->where(function (Builder $scope) use ($user) {
-            $scope->whereDoesntHave('activeStaffAssignments')
-                ->orWhereHas('activeStaffAssignments', fn (Builder $assignment) => $assignment->where('staff_id', $user->id));
-        });
+        return $query->whereHas(
+            'staffAssignments',
+            fn (Builder $assignment) => $assignment
+                ->where('staff_id', $user->id)
+                ->whereIn('status', ['active', 'done'])
+        );
     }
 
     public function canBeHandledBy(?User $user): bool
@@ -266,9 +291,10 @@ class Booking extends Model
             return true;
         }
 
-        $hasAnyAssignment = $this->activeStaffAssignments()->exists();
-
-        return !$hasAnyAssignment || $this->isAssignedTo($user->id);
+        return $this->staffAssignments()
+            ->where('staff_id', $user->id)
+            ->whereIn('status', ['active', 'done'])
+            ->exists();
     }
 
 
@@ -476,6 +502,62 @@ class Booking extends Model
     public function rescheduledAfterCutoffGraceMinutes(): int
     {
         return max(0, (int) $this->policyValue('stay.rescheduled_after_cutoff_grace_minutes', self::RESCHEDULED_AFTER_G_GRACE_MINUTES));
+    }
+
+    /**
+     * Khách trả muộn khi thời điểm thực tế hiện tại/đã trả vượt quá giờ trả
+     * đang có trên booking. Nếu booking đã được gia hạn thì check_out_at đã
+     * mang mốc mới, vì vậy phần gia hạn không bị gắn nhãn trả muộn.
+     */
+    public function isLateCheckout($at = null): bool
+    {
+        if (!$this->check_out_at) {
+            return false;
+        }
+
+        $timezone = 'Asia/Ho_Chi_Minh';
+        $plannedCheckOut = \Carbon\Carbon::parse($this->check_out_at, $timezone);
+
+        if (in_array($this->status, ['checked_out', 'completed'], true)) {
+            if (!$this->actual_check_out) {
+                return false;
+            }
+            $effectiveCheckOut = \Carbon\Carbon::parse($this->actual_check_out, $timezone);
+        } elseif (in_array($this->status, ['checked_in', 'inspection_requested'], true)) {
+            if ($at instanceof \DateTimeInterface) {
+                $effectiveCheckOut = \Carbon\Carbon::instance($at)->timezone($timezone);
+            } elseif ($at) {
+                $effectiveCheckOut = \Carbon\Carbon::parse($at, $timezone);
+            } else {
+                $effectiveCheckOut = now($timezone);
+            }
+        } else {
+            return false;
+        }
+
+        return $effectiveCheckOut->greaterThan($plannedCheckOut);
+    }
+
+    public function lateCheckoutMinutes($at = null): int
+    {
+        if (!$this->isLateCheckout($at)) {
+            return 0;
+        }
+
+        $timezone = 'Asia/Ho_Chi_Minh';
+        $plannedCheckOut = \Carbon\Carbon::parse($this->check_out_at, $timezone);
+
+        if (in_array($this->status, ['checked_out', 'completed'], true) && $this->actual_check_out) {
+            $effectiveCheckOut = \Carbon\Carbon::parse($this->actual_check_out, $timezone);
+        } elseif ($at instanceof \DateTimeInterface) {
+            $effectiveCheckOut = \Carbon\Carbon::instance($at)->timezone($timezone);
+        } elseif ($at) {
+            $effectiveCheckOut = \Carbon\Carbon::parse($at, $timezone);
+        } else {
+            $effectiveCheckOut = now($timezone);
+        }
+
+        return max(0, (int) $plannedCheckOut->diffInMinutes($effectiveCheckOut));
     }
 
     public function promotions()

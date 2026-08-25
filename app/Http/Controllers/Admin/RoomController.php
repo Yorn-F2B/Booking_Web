@@ -7,6 +7,7 @@ use App\Models\Booking;
 use App\Models\Room;
 use App\Models\RoomActionLog;
 use App\Models\RoomCategory;
+use App\Services\RoomReservationStatusService;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Http\Request;
@@ -25,12 +26,21 @@ class RoomController extends Controller
             ->whereNotNull('status_until')
             ->where('status_until', '<=', $now)
             ->update(['status' => 'available', 'status_from' => null, 'status_until' => null]);
+
+        // Tự-heal trạng thái Đã đặt/Trống từ lịch booking đang còn hiệu lực.
+        // Chỉ đụng available/reserved, tuyệt đối không ghi đè occupied/cleaning/inspection/maintenance.
+        app(RoomReservationStatusService::class)->syncAll();
+
         $today = $now->copy()->startOfDay();
 
         // Mặc định hiển thị xuyên suốt toàn bộ lịch sử sử dụng phòng:
         // từ booking sớm nhất đến booking xa nhất trong tương lai.
         $earliestBookingAt = Booking::query()->min('check_in_at');
-        $latestBookingAt = Booking::query()->max('check_out_at');
+        $latestPlannedBookingAt = Booking::query()->max('check_out_at');
+        $latestActualBookingAt = Booking::query()->whereNotNull('actual_check_out')->max('actual_check_out');
+        $latestBookingAt = collect([$latestPlannedBookingAt, $latestActualBookingAt])
+            ->filter()
+            ->max();
         $defaultStart = $earliestBookingAt
             ? Carbon::parse($earliestBookingAt, self::TIMEZONE)->startOfDay()
             : $today->copy();
@@ -77,9 +87,38 @@ class RoomController extends Controller
                 'pending', 'confirmed', 'checked_in', 'inspection_requested',
                 'checked_out', 'completed',
             ])
-            ->whereDate('check_in_date', '<=', $endDate->toDateString())
-            ->whereDate('check_out_date', '>=', $startDate->toDateString())
+            ->where(function ($period) use ($startDate, $endDate, $now) {
+                $period->where(function ($planned) use ($startDate, $endDate) {
+                    $planned->whereDate('check_in_date', '<=', $endDate->toDateString())
+                        ->whereDate('check_out_date', '>=', $startDate->toDateString());
+                })->orWhere(function ($activeLate) use ($endDate, $now) {
+                    // Khách chưa trả dù đã quá giờ dự kiến vẫn phải tiếp tục chiếm lịch
+                    // đến thời điểm hiện tại, kể cả đã sang ngày mới.
+                    $activeLate->whereIn('status', ['checked_in', 'inspection_requested'])
+                        ->whereDate('check_in_date', '<=', $endDate->toDateString())
+                        ->where('check_out_at', '<', $now);
+                })->orWhere(function ($completedActual) use ($startDate, $endDate) {
+                    // Lịch sử trả muộn phải kéo tới actual_check_out chứ không dừng ở
+                    // check_out_date dự kiến.
+                    $completedActual->whereIn('status', ['checked_out', 'completed'])
+                        ->whereNotNull('actual_check_out')
+                        ->whereDate('check_in_date', '<=', $endDate->toDateString())
+                        ->whereDate('actual_check_out', '>=', $startDate->toDateString());
+                });
+            })
             ->get();
+
+        $lateCheckoutBookingMap = [];
+        $activeLateBookings = Booking::with(['customer', 'bookingRooms'])
+            ->whereIn('status', ['checked_in', 'inspection_requested'])
+            ->whereNotNull('check_out_at')
+            ->where('check_out_at', '<', $now)
+            ->get();
+        foreach ($activeLateBookings as $lateBooking) {
+            foreach ($lateBooking->bookingRooms as $bookingRoom) {
+                $lateCheckoutBookingMap[(int) $bookingRoom->room_id] = $lateBooking;
+            }
+        }
 
         $bookingMap = [];
         foreach ($bookings as $booking) {
@@ -95,7 +134,7 @@ class RoomController extends Controller
                     $room,
                     $date,
                     $bookingMap[$room->id] ?? [],
-                    $today
+                    $now
                 );
             }
         }
@@ -118,6 +157,7 @@ class RoomController extends Controller
             'available' => 0,
             'reserved' => 0,
             'occupied' => 0,
+            'late_checkout' => 0,
             'inspection' => 0,
             'cleaning' => 0,
             'maintenance' => 0,
@@ -134,8 +174,8 @@ class RoomController extends Controller
 
         return view('admin.pages.rooms.index', compact(
             'rooms', 'dates', 'timeline', 'summary', 'summaryDate',
-            'startDate', 'endDate', 'today', 'defaultStart', 'defaultEnd',
-            'roomCategories', 'activeCategories', 'floors'
+            'startDate', 'endDate', 'today', 'now', 'defaultStart', 'defaultEnd',
+            'roomCategories', 'activeCategories', 'floors', 'lateCheckoutBookingMap'
         ));
     }
 
@@ -282,21 +322,37 @@ class RoomController extends Controller
             ->with('success', 'Xóa phòng thành công.');
     }
 
-    private function buildCell(Room $room, Carbon $date, array $bookings, Carbon $today): array
+    private function buildCell(Room $room, Carbon $date, array $bookings, Carbon $now): array
     {
+        $today = $now->copy()->startOfDay();
         $dateStart = $date->copy()->startOfDay();
         $dateEnd = $date->copy()->endOfDay();
 
-        $matched = collect($bookings)->filter(function (Booking $booking) use ($dateStart, $dateEnd) {
-            $checkIn = $booking->check_in_at
+        $matched = collect($bookings)->filter(function (Booking $booking) use ($dateStart, $dateEnd, $now) {
+            $plannedCheckIn = $booking->check_in_at
                 ? Carbon::parse($booking->check_in_at, self::TIMEZONE)
                 : Carbon::parse($booking->check_in_date . ' ' . $booking->standardCheckInTime(), self::TIMEZONE);
-            $checkOut = $booking->check_out_at
+            $plannedCheckOut = $booking->check_out_at
                 ? Carbon::parse($booking->check_out_at, self::TIMEZONE)
                 : Carbon::parse($booking->check_out_date . ' ' . $booking->standardCheckOutTime(), self::TIMEZONE);
 
+            // Lịch sử phòng phải phản ánh thời gian khách thực tế đã sử dụng phòng.
+            // Booking đã trả sớm không được tiếp tục chiếm các ô đến ngày trả dự kiến.
+            $checkIn = $booking->actual_check_in
+                ? Carbon::parse($booking->actual_check_in, self::TIMEZONE)
+                : $plannedCheckIn;
+            if (in_array($booking->status, ['checked_out', 'completed'], true) && $booking->actual_check_out) {
+                $checkOut = Carbon::parse($booking->actual_check_out, self::TIMEZONE);
+            } elseif (in_array($booking->status, ['checked_in', 'inspection_requested'], true)
+                && $now->greaterThan($plannedCheckOut)) {
+                // Chưa trả phòng nhưng đã quá giờ: lịch vẫn bị chiếm tới hiện tại.
+                $checkOut = $now->copy();
+            } else {
+                $checkOut = $plannedCheckOut;
+            }
+
             return $checkIn->lte($dateEnd) && $checkOut->gt($dateStart);
-        })->sortBy(fn (Booking $booking) => $booking->check_in_at ?? $booking->check_in_date);
+        })->sortBy(fn (Booking $booking) => $booking->actual_check_in ?? $booking->check_in_at ?? $booking->check_in_date);
 
         $status = 'available';
         $mainBooking = null;
@@ -311,6 +367,18 @@ class RoomController extends Controller
                     'confirmed', 'pending' => 'reserved',
                     default => 'available',
                 };
+                if ($candidate->isLateCheckout($now)) {
+                    $plannedLateStart = Carbon::parse($candidate->check_out_at, self::TIMEZONE);
+                    $lateEnd = in_array($candidate->status, ['checked_out', 'completed'], true) && $candidate->actual_check_out
+                        ? Carbon::parse($candidate->actual_check_out, self::TIMEZONE)
+                        : $now;
+
+                    // Chỉ tô màu trả muộn cho ô ngày thực sự giao với khoảng
+                    // sau giờ checkout dự kiến; không nhuộm tím toàn bộ kỳ lưu trú.
+                    if ($dateEnd->gte($plannedLateStart) && $dateStart->lt($lateEnd)) {
+                        $status = 'late_checkout';
+                    }
+                }
                 break;
             }
         }
@@ -319,7 +387,7 @@ class RoomController extends Controller
             $from = $room->status_from ? Carbon::parse($room->status_from, self::TIMEZONE) : $today->copy()->startOfDay();
             $until = $room->status_until ? Carbon::parse($room->status_until, self::TIMEZONE) : null;
             $physicalStatusApplies = $dateEnd->gte($from) && (!$until || $dateStart->lt($until));
-            if ($physicalStatusApplies) {
+            if ($physicalStatusApplies && $status !== 'late_checkout') {
                 $status = $room->status;
                 $mainBooking = null;
             }

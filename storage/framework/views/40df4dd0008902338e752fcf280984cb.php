@@ -6,6 +6,7 @@
             'available' => 'Trống',
             'reserved' => 'Đã đặt',
             'occupied' => 'Đang ở',
+            'late_checkout' => 'Trả muộn',
             'inspection' => 'Chờ kiểm tra',
             'cleaning' => 'Đang dọn',
             'maintenance' => 'Bảo trì',
@@ -247,6 +248,12 @@
             --status: #dc2626;
             --soft: #fee2e2;
             --border: #fca5a5
+        }
+
+        .s-late_checkout {
+            --status: #7e22ce;
+            --soft: #f3e8ff;
+            --border: #d8b4fe
         }
 
         .s-inspection {
@@ -588,6 +595,13 @@
             color: #64748b
         }
 
+        .rm-catalog-filter-grid {
+            display: grid;
+            grid-template-columns: minmax(180px, 260px) minmax(220px, 1fr) auto auto;
+            gap: 10px;
+            align-items: end;
+        }
+
         @media(max-width:1200px) {
             .rm-filter-grid {
                 grid-template-columns: repeat(3, 1fr)
@@ -599,6 +613,10 @@
         }
 
         @media(max-width:768px) {
+            .rm-catalog-filter-grid {
+                grid-template-columns: 1fr;
+            }
+
             .room-management {
                 padding: 14px
             }
@@ -737,8 +755,18 @@
                                                 href="<?php echo e(route('admin.rooms.show', $room)); ?>">Xem chi tiết</a>
                                         </td>
                                         <?php $__currentLoopData = $dates; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $date): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                            <?php $cell = $timeline[$room->id][$date->toDateString()];
-                                            $booking = $cell['booking']; ?>
+                                            <?php
+                                                $cell = $timeline[$room->id][$date->toDateString()];
+                                                $booking = $cell['booking'];
+                                                $timelineCheckInAt = $booking?->actual_check_in ?? $booking?->check_in_at;
+                                                $timelineCheckOutAt = $booking && in_array($booking->status, ['checked_out', 'completed'], true) && $booking->actual_check_out
+                                                    ? $booking->actual_check_out
+                                                    : (($booking && $booking->isLateCheckout($now)) ? $now : $booking?->check_out_at);
+                                                $timelineLateMinutes = $booking?->lateCheckoutMinutes($now) ?? 0;
+                                                $timelineLateText = $timelineLateMinutes >= 60
+                                                    ? intdiv($timelineLateMinutes, 60) . ' giờ ' . ($timelineLateMinutes % 60) . ' phút'
+                                                    : $timelineLateMinutes . ' phút';
+                                            ?>
                                             <td class="rm-cell <?php echo e($date->isSameDay($today) ? 'today' : ''); ?>">
                                                 <?php if($booking): ?>
                                                     <a class="rm-booking s-<?php echo e($cell['status']); ?>"
@@ -746,11 +774,15 @@
                                                         title="Xem booking <?php echo e($booking->booking_code); ?>">
                                                         <strong><?php echo e($booking->customer->name ?? 'Khách lẻ'); ?></strong>
                                                         <small><?php echo e($booking->booking_code); ?></small>
-                                                        <small><?php echo e($bookingLabels[$booking->status] ?? $booking->status); ?></small>
-                                                        <small><?php echo e(optional($booking->check_in_at)->format('H:i d/m') ?? $booking->check_in_date); ?>
+                                                        <?php if($cell['status'] === 'late_checkout'): ?>
+                                                            <small><strong>Trả muộn · quá <?php echo e($timelineLateText); ?></strong></small>
+                                                        <?php else: ?>
+                                                            <small><?php echo e($bookingLabels[$booking->status] ?? $booking->status); ?></small>
+                                                        <?php endif; ?>
+                                                        <small><?php echo e(optional($timelineCheckInAt)->format('H:i d/m') ?? $booking->check_in_date); ?>
 
                                                             →
-                                                            <?php echo e(optional($booking->check_out_at)->format('H:i d/m') ?? $booking->check_out_date); ?></small>
+                                                            <?php echo e(optional($timelineCheckOutAt)->format('H:i d/m') ?? $booking->check_out_date); ?></small>
                                                     </a>
                                                 <?php elseif($cell['status'] !== 'available'): ?>
                                                     <div class="rm-empty operational s-<?php echo e($cell['status']); ?>">
@@ -769,6 +801,29 @@
             </section>
 
             <section id="panel-catalog" class="rm-panel <?php echo e($activeTab === 'catalog' ? 'active' : ''); ?>">
+                <form method="GET" action="<?php echo e(route('admin.rooms.index')); ?>" class="rm-card rm-filter mb-3">
+                    <input type="hidden" name="tab" value="catalog">
+                    <div class="rm-catalog-filter-grid">
+                        <div class="rm-field">
+                            <label>Lọc theo tầng</label>
+                            <select name="floor_number">
+                                <option value="">Tất cả tầng</option>
+                                <?php $__currentLoopData = $floors; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $floor): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                    <option value="<?php echo e($floor); ?>" <?php if((string) request('floor_number') === (string) $floor): echo 'selected'; endif; ?>>Tầng <?php echo e($floor); ?></option>
+                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                            </select>
+                        </div>
+                        <div class="rm-field">
+                            <label>Tìm số phòng</label>
+                            <input name="room_number" value="<?php echo e(request('room_number')); ?>" placeholder="VD: 405">
+                        </div>
+                        <button class="rm-btn rm-btn-primary" type="submit"><i class="bx bx-filter-alt"></i> Lọc</button>
+                        <?php if(request()->filled('floor_number') || request()->filled('room_number')): ?>
+                            <a class="rm-btn" href="<?php echo e(route('admin.rooms.index', ['tab' => 'catalog'])); ?>">Bỏ lọc</a>
+                        <?php endif; ?>
+                    </div>
+                </form>
+
                 <div class="catalog-toolbar">
                     <div><strong>Danh mục phòng</strong>
                     </div><?php if($canEditCatalog): ?><button class="rm-btn rm-btn-primary" data-open-modal="roomCreateModal"><i
@@ -792,8 +847,24 @@
                                     <td><strong><?php echo e($room->room_number); ?></strong></td>
                                     <td><?php echo e($room->floor_number ?? '—'); ?></td>
                                     <td data-room-category><?php echo e($room->category->name ?? '—'); ?></td>
-                                    <td><span class="status-pill s-<?php echo e($room->status); ?>" data-room-status><i
+                                    <?php
+                                        $lateBooking = $lateCheckoutBookingMap[$room->id] ?? null;
+                                        $catalogLateMinutes = $lateBooking?->lateCheckoutMinutes($now) ?? 0;
+                                        $catalogLateText = $catalogLateMinutes >= 60
+                                            ? intdiv($catalogLateMinutes, 60) . ' giờ ' . ($catalogLateMinutes % 60) . ' phút'
+                                            : $catalogLateMinutes . ' phút';
+                                    ?>
+                                    <td>
+                                        <?php if($lateBooking): ?>
+                                            <span class="status-pill s-late_checkout"><i class="rm-dot"></i><span>Trả muộn</span></span>
+                                            <div class="small mt-1" style="color:#7e22ce;font-weight:700">
+                                                <?php echo e($lateBooking->booking_code); ?> · quá <?php echo e($catalogLateText); ?>
+
+                                            </div>
+                                        <?php else: ?>
+                                            <span class="status-pill s-<?php echo e($room->status); ?>" data-room-status><i
                                                 class="rm-dot"></i><span data-room-status-label><?php echo e($physicalStatusLabels[$room->status] ?? $room->status); ?></span></span>
+                                        <?php endif; ?>
                                     </td>
                                     <td><?php echo e($room->note ?: '—'); ?></td>
                                     <td>

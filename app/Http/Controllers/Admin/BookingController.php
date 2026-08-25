@@ -27,6 +27,7 @@ use App\Services\PendingPaymentRequestService;
 use App\Services\BookingServicePricingService;
 use App\Services\BookingRepricingService;
 use App\Services\HotelPolicyService;
+use App\Services\ChatAssignmentService;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
 use App\Support\Realtime;
@@ -72,6 +73,29 @@ class BookingController extends Controller
 
         if ($request->filled('payment_status') && in_array($request->payment_status, ['unpaid', 'partial', 'paid'], true)) {
             $bookings->where('payment_status', $request->payment_status);
+        }
+
+        $hasDiscoveryFilter = $request->filled('keyword')
+            || $request->filled('status')
+            || $request->filled('payment_status')
+            || $request->filled('filter_date')
+            || $request->filled('date_from')
+            || $request->filled('date_to')
+            || $request->filled('time_from')
+            || $request->filled('time_to');
+
+        // Danh sách vận hành mặc định chỉ giữ các đơn còn việc. Đơn đã xong/hủy
+        // được ẩn để giao diện gọn; khi người dùng chủ động tìm/lọc hoặc bật lịch sử
+        // thì vẫn truy cập đầy đủ. Riêng đơn hủy còn khoản hoàn tiền phải xử lý vẫn
+        // giữ trên danh sách vận hành để không bị bỏ sót.
+        if (!$request->boolean('show_history') && !$hasDiscoveryFilter) {
+            $bookings->where(function ($query) {
+                $query->whereNotIn('status', ['checked_out', 'completed', 'cancelled', 'canceled'])
+                    ->orWhere(function ($refundQuery) {
+                        $refundQuery->whereIn('status', ['cancelled', 'canceled'])
+                            ->where('refund_status', 'pending');
+                    });
+            });
         }
 
         if ($request->filled('filter_date') || $request->filled('date_from')) {
@@ -148,6 +172,11 @@ class BookingController extends Controller
     {
         $this->guardCanAccessBooking($booking);
 
+        $viewer = Auth::user();
+        if ($viewer?->role === 'receptionist') {
+            app(ChatAssignmentService::class)->lockBookingForWork($booking, $viewer);
+        }
+
         $booking->load([
             'customer',
             'roomCategory',
@@ -211,7 +240,10 @@ class BookingController extends Controller
         $hasInspection = $booking->roomInspections->count() > 0;
 
         $allInspectionsConfirmed = $booking->roomInspections->count() > 0
-            && $booking->roomInspections->where('status', '!=', 'confirmed')->count() == 0;
+            && $booking->roomInspections->every(function ($inspection) {
+                return ($inspection->status ?? null) === 'confirmed'
+                    || ($inspection->workflow_stage ?? null) === \App\Models\RoomInspection::STAGE_COMPLETED;
+            });
 
         $approvedInspectionTotal = $booking->roomInspections
             ->flatMap->items
@@ -283,7 +315,11 @@ class BookingController extends Controller
             && $activeRoomIssueRoomIds->isEmpty();
 
         $availablePromotions = app(PromotionService::class)->availablePromotions([
+            'booking_id' => $booking->id,
             'customer_id' => $booking->customer_id,
+            'customer_email' => $booking->customer_email_snapshot ?: $booking->customer?->email,
+            'customer_phone' => $booking->customer_phone_snapshot ?: $booking->customer?->phone,
+            'customer_cccd' => $booking->customer_cccd_snapshot ?: $booking->customer?->cccd,
             'subtotal_amount' => $promotionSubtotal,
             'check_in_at' => $booking->check_in_at,
             'check_out_at' => $booking->check_out_at,

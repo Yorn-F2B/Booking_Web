@@ -218,7 +218,7 @@ class PromotionController extends Controller
         });
 
         return redirect()
-            ->route('admin.promotions.show', $promotion->id)
+            ->route('admin.promotions.index')
             ->with('success', 'Cập nhật mã ưu đãi thành công.');
     }
 

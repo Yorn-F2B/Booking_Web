@@ -8,6 +8,7 @@
             'available' => 'Trống',
             'reserved' => 'Đã đặt',
             'occupied' => 'Đang ở',
+            'late_checkout' => 'Trả muộn',
             'inspection' => 'Chờ kiểm tra',
             'cleaning' => 'Đang dọn',
             'maintenance' => 'Bảo trì',
@@ -249,6 +250,12 @@
             --status: #dc2626;
             --soft: #fee2e2;
             --border: #fca5a5
+        }
+
+        .s-late_checkout {
+            --status: #7e22ce;
+            --soft: #f3e8ff;
+            --border: #d8b4fe
         }
 
         .s-inspection {
@@ -590,6 +597,13 @@
             color: #64748b
         }
 
+        .rm-catalog-filter-grid {
+            display: grid;
+            grid-template-columns: minmax(180px, 260px) minmax(220px, 1fr) auto auto;
+            gap: 10px;
+            align-items: end;
+        }
+
         @media(max-width:1200px) {
             .rm-filter-grid {
                 grid-template-columns: repeat(3, 1fr)
@@ -601,6 +615,10 @@
         }
 
         @media(max-width:768px) {
+            .rm-catalog-filter-grid {
+                grid-template-columns: 1fr;
+            }
+
             .room-management {
                 padding: 14px
             }
@@ -738,8 +756,18 @@
                                                 href="{{ route('admin.rooms.show', $room) }}">Xem chi tiết</a>
                                         </td>
                                         @foreach($dates as $date)
-                                            @php $cell = $timeline[$room->id][$date->toDateString()];
-                                            $booking = $cell['booking']; @endphp
+                                            @php
+                                                $cell = $timeline[$room->id][$date->toDateString()];
+                                                $booking = $cell['booking'];
+                                                $timelineCheckInAt = $booking?->actual_check_in ?? $booking?->check_in_at;
+                                                $timelineCheckOutAt = $booking && in_array($booking->status, ['checked_out', 'completed'], true) && $booking->actual_check_out
+                                                    ? $booking->actual_check_out
+                                                    : (($booking && $booking->isLateCheckout($now)) ? $now : $booking?->check_out_at);
+                                                $timelineLateMinutes = $booking?->lateCheckoutMinutes($now) ?? 0;
+                                                $timelineLateText = $timelineLateMinutes >= 60
+                                                    ? intdiv($timelineLateMinutes, 60) . ' giờ ' . ($timelineLateMinutes % 60) . ' phút'
+                                                    : $timelineLateMinutes . ' phút';
+                                            @endphp
                                             <td class="rm-cell {{ $date->isSameDay($today) ? 'today' : '' }}">
                                                 @if($booking)
                                                     <a class="rm-booking s-{{ $cell['status'] }}"
@@ -747,10 +775,14 @@
                                                         title="Xem booking {{ $booking->booking_code }}">
                                                         <strong>{{ $booking->customer->name ?? 'Khách lẻ' }}</strong>
                                                         <small>{{ $booking->booking_code }}</small>
-                                                        <small>{{ $bookingLabels[$booking->status] ?? $booking->status }}</small>
-                                                        <small>{{ optional($booking->check_in_at)->format('H:i d/m') ?? $booking->check_in_date }}
+                                                        @if($cell['status'] === 'late_checkout')
+                                                            <small><strong>Trả muộn · quá {{ $timelineLateText }}</strong></small>
+                                                        @else
+                                                            <small>{{ $bookingLabels[$booking->status] ?? $booking->status }}</small>
+                                                        @endif
+                                                        <small>{{ optional($timelineCheckInAt)->format('H:i d/m') ?? $booking->check_in_date }}
                                                             →
-                                                            {{ optional($booking->check_out_at)->format('H:i d/m') ?? $booking->check_out_date }}</small>
+                                                            {{ optional($timelineCheckOutAt)->format('H:i d/m') ?? $booking->check_out_date }}</small>
                                                     </a>
                                                 @elseif($cell['status'] !== 'available')
                                                     <div class="rm-empty operational s-{{ $cell['status'] }}">
@@ -769,6 +801,29 @@
             </section>
 
             <section id="panel-catalog" class="rm-panel {{ $activeTab === 'catalog' ? 'active' : '' }}">
+                <form method="GET" action="{{ route('admin.rooms.index') }}" class="rm-card rm-filter mb-3">
+                    <input type="hidden" name="tab" value="catalog">
+                    <div class="rm-catalog-filter-grid">
+                        <div class="rm-field">
+                            <label>Lọc theo tầng</label>
+                            <select name="floor_number">
+                                <option value="">Tất cả tầng</option>
+                                @foreach($floors as $floor)
+                                    <option value="{{ $floor }}" @selected((string) request('floor_number') === (string) $floor)>Tầng {{ $floor }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="rm-field">
+                            <label>Tìm số phòng</label>
+                            <input name="room_number" value="{{ request('room_number') }}" placeholder="VD: 405">
+                        </div>
+                        <button class="rm-btn rm-btn-primary" type="submit"><i class="bx bx-filter-alt"></i> Lọc</button>
+                        @if(request()->filled('floor_number') || request()->filled('room_number'))
+                            <a class="rm-btn" href="{{ route('admin.rooms.index', ['tab' => 'catalog']) }}">Bỏ lọc</a>
+                        @endif
+                    </div>
+                </form>
+
                 <div class="catalog-toolbar">
                     <div><strong>Danh mục phòng</strong>
                     </div>@if($canEditCatalog)<button class="rm-btn rm-btn-primary" data-open-modal="roomCreateModal"><i
@@ -792,8 +847,23 @@
                                     <td><strong>{{ $room->room_number }}</strong></td>
                                     <td>{{ $room->floor_number ?? '—' }}</td>
                                     <td data-room-category>{{ $room->category->name ?? '—' }}</td>
-                                    <td><span class="status-pill s-{{ $room->status }}" data-room-status><i
+                                    @php
+                                        $lateBooking = $lateCheckoutBookingMap[$room->id] ?? null;
+                                        $catalogLateMinutes = $lateBooking?->lateCheckoutMinutes($now) ?? 0;
+                                        $catalogLateText = $catalogLateMinutes >= 60
+                                            ? intdiv($catalogLateMinutes, 60) . ' giờ ' . ($catalogLateMinutes % 60) . ' phút'
+                                            : $catalogLateMinutes . ' phút';
+                                    @endphp
+                                    <td>
+                                        @if($lateBooking)
+                                            <span class="status-pill s-late_checkout"><i class="rm-dot"></i><span>Trả muộn</span></span>
+                                            <div class="small mt-1" style="color:#7e22ce;font-weight:700">
+                                                {{ $lateBooking->booking_code }} · quá {{ $catalogLateText }}
+                                            </div>
+                                        @else
+                                            <span class="status-pill s-{{ $room->status }}" data-room-status><i
                                                 class="rm-dot"></i><span data-room-status-label>{{ $physicalStatusLabels[$room->status] ?? $room->status }}</span></span>
+                                        @endif
                                     </td>
                                     <td>{{ $room->note ?: '—' }}</td>
                                     <td>

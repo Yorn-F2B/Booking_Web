@@ -145,27 +145,6 @@
         </article>
     </section>
 
-    <section class="exec-card">
-        <div class="exec-card-head">
-            <div>
-                <h2>Điểm bất thường cần Super Admin kiểm tra</h2>
-                <p>Không phải danh sách công việc hằng ngày. Chỉ hiện khi một chỉ số vượt ngưỡng: công nợ sắp đến hạn, thanh toán treo/failed, phòng chậm sẵn sàng, sự cố tồn đọng hoặc khách chờ chat quá lâu.</p>
-            </div>
-            <span class="exec-pill">Snapshot hiện tại</span>
-        </div>
-        <div class="exec-alerts">
-            <?php $__currentLoopData = $operationAlerts; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $alert): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                <div class="exec-alert <?php echo e($alert['level']); ?>">
-                    <div class="title"><?php echo e($alert['title']); ?></div>
-                    <div class="value"><?php echo e($alert['value']); ?></div>
-                    <div class="detail"><?php echo e($alert['detail']); ?></div>
-                    <?php if(!empty($alert['url']) && !empty($alert['action'])): ?>
-                        <a class="exec-alert-action" href="<?php echo e($alert['url']); ?>"><?php echo e($alert['action']); ?> <i class="bx bx-right-arrow-alt"></i></a>
-                    <?php endif; ?>
-                </div>
-            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-        </div>
-    </section>
 </div>
     </div>
 </div>

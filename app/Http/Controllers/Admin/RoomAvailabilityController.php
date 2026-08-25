@@ -45,6 +45,7 @@ class RoomAvailabilityController extends Controller
             'cleaning_buffer_minutes' => $cleaningBufferMinutes,
             'quick_booking_type' => 'hourly',
             'quick_booking_mode' => 'walk_in',
+            'quick_booking_available' => true,
         ];
 
         $uiData = [
@@ -146,6 +147,8 @@ class RoomAvailabilityController extends Controller
             ->get();
 
         $quickBookingType = $this->guessQuickBookingType($checkInAt, $checkOutAt, $policies);
+        $quickBookingMode = $quickBookingType === 'overnight' ? 'advance' : 'walk_in';
+        $quickBookingAvailable = $quickBookingMode !== 'walk_in' || $checkInAt->isSameDay($now);
 
         $searchData = [
             'searched' => true,
@@ -157,7 +160,8 @@ class RoomAvailabilityController extends Controller
             'check_out_at' => $checkOutAt,
             'cleaning_buffer_minutes' => $cleaningBufferMinutes,
             'quick_booking_type' => $quickBookingType,
-            'quick_booking_mode' => $quickBookingType === 'overnight' ? 'advance' : 'walk_in',
+            'quick_booking_mode' => $quickBookingMode,
+            'quick_booking_available' => $quickBookingAvailable,
         ];
 
         return view('admin.pages.room-availability.index', compact('roomCategories', 'searchData', 'uiData'));

@@ -71,14 +71,8 @@ class ExpireUnpaidBookings extends Command
                     }
 
                     if ($allAssignedRoomsStillUsable) {
-                        Room::query()
-                            ->whereIn('id', $roomIds->all())
-                            ->whereNotIn('status', ['maintenance'])
-                            ->update([
-                                'status' => 'reserved',
-                                'status_from' => now('Asia/Ho_Chi_Minh'),
-                                'status_until' => null,
-                            ]);
+                        // Đủ cọc chỉ xác nhận booking/lịch giữ phòng. Không đổi room.status
+                        // trước check-in vì phòng có thể đang phục vụ nghiệp vụ hiện tại.
 
                         $booking->update([
                             'status' => 'confirmed',
@@ -119,36 +113,8 @@ class ExpireUnpaidBookings extends Command
                     'payment_expires_at' => null,
                 ]);
 
-                // Booking tạo tại quầy có thể đã đặt room.status = reserved trong
-                // thời gian chờ VNPay. Khi link hết hạn phải mở phòng lại, nhưng
-                // không được mở nếu phòng còn một booking active khác.
-                foreach ($booking->bookingRooms as $bookingRoom) {
-                    $room = $bookingRoom->room;
-                    if (!$room || !in_array($room->status, ['reserved', 'occupied'], true)) {
-                        continue;
-                    }
-
-                    $hasOtherActiveBooking = DB::table('booking_rooms')
-                        ->join('bookings', 'bookings.id', '=', 'booking_rooms.booking_id')
-                        ->where('booking_rooms.room_id', $room->id)
-                        ->where('bookings.id', '!=', $booking->id)
-                        ->whereNull('bookings.deleted_at')
-                        ->where(function ($query) {
-                            $query->whereIn('bookings.status', ['confirmed', 'checked_in', 'inspection_requested'])
-                                ->orWhere(function ($pending) {
-                                    $pending->where('bookings.status', 'pending')
-                                        ->whereNotNull('bookings.payment_expires_at')
-                                        ->where('bookings.payment_expires_at', '>', now('Asia/Ho_Chi_Minh'));
-                                });
-                        })
-                        ->exists();
-
-                    $room->update([
-                        'status' => $hasOtherActiveBooking ? 'reserved' : 'available',
-                        'status_from' => $hasOtherActiveBooking ? now('Asia/Ho_Chi_Minh') : null,
-                        'status_until' => null,
-                    ]);
-                }
+                // Hủy booking chưa check-in chỉ giải phóng lịch trong booking_rooms bằng
+                // trạng thái booking; không thay đổi room.status vận hành hiện tại.
 
                 $paid = $financials->paidTotal($booking);
                 $requiredDeposit = $financials->requiredDeposit($booking);
@@ -158,7 +124,7 @@ class ExpireUnpaidBookings extends Command
                     'action' => 'payment_hold_expired',
                     'description' => 'Booking tự hủy vì hết thời hạn giữ cọc và tổng đã thanh toán '
                         . number_format($paid, 0, ',', '.') . 'đ chưa đạt mức cọc '
-                        . number_format($requiredDeposit, 0, ',', '.') . 'đ. Phòng đã được đồng bộ lại trạng thái.',
+                        . number_format($requiredDeposit, 0, ',', '.') . 'đ. Lịch giữ phòng đã được giải phóng.',
                 ]);
                 $cancelledCount++;
             });

@@ -162,21 +162,23 @@
                                         </span>
                                     </label>
 
-                                    <label class="option-row">
-                                        <input
-                                            class="form-check-input"
-                                            type="radio"
-                                            name="items[{{ $issue->id }}][choice]"
-                                            value="repair_only"
-                                            @checked($selectedChoice === 'repair_only')
-                                            required
-                                        >
-                                        <span class="fw-bold d-block">Giữ nguyên phòng và sửa gấp</span>
-                                        <span class="small text-muted">
-                                            Khách tiếp tục ở phòng hiện tại; buồng phòng nhận việc khẩn riêng cho phòng này.
-                                        </span>
-                                    </label>
-                                @else
+                                    @if ($issue->housekeeping_can_repair_in_room)
+                                        <label class="option-row">
+                                            <input
+                                                class="form-check-input"
+                                                type="radio"
+                                                name="items[{{ $issue->id }}][choice]"
+                                                value="repair_only"
+                                                @checked($selectedChoice === 'repair_only')
+                                                required
+                                            >
+                                            <span class="fw-bold d-block">Giữ nguyên phòng và sửa gấp</span>
+                                            <span class="small text-muted">
+                                                Chỉ áp dụng vì buồng phòng đã xác nhận có thể sửa ngay tại phòng.
+                                            </span>
+                                        </label>
+                                    @endif
+                                @elseif ($issue->housekeeping_can_repair_in_room)
                                     <label class="option-row">
                                         <input
                                             class="form-check-input"
@@ -187,9 +189,12 @@
                                             required
                                         >
                                         <span class="fw-bold d-block">Giữ nguyên phòng và sửa gấp</span>
-                                        <span class="small text-muted">
-                                        </span>
+                                        <span class="small text-muted">Buồng phòng xác nhận có thể xử lý ngay tại phòng.</span>
                                     </label>
+                                @else
+                                    <div class="alert alert-danger mb-0">
+                                        Sự cố đã được xác nhận nhưng không thể sửa ngay tại phòng. Hiện chưa có phòng thay thế hợp lệ; hãy quay lại màn quản lý để lập lại phương án.
+                                    </div>
                                 @endif
                             @elseif ($issue->guest_selected_resolution_type)
                                 <div class="choice-summary">
@@ -243,9 +248,11 @@
                                 Ghi nhận các lựa chọn của khách
                             </button>
 
-                            <div class="small text-muted mt-2">
-                                hoặc giữ nguyên phòng để sửa gấp.
-                            </div>
+                            @if ($issues->contains(fn ($issue) => $issue->housekeeping_can_repair_in_room))
+                                <div class="small text-muted mt-2">
+                                    Chỉ các phòng được buồng phòng xác nhận có thể sửa tại chỗ mới có lựa chọn giữ nguyên phòng.
+                                </div>
+                            @endif
                         </div>
                     @elseif ($leader->workflow_status === 'guest_accepted')
                         <div class="settings-section">

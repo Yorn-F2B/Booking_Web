@@ -16,9 +16,120 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use App\Support\HousekeepingWorkScope;
+use App\Support\Realtime;
 
 class RoomIssueRequestController extends Controller
 {
+    public function verifications(Request $request)
+    {
+        $this->guardHousekeeping();
+
+        $status = (string) $request->query('status', 'waiting');
+        if (!in_array($status, ['waiting', 'verified', 'all'], true)) {
+            $status = 'waiting';
+        }
+
+        $query = RoomIssueRequest::query()->with([
+            'booking.customer', 'currentRoom.category', 'attachments', 'housekeepingVerifier',
+        ]);
+
+        if ($status === 'waiting') {
+            $query->where('status', 'pending')->where('workflow_status', 'awaiting_housekeeping');
+        } elseif ($status === 'verified') {
+            $query->whereNotNull('housekeeping_verified_at');
+        } else {
+            $query->where(function ($q) {
+                $q->where('workflow_status', 'awaiting_housekeeping')
+                    ->orWhereNotNull('housekeeping_verified_at');
+            });
+        }
+
+        $this->applyHousekeepingIssueScope($query);
+
+        $issues = $query
+            ->orderByRaw("CASE WHEN workflow_status = 'awaiting_housekeeping' THEN 0 ELSE 1 END")
+            ->latest('id')
+            ->paginate(15)
+            ->withQueryString();
+
+        return view('admin.pages.room-issue-verifications.index', compact('issues', 'status'));
+    }
+
+    public function verificationShow(RoomIssueRequest $roomIssueRequest)
+    {
+        $this->guardHousekeeping();
+        $roomIssueRequest->load([
+            'booking.customer', 'currentRoom.category', 'attachments', 'housekeepingVerifier',
+        ]);
+        $this->guardCanHandleIssue($roomIssueRequest);
+
+        abort_unless(
+            $roomIssueRequest->workflow_status === 'awaiting_housekeeping'
+                || $roomIssueRequest->housekeeping_verified_at,
+            404
+        );
+
+        return view('admin.pages.room-issue-verifications.show', compact('roomIssueRequest'));
+    }
+
+    public function verify(Request $request, RoomIssueRequest $roomIssueRequest)
+    {
+        $this->guardHousekeepingVerifier();
+        $roomIssueRequest->loadMissing(['booking', 'currentRoom']);
+        $this->guardCanHandleIssue($roomIssueRequest);
+
+        $data = $request->validate([
+            'verdict' => ['required', 'in:confirmed,not_found'],
+            'can_repair_in_room' => ['nullable', 'boolean'],
+            'housekeeping_note' => ['required', 'string', 'min:5', 'max:2000'],
+        ], [
+            'verdict.required' => 'Vui lòng chọn kết quả kiểm tra.',
+            'housekeeping_note.required' => 'Vui lòng ghi kết quả kiểm tra thực tế.',
+            'housekeeping_note.min' => 'Kết quả kiểm tra cần có ít nhất 5 ký tự.',
+        ]);
+
+        try {
+            DB::transaction(function () use ($roomIssueRequest, $data) {
+                $issue = RoomIssueRequest::whereKey($roomIssueRequest->id)->lockForUpdate()->firstOrFail();
+                $issue->load(['booking', 'currentRoom']);
+                $this->guardCanHandleIssue($issue);
+
+                if ($issue->status !== 'pending' || $issue->workflow_status !== 'awaiting_housekeeping') {
+                    throw new \RuntimeException('Phiếu này đã được kiểm tra hoặc đã chuyển sang bước khác.');
+                }
+
+                $verified = $data['verdict'] === 'confirmed';
+                $issue->update([
+                    'housekeeping_verdict' => $data['verdict'],
+                    'housekeeping_can_repair_in_room' => $verified && !empty($data['can_repair_in_room']),
+                    'housekeeping_note' => trim($data['housekeeping_note']),
+                    'housekeeping_verified_by' => Auth::id(),
+                    'housekeeping_verified_at' => now('Asia/Ho_Chi_Minh'),
+                    'workflow_status' => $verified ? 'housekeeping_verified' : 'housekeeping_not_found',
+                ]);
+
+                if ($issue->booking) {
+                    BookingLog::create([
+                        'booking_id' => $issue->booking_id,
+                        'user_id' => Auth::id(),
+                        'action' => $verified ? 'room_issue_housekeeping_confirmed' : 'room_issue_housekeeping_not_found',
+                        'description' => 'Buồng phòng kiểm tra phòng ' . ($issue->currentRoom?->room_number ?? $issue->current_room_id)
+                            . ': ' . ($verified ? 'xác nhận có sự cố' : 'không phát hiện sự cố')
+                            . ($verified && !empty($data['can_repair_in_room']) ? ', có thể sửa tại phòng' : '')
+                            . '. Kết quả: ' . trim($data['housekeeping_note']),
+                    ]);
+                }
+            });
+        } catch (\Throwable $e) {
+            return back()->withInput()->with('error', 'Không thể lưu kết quả kiểm tra: ' . $e->getMessage());
+        }
+
+        Realtime::booking($roomIssueRequest->booking_id, 'room_issue_housekeeping_verified', false);
+
+        return redirect()->route('admin.room-issue-verifications.index')
+            ->with('success', 'Đã ghi nhận kết quả kiểm tra và chuyển thông tin cho quản lý.');
+    }
+
     public function index(Request $request)
     {
         $this->guardManager();
@@ -31,11 +142,15 @@ class RoomIssueRequestController extends Controller
 
         $representativeIds = RoomIssueRequest::query()
             ->selectRaw('MIN(id)')
+            ->when(in_array($status, ['pending', 'waiting_guest'], true), fn ($q) => $q->where('status', 'pending'))
             ->groupBy('group_uuid');
 
         $query = RoomIssueRequest::query()
             ->whereIn('id', $representativeIds)
-            ->with(['booking.customer', 'currentRoom.category', 'approvedRoom.category', 'reviewer']);
+            ->with([
+                'booking.customer', 'currentRoom.category', 'approvedRoom.category', 'reviewer',
+                'housekeepingVerifier',
+            ]);
 
         if ($status !== 'all') {
             if ($status === 'pending') {
@@ -195,6 +310,17 @@ class RoomIssueRequestController extends Controller
     private function guardManager(): void
     {
         abort_unless(in_array(Auth::user()?->role, ['super_admin', 'manager'], true), 403, 'Chỉ quản lý được duyệt sự cố phòng.');
+    }
+
+
+    /**
+     * Bước xác minh sự cố bắt buộc thuộc bộ phận buồng phòng.
+     * Quản lý/Super Admin có thể xem kết quả để điều phối nhưng không được
+     * tự thay buồng phòng kết luận, tránh bỏ qua bước kiểm tra thực tế.
+     */
+    private function guardHousekeepingVerifier(): void
+    {
+        abort_unless(in_array(Auth::user()?->role, ['housekeeping_supervisor', 'housekeeping'], true), 403);
     }
 
     private function guardHousekeeping(): void

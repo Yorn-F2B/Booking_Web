@@ -1,7 +1,7 @@
 <?php if($services->isEmpty()): ?>
     <div class="text-muted">Chưa có danh mục phù hợp.</div>
 <?php else: ?>
-    <?php if (! $__env->hasRenderedOnce('02b0397c-0ad9-4baa-a7d1-62206947f57f')): $__env->markAsRenderedOnce('02b0397c-0ad9-4baa-a7d1-62206947f57f'); ?>
+    <?php if (! $__env->hasRenderedOnce('240486e4-a051-4f24-a3eb-66a96793c80e')): $__env->markAsRenderedOnce('240486e4-a051-4f24-a3eb-66a96793c80e'); ?>
         <style>
             .inspection-quantity-control {
                 display: inline-grid;

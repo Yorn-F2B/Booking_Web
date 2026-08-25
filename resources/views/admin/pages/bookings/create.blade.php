@@ -10,6 +10,7 @@
     $minBookingAge = max(0, (int) $policyService->get('booking.min_age', 18));
     $depositPercent = max(0, min(100, (float) $policyService->get('payment.deposit_percent', 30)));
     $depositRate = $depositPercent / 100;
+    $manualRoomSelectionFee = max(0, (float) $policyService->get('booking.manual_room_selection_fee', 50000));
     $policyUi = [
         'standardCheckIn' => (string) $policyService->get('stay.standard_check_in_time', '14:00'),
         'standardCheckOut' => (string) $policyService->get('stay.standard_check_out_time', '12:00'),
@@ -54,9 +55,82 @@
             margin-bottom: 16px;
         }
 
+        .booking-action-card {
+            position: sticky;
+            top: 84px;
+            z-index: 4;
+            border-color: #d8dee8;
+            box-shadow: 0 10px 28px rgba(15, 23, 42, .08);
+        }
+
+        .booking-action-card h5 {
+            margin-bottom: 6px;
+        }
+
+        .booking-options-details {
+            border: 0;
+        }
+
+        .booking-options-details > summary {
+            list-style: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .booking-options-details > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .booking-options-details > summary::after {
+            content: 'Mở';
+            flex: 0 0 auto;
+            font-size: 12px;
+            font-weight: 700;
+            color: #475569;
+            border: 1px solid #dbe3ee;
+            border-radius: 999px;
+            padding: 4px 9px;
+            background: #f8fafc;
+        }
+
+        .booking-options-details[open] > summary::after {
+            content: 'Thu gọn';
+        }
+
+        .booking-options-body {
+            max-height: min(54vh, 560px);
+            overflow-y: auto;
+            margin-top: 14px;
+            padding-right: 5px;
+        }
+
+        .booking-options-body .service-row {
+            background: #fff;
+        }
+
+        @media (max-width: 991px) {
+            .booking-action-card {
+                position: static;
+            }
+
+            .booking-options-body {
+                max-height: none;
+                overflow: visible;
+            }
+        }
+
         .booking-help-text {
             font-size: 13px;
             color: #64748b;
+        }
+
+        .booking-help-text:empty {
+            display: none;
         }
 
         .booking-payment-confirm {
@@ -316,8 +390,9 @@
                                             <input type="file" id="adminCreateCccdImage" class="d-none js-cccd-image" accept="image/*"
                                                 data-button="#adminCreateCccdButton" data-status="#adminCreateCccdStatus"
                                                 data-target-cccd="input[name='customer_cccd']" data-target-full-name="input[name='customer_name']"
-                                                data-target-birthday="input[name='customer_birthday']" data-target-address="input[name='customer_address']"
-                                                data-required-fields="cccd,full_name,birthday,address">
+                                                data-target-birthday="input[name='customer_birthday']" data-target-gender="select[name='customer_gender']"
+                                                data-target-address="input[name='customer_address']"
+                                                data-required-fields="cccd,full_name,birthday,gender,address">
                                             <small id="adminCreateCccdStatus" class="text-muted">Quét mặt trước CCCD để điền nhanh thông tin khách.</small>
                                         </div>
                                     </div>
@@ -393,11 +468,11 @@
                                             class="text-danger">*</span></label>
 
                                     <select name="booking_mode" id="bookingMode" class="form-select" required>
-                                        <option value="advance" {{ old('booking_mode', 'advance') == 'advance' ? 'selected' : '' }}>
+                                        <option value="advance" {{ old('booking_mode', $bookingPrefill['booking_mode'] ?? 'advance') == 'advance' ? 'selected' : '' }}>
                                             Đặt trước
                                         </option>
 
-                                        <option value="walk_in" {{ old('booking_mode') == 'walk_in' ? 'selected' : '' }}>
+                                        <option value="walk_in" {{ old('booking_mode', $bookingPrefill['booking_mode'] ?? 'advance') == 'walk_in' ? 'selected' : '' }}>
                                             Ở ngay
                                         </option>
                                     </select>
@@ -410,11 +485,11 @@
                                 <div class="col-md-6">
                                     <label class="form-label">Loại lưu trú <span class="text-danger">*</span></label>
                                     <select name="booking_type" id="bookingType" class="form-select" required>
-                                        <option value="overnight" {{ old('booking_type', 'overnight') == 'overnight' ? 'selected' : '' }}>
+                                        <option value="overnight" {{ old('booking_type', $bookingPrefill['booking_type'] ?? 'overnight') == 'overnight' ? 'selected' : '' }}>
                                             Qua đêm
                                         </option>
 
-                                        <option value="hourly" {{ old('booking_type') == 'hourly' ? 'selected' : '' }}>
+                                        <option value="hourly" {{ old('booking_type', $bookingPrefill['booking_type'] ?? 'overnight') == 'hourly' ? 'selected' : '' }}>
                                             Theo giờ
                                         </option>
                                     </select>
@@ -434,7 +509,7 @@
 
                                         @foreach ($roomCategories as $roomCategory)
                                             <option value="{{ $roomCategory->id }}" data-price="{{ $roomCategory->price }}" data-name="{{ $roomCategory->name }}"
-                                                @selected(old('room_category_id') == $roomCategory->id)>
+                                                @selected(old('room_category_id', $bookingPrefill['room_category_id'] ?? null) == $roomCategory->id)>
                                                 {{ $roomCategory->name }}
                                                 -
                                                 {{ number_format($roomCategory->price, 0, ',', '.') }}đ/đêm
@@ -455,7 +530,7 @@
                                     <label class="form-label">Ngày nhận <span class="text-danger">*</span></label>
                                     <input type="date" name="check_in_date" id="checkInDate"
                                         class="form-control @error('check_in_date') is-invalid @enderror"
-                                        value="{{ old('check_in_date') }}" required>
+                                        value="{{ old('check_in_date', $bookingPrefill['check_in_date'] ?? null) }}" required>
 
                                     @error('check_in_date')
                                         <div class="invalid-feedback">{{ $message }}</div>
@@ -466,7 +541,7 @@
                                     <label class="form-label">Giờ vào</label>
                                     <input type="text" name="check_in_time" id="checkInTime"
                                         class="form-control @error('check_in_time') is-invalid @enderror"
-                                        value="{{ old('check_in_time', now('Asia/Ho_Chi_Minh')->format('H:i')) }}"
+                                        value="{{ old('check_in_time', $bookingPrefill['check_in_time'] ?? now('Asia/Ho_Chi_Minh')->format('H:i')) }}"
                                         placeholder="Ví dụ: 13:30">
 
                                     @error('check_in_time')
@@ -478,7 +553,7 @@
                                     <label class="form-label">Ngày trả <span class="text-danger">*</span></label>
                                     <input type="date" name="check_out_date" id="checkOutDate"
                                         class="form-control @error('check_out_date') is-invalid @enderror"
-                                        value="{{ old('check_out_date') }}" required>
+                                        value="{{ old('check_out_date', $bookingPrefill['check_out_date'] ?? null) }}" required>
 
                                     @error('check_out_date')
                                         <div class="invalid-feedback">{{ $message }}</div>
@@ -488,12 +563,12 @@
                                 <div class="col-md-3 d-none" id="overnightCheckOutTimeBox">
                                     <label class="form-label">Giờ trả (tùy chọn)</label>
                                     <select name="check_out_time" id="overnightCheckOutTime"
-                                        class="form-select @error('check_out_time') is-invalid @enderror">
+                                        class="form-select @error('check_out_time') is-invalid @enderror" disabled>
                                         <option value="">-- Mặc định {{ $policyUi['standardCheckOut'] }} --</option>
-                                        <option value="{{ $policyUi['lateTier1End'] }}" @selected(old('check_out_time') == $policyUi['lateTier1End'])>{{ $policyUi['lateTier1End'] }} (Phụ thu {{ $policyUi['latePercent1'] }}%)</option>
-                                        <option value="{{ $policyUi['lateTier2End'] }}" @selected(old('check_out_time') == $policyUi['lateTier2End'])>{{ $policyUi['lateTier2End'] }} (Phụ thu {{ $policyUi['latePercent2'] }}%)</option>
-                                        <option value="{{ $policyUi['lateTier3End'] }}" @selected(old('check_out_time') == $policyUi['lateTier3End'])>{{ $policyUi['lateTier3End'] }} (Phụ thu {{ $policyUi['latePercent3'] }}%)</option>
-                                        <option value="{{ $policyUi['lateFullFrom'] }}" @selected(old('check_out_time') == $policyUi['lateFullFrom'])>{{ $policyUi['lateFullFrom'] }} (Phụ thu {{ $policyUi['latePercentFull'] }}%)</option>
+                                        <option value="{{ $policyUi['lateTier1End'] }}" @selected(old('check_out_time', $bookingPrefill['check_out_time'] ?? null) == $policyUi['lateTier1End'])>{{ $policyUi['lateTier1End'] }} (Phụ thu {{ $policyUi['latePercent1'] }}%)</option>
+                                        <option value="{{ $policyUi['lateTier2End'] }}" @selected(old('check_out_time', $bookingPrefill['check_out_time'] ?? null) == $policyUi['lateTier2End'])>{{ $policyUi['lateTier2End'] }} (Phụ thu {{ $policyUi['latePercent2'] }}%)</option>
+                                        <option value="{{ $policyUi['lateTier3End'] }}" @selected(old('check_out_time', $bookingPrefill['check_out_time'] ?? null) == $policyUi['lateTier3End'])>{{ $policyUi['lateTier3End'] }} (Phụ thu {{ $policyUi['latePercent3'] }}%)</option>
+                                        <option value="{{ $policyUi['lateFullFrom'] }}" @selected(old('check_out_time', $bookingPrefill['check_out_time'] ?? null) == $policyUi['lateFullFrom'])>{{ $policyUi['lateFullFrom'] }} (Phụ thu {{ $policyUi['latePercentFull'] }}%)</option>
                                     </select>
 
                                     @error('check_out_time')
@@ -509,7 +584,8 @@
 
                                     <input type="text" name="check_out_time" id="hourlyCheckOutTime"
                                         class="form-control @error('check_out_time') is-invalid @enderror"
-                                        value="{{ old('check_out_time') }}" placeholder="Ví dụ: 16:30">
+                                        value="{{ old('check_out_time', $bookingPrefill['check_out_time'] ?? null) }}" placeholder="Ví dụ: 16:30"
+                                        @disabled(old('booking_type', $bookingPrefill['booking_type'] ?? 'overnight') !== 'hourly')>
 
                                     @error('check_out_time')
                                         <div class="invalid-feedback d-block">{{ $message }}</div>
@@ -526,8 +602,6 @@
                                         <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-2">
                                             <div>
                                                 <strong>Dự kiến thuê theo giờ</strong>
-                                                <div class="booking-help-text">
-                                                </div>
                                             </div>
                                             <span class="badge bg-primary" id="hourlyPreviewBadge">Đang tính</span>
                                         </div>
@@ -563,10 +637,7 @@
                                             </div>
                                         </div>
 
-                                        <div class="booking-help-text mt-2" id="hourlyPreviewMessage">
-                                            Chọn ngày, giờ vào và giờ ra để hệ thống tính tiền, thời gian dọn phòng và cảnh
-                                            báo tồn kho.
-                                        </div>
+                                        <div class="booking-help-text mt-2" id="hourlyPreviewMessage"></div>
                                     </div>
                                 </div>
 
@@ -582,10 +653,6 @@
                                             </label>
                                         </div>
 
-                                        <div class="mt-1">
-                                            Trường hợp cố nhận khách khi chỉ còn 1–2 phòng, rủi ro mất cơ hội bán phòng qua
-                                            đêm thuộc quyết định vận hành của khách sạn.
-                                        </div>
                                     </div>
                                 </div>
 
@@ -595,8 +662,6 @@
                                         <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-2">
                                             <div>
                                                 <strong>Dự kiến ở ngay qua đêm</strong>
-                                                <div class="booking-help-text">
-                                                </div>
                                             </div>
                                             <span class="badge bg-success" id="walkInOvernightPolicyBadge">Đang tính</span>
                                         </div>
@@ -628,9 +693,7 @@
                                             </div>
                                         </div>
 
-                                        <div class="booking-help-text mt-2" id="walkInPolicyMessage">
-                                            Chọn ngày nhận, giờ vào và hạng phòng để xem cách tính giá.
-                                        </div>
+                                        <div class="booking-help-text mt-2" id="walkInPolicyMessage"></div>
                                     </div>
                                 </div>
 
@@ -680,8 +743,42 @@
                                         </label>
                                     </div>
 
-                                    <div class="booking-help-text">
-                                        Chỉ áp dụng khi đặt từ 2 phòng trở lên. Nếu không đủ toàn bộ phòng liền kề,
+                                </div>
+
+                                <div class="col-12">
+                                    <div class="border rounded-3 p-3 bg-light-subtle">
+                                        <div class="fw-semibold mb-2">Cách phân phòng</div>
+
+                                        <div class="d-flex flex-wrap gap-3">
+                                            <label class="form-check mb-0">
+                                                <input class="form-check-input" type="radio" name="room_selection_mode" value="automatic"
+                                                    @checked(old('room_selection_mode', 'automatic') === 'automatic')>
+                                                <span class="form-check-label">Hệ thống tự chọn phòng</span>
+                                            </label>
+                                            <label class="form-check mb-0">
+                                                <input class="form-check-input" type="radio" name="room_selection_mode" value="manual"
+                                                    @checked(old('room_selection_mode') === 'manual')>
+                                                <span class="form-check-label">Theo yêu cầu của khách</span>
+                                            </label>
+                                        </div>
+
+                                        <div id="manualRoomSelectionBox" class="mt-3 {{ old('room_selection_mode') === 'manual' ? '' : 'd-none' }}">
+                                            <label for="roomSelectionRequest" class="form-label">Yêu cầu phòng</label>
+                                            <textarea id="roomSelectionRequest" name="room_selection_request" rows="3"
+                                                class="form-control @error('room_selection_request') is-invalid @enderror"
+                                                placeholder="Ví dụ: khách muốn tầng cao, yên tĩnh, xa thang máy; nếu còn thì ưu tiên phòng 605...">{{ old('room_selection_request') }}</textarea>
+                                            @error('room_selection_request')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                            <div class="booking-help-text mt-1">Phí đảm bảo yêu cầu: {{ number_format($manualRoomSelectionFee, 0, ',', '.') }}đ/phòng khi đáp ứng.</div>
+
+                                            <div class="mt-3">
+                                                <label for="manualRoomIds" class="form-label">Chọn phòng ngay (không bắt buộc)</label>
+                                                <select id="manualRoomIds" name="manual_room_ids[]" class="form-select" multiple size="5"
+                                                    data-old-values='@json(array_map("intval", (array) old("manual_room_ids", [])))'>
+                                                    <option value="" disabled>Chọn hạng phòng và thời gian để tải danh sách phòng trống...</option>
+                                                </select>
+                                                <div class="booking-help-text mt-1" id="manualRoomHelp">Nếu chọn ngay, chọn đúng số phòng của booking; để trống thì xử lý sau.</div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -796,53 +893,76 @@
 
                     <div class="col-lg-4">
 
-                        <div class="booking-form-card">
-
-                            <h5>Dịch vụ đặt trước</h5>
-
-                            <p class="booking-help-text">
-                                Lễ tân có thể thêm dịch vụ khách yêu cầu ngay khi tạo booking.
+                        <div class="booking-form-card booking-action-card">
+                            <h5>Hoàn tất booking</h5>
+                            <p class="booking-help-text mb-3">
+                                Kiểm tra tổng tiền và thông tin chính ở cột bên trái trước khi tạo đơn.
                             </p>
 
-                            @foreach ($services as $index => $service)
-                                <div class="border rounded p-2 mb-2 service-row" data-price="{{ $service->price }}"
-                                    data-billing-rule="{{ $service->billing_rule ?: \App\Models\Service::BILLING_ONCE }}">
+                            <button type="submit" class="btn btn-gold w-100">
+                                Tạo booking
+                            </button>
 
-                                    <div class="form-check mb-2">
-                                        <input type="checkbox" name="services[{{ $index }}][service_id]"
-                                            value="{{ $service->id }}" class="form-check-input service-check"
-                                            id="service{{ $service->id }}">
+                            <a href="{{ route('admin.bookings.index') }}" class="btn btn-outline-secondary w-100 mt-2">
+                                Hủy
+                            </a>
+                        </div>
 
-                                        <label for="service{{ $service->id }}" class="form-check-label">
-                                            <strong>{{ $service->name }}</strong>
-                                            -
-                                            {{ number_format($service->price, 0, ',', '.') }}đ / {{ $service->unit }}
-                                            <span
-                                                class="badge bg-{{ ($service->service_group ?? '') == 'vehicle' ? 'dark' : (($service->type == 'minibar_order') ? 'warning text-dark' : 'primary') }}">
-                                                {{ $service->type === 'minibar_order' ? 'Minibar gọi thêm' : ($service->group_label ?? 'Dịch vụ') }}
-                                            </span>
-                                        </label>
-                                    </div>
+                        <div class="booking-form-card">
 
-                                    <div class="row g-2">
-                                        <div class="col-4">
-                                            <input type="number" name="services[{{ $index }}][quantity]"
-                                                class="form-control form-control-sm service-quantity" value="1" min="1">
+                            <details class="booking-options-details" {{ old('services') ? 'open' : '' }}>
+                                <summary>
+                                    <span>
+                                        Dịch vụ đặt trước
+                                        <span class="d-block booking-help-text fw-normal mt-1">Chỉ mở khi khách có nhu cầu thêm dịch vụ.</span>
+                                    </span>
+                                </summary>
+
+                                <div class="booking-options-body">
+                                    @foreach ($services as $index => $service)
+                                        <div class="border rounded p-2 mb-2 service-row" data-price="{{ $service->price }}"
+                                            data-billing-rule="{{ $service->billing_rule ?: \App\Models\Service::BILLING_ONCE }}">
+
+                                            <div class="form-check mb-2">
+                                                <input type="checkbox" name="services[{{ $index }}][service_id]"
+                                                    value="{{ $service->id }}" class="form-check-input service-check"
+                                                    id="service{{ $service->id }}"
+                                                    @checked((int) old("services.$index.service_id", 0) === (int) $service->id)>
+
+                                                <label for="service{{ $service->id }}" class="form-check-label">
+                                                    <strong>{{ $service->name }}</strong>
+                                                    -
+                                                    {{ number_format($service->price, 0, ',', '.') }}đ / {{ $service->unit }}
+                                                    <span
+                                                        class="badge bg-{{ ($service->service_group ?? '') == 'vehicle' ? 'dark' : (($service->type == 'minibar_order') ? 'warning text-dark' : 'primary') }}">
+                                                        {{ $service->type === 'minibar_order' ? 'Minibar gọi thêm' : ($service->group_label ?? 'Dịch vụ') }}
+                                                    </span>
+                                                </label>
+                                            </div>
+
+                                            <div class="row g-2">
+                                                <div class="col-4">
+                                                    <input type="number" name="services[{{ $index }}][quantity]"
+                                                        class="form-control form-control-sm service-quantity"
+                                                        value="{{ old("services.$index.quantity", 1) }}" min="1">
+                                                </div>
+
+                                                <div class="col-8">
+                                                    <input type="text" name="services[{{ $index }}][note]"
+                                                        class="form-control form-control-sm" placeholder="Ghi chú nếu có"
+                                                        value="{{ old("services.$index.note") }}">
+                                                </div>
+                                            </div>
+
                                         </div>
-
-                                        <div class="col-8">
-                                            <input type="text" name="services[{{ $index }}][note]"
-                                                class="form-control form-control-sm" placeholder="Ghi chú nếu có">
-                                        </div>
-                                    </div>
-
+                                    @endforeach
                                 </div>
-                            @endforeach
 
-                            <div class="booking-total-box mt-3">
-                                <div class="booking-help-text">Tổng dịch vụ đặt trước</div>
-                                <strong id="serviceTotalText">0đ</strong>
-                            </div>
+                                <div class="booking-total-box mt-3">
+                                    <div class="booking-help-text">Tổng dịch vụ đặt trước</div>
+                                    <strong id="serviceTotalText">0đ</strong>
+                                </div>
+                            </details>
 
                         </div>
 
@@ -894,7 +1014,7 @@
                                 <details class="promotion-collapsible" {{ !empty(old('promotion_codes', [])) ? 'open' : '' }}>
                                     <summary>
                                         <span>
-                                            Có <span id="eligiblePromotionCount">{{ ($availablePromotions ?? collect())->count() }}</span> mã có thể áp dụng
+                                            Có <span id="eligiblePromotionCount">0</span> mã hiện đủ điều kiện
                                             <span class="promotion-selected-hint" id="adminSelectedPromotionCountText">
                                                 Chưa chọn mã nào
                                             </span>
@@ -961,7 +1081,7 @@
                                                                 );
                                                             @endphp
 
-                                                            <label class="promotion-card mb-0" data-promotion-card data-promotion-code="{{ $promotion->code }}">
+                                                            <label class="promotion-card mb-0 d-none" data-promotion-card data-promotion-code="{{ $promotion->code }}">
                                                                 <div class="form-check">
                                                                     <input type="checkbox"
                                                                         name="promotion_codes[]"
@@ -1059,18 +1179,6 @@
                             @endif
 
                         </div>
-                        <div class="booking-form-card">
-
-                            <button type="submit" class="btn btn-gold w-100">
-                                Tạo booking
-                            </button>
-
-                            <a href="{{ route('admin.bookings.index') }}" class="btn btn-outline-secondary w-100 mt-2">
-                                Hủy
-                            </a>
-
-                        </div>
-
                     </div>
 
                 </div>
@@ -1239,9 +1347,180 @@
             const cleaningBufferMinutes = 0;
             const hourlyInventoryCheckUrl = "{{ route('admin.bookings.hourly-inventory-check') }}";
             const roomCategoryAvailabilityUrl = "{{ route('admin.bookings.room-category-availability') }}";
+            const manualRoomOptionsUrl = "{{ route('admin.bookings.manual-room-options') }}";
+            const manualRoomSelectionFeePerRoom = {{ json_encode($manualRoomSelectionFee) }};
             let categoryAvailabilityRequestId = 0;
             let categoryAvailabilityAbortController = null;
             let categoryAvailabilityTimer = null;
+
+            const roomSelectionModeInputs = Array.from(document.querySelectorAll('input[name="room_selection_mode"]'));
+            const manualRoomSelectionBox = document.getElementById('manualRoomSelectionBox');
+            const roomSelectionRequest = document.getElementById('roomSelectionRequest');
+            const manualRoomIds = document.getElementById('manualRoomIds');
+            const manualRoomHelp = document.getElementById('manualRoomHelp');
+            let manualRoomOptionsTimer = null;
+            let manualRoomOptionsRequestId = 0;
+            let manualRoomOptionsAbortController = null;
+
+            function isManualRoomSelection() {
+                return roomSelectionModeInputs.find((input) => input.checked)?.value === 'manual';
+            }
+
+            function calculateManualRoomSelectionFee() {
+                if (!isManualRoomSelection() || !manualRoomIds) {
+                    return 0;
+                }
+                const selectedCount = Array.from(manualRoomIds.selectedOptions || []).filter(option => option.value).length;
+                return selectedCount === getRoomQuantity()
+                    ? manualRoomSelectionFeePerRoom * getRoomQuantity()
+                    : 0;
+            }
+
+            function currentManualRoomOptionsPayload() {
+                return {
+                    booking_mode: bookingMode.value,
+                    booking_type: bookingType.value,
+                    room_category_id: roomCategorySelect?.value || '',
+                    room_quantity: getRoomQuantity(),
+                    check_in_date: checkInDate?.value || '',
+                    check_out_date: checkOutDate?.value || '',
+                    check_in_time: checkInTime?.value || '',
+                    check_out_time: bookingType.value === 'hourly'
+                        ? (hourlyCheckOutTime?.value || '')
+                        : (overnightCheckOutTime?.value || ''),
+                };
+            }
+
+            function sameManualRoomOptionsPayload(left, right) {
+                return JSON.stringify(left) === JSON.stringify(right);
+            }
+
+            async function refreshManualRoomOptions() {
+                if (!manualRoomIds || !isManualRoomSelection()) {
+                    if (manualRoomOptionsAbortController) {
+                        manualRoomOptionsAbortController.abort();
+                        manualRoomOptionsAbortController = null;
+                    }
+                    return;
+                }
+
+                const payload = currentManualRoomOptionsPayload();
+                if (!payload.room_category_id || !payload.check_in_date) {
+                    if (manualRoomOptionsAbortController) {
+                        manualRoomOptionsAbortController.abort();
+                        manualRoomOptionsAbortController = null;
+                    }
+                    manualRoomIds.innerHTML = '<option value="" disabled>Chọn hạng phòng và thời gian để tải danh sách phòng trống...</option>';
+                    if (manualRoomHelp) {
+                        manualRoomHelp.textContent = 'Danh sách sẽ tự cập nhật khi chọn đủ hạng phòng và thời gian.';
+                    }
+                    return;
+                }
+
+                const requestId = ++manualRoomOptionsRequestId;
+                if (manualRoomOptionsAbortController) {
+                    manualRoomOptionsAbortController.abort();
+                }
+                manualRoomOptionsAbortController = new AbortController();
+
+                const oldValues = new Set(JSON.parse(manualRoomIds.dataset.oldValues || '[]').map(String));
+                const selectedValues = new Set(Array.from(manualRoomIds.selectedOptions).map((option) => option.value));
+                const body = new URLSearchParams(payload);
+
+                try {
+                    manualRoomIds.disabled = true;
+                    if (manualRoomHelp) {
+                        manualRoomHelp.textContent = 'Đang tải các phòng thực sự còn trống...';
+                    }
+
+                    const response = await fetch(manualRoomOptionsUrl, {
+                        method: 'POST',
+                        signal: manualRoomOptionsAbortController.signal,
+                        headers: {
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                        },
+                        body,
+                    });
+                    const json = await response.json();
+                    if (!response.ok) {
+                        throw new Error(json.message || 'Không tải được phòng trống.');
+                    }
+
+                    if (
+                        requestId !== manualRoomOptionsRequestId
+                        || !sameManualRoomOptionsPayload(payload, currentManualRoomOptionsPayload())
+                    ) {
+                        return;
+                    }
+
+                    manualRoomIds.innerHTML = '';
+                    if (!Array.isArray(json.rooms) || json.rooms.length === 0) {
+                        manualRoomIds.innerHTML = '<option value="" disabled>Không còn phòng phù hợp trong khoảng thời gian này.</option>';
+                    } else {
+                        json.rooms.forEach((room) => {
+                            const option = document.createElement('option');
+                            option.value = String(room.id);
+                            option.textContent = `Phòng ${room.room_number} · Tầng ${room.floor_number ?? '---'} · ${room.status}`;
+                            option.selected = selectedValues.has(option.value) || oldValues.has(option.value);
+                            manualRoomIds.appendChild(option);
+                        });
+                    }
+
+                    if (manualRoomHelp) {
+                        manualRoomHelp.textContent = `Có ${json.rooms?.length || 0} phòng phù hợp. Nếu chọn ngay, hãy chọn đúng ${getRoomQuantity()} phòng.`;
+                    }
+                    manualRoomIds.dataset.oldValues = '[]';
+                } catch (error) {
+                    if (error && error.name === 'AbortError') {
+                        return;
+                    }
+                    if (
+                        requestId !== manualRoomOptionsRequestId
+                        || !sameManualRoomOptionsPayload(payload, currentManualRoomOptionsPayload())
+                    ) {
+                        return;
+                    }
+                    if (manualRoomHelp) {
+                        manualRoomHelp.textContent = error.message || 'Không tải được danh sách phòng.';
+                    }
+                } finally {
+                    if (requestId === manualRoomOptionsRequestId) {
+                        manualRoomIds.disabled = false;
+                        updateEstimatedTotal();
+                    }
+                }
+            }
+
+            function queueManualRoomOptionsRefresh() {
+                window.clearTimeout(manualRoomOptionsTimer);
+                manualRoomOptionsTimer = window.setTimeout(refreshManualRoomOptions, 180);
+            }
+
+            function syncManualRoomSelection() {
+                const manual = isManualRoomSelection();
+                manualRoomSelectionBox?.classList.toggle('d-none', !manual);
+                if (roomSelectionRequest) {
+                    roomSelectionRequest.required = manual;
+                }
+                if (manual) {
+                    queueManualRoomOptionsRefresh();
+                }
+            }
+
+            roomSelectionModeInputs.forEach((input) => input.addEventListener('change', function () {
+                syncManualRoomSelection();
+                updateEstimatedTotal();
+            }));
+            manualRoomIds?.addEventListener('change', updateEstimatedTotal);
+            [bookingMode, bookingType, roomCategorySelect, checkInDate, checkOutDate, checkInTime, hourlyCheckOutTime, overnightCheckOutTime, roomQuantity]
+                .filter(Boolean)
+                .forEach((input) => {
+                    input.addEventListener('change', queueManualRoomOptionsRefresh);
+                    input.addEventListener('input', queueManualRoomOptionsRefresh);
+                });
+            syncManualRoomSelection();
 
             function formatMoney(value) {
                 return new Intl.NumberFormat('vi-VN').format(Math.max(0, Number(value || 0))) + 'đ';
@@ -1719,6 +1998,10 @@
 
                     if (hourlyCheckOutTime) {
                         hourlyCheckOutTime.required = false;
+                        hourlyCheckOutTime.disabled = true;
+                    }
+                    if (overnightCheckOutTime) {
+                        overnightCheckOutTime.disabled = true;
                     }
 
                     if (lowStockConfirmWrapper) {
@@ -1749,7 +2032,13 @@
 
                     if (hourlyCheckOutTime) {
                         hourlyCheckOutTime.required = true;
+                        hourlyCheckOutTime.disabled = false;
+                    }
+                    if (overnightCheckOutTime) {
+                        overnightCheckOutTime.disabled = true;
+                    }
 
+                    if (hourlyCheckOutTime) {
                         if (!hourlyCheckOutTime.value && checkInTime.value) {
                             const parts = checkInTime.value.split(':');
                             const defaultOut = new Date();
@@ -1780,6 +2069,10 @@
 
                 if (hourlyCheckOutTime) {
                     hourlyCheckOutTime.required = false;
+                    hourlyCheckOutTime.disabled = true;
+                }
+                if (overnightCheckOutTime) {
+                    overnightCheckOutTime.disabled = true;
                 }
 
                 if (lowStockConfirmWrapper) {
@@ -2133,7 +2426,12 @@
                 }
 
                 const promotionTotals = calculatePromotionTotals(roomTotal, serviceTotal);
-                const total = promotionTotals.finalTotal;
+                const manualSelectionFee = calculateManualRoomSelectionFee();
+                const total = promotionTotals.finalTotal + manualSelectionFee;
+
+                if (manualSelectionFee > 0) {
+                    summaryText += ' + phí đảm bảo yêu cầu phòng ' + formatMoney(manualSelectionFee);
+                }
 
                 estimatedTotalText.innerText = formatMoney(total);
                 updatePaymentUi(total, depositRoomTotal, promotionTotals.moneyDiscount);
@@ -2345,6 +2643,7 @@
 
                         updateEstimatedTotal();
                         updateAdjacentRoomBox();
+                        queueManualRoomOptionsRefresh();
                     })
                     .catch(function (error) {
                         if (error && error.name === 'AbortError') {
@@ -2412,6 +2711,18 @@
 
             checkOutDate.addEventListener('change', refreshBookingForm);
             checkInTime.addEventListener('change', refreshBookingForm);
+
+            // Date picker chung của project phát project-date-change khi người dùng chọn ngày.
+            // Nghe sự kiện này để UI thật luôn refresh tồn phòng, không phụ thuộc native change.
+            [checkInDate, checkOutDate].filter(Boolean).forEach(function (field) {
+                field.addEventListener('project-date-change', function () {
+                    if (field === checkInDate) {
+                        autoSetCheckoutDate();
+                    }
+                    refreshBookingForm();
+                    queueManualRoomOptionsRefresh();
+                });
+            });
 
             if (hourlyCheckOutTime) {
                 hourlyCheckOutTime.addEventListener('change', refreshBookingForm);
@@ -2636,17 +2947,10 @@
             }
 
             async function refreshEligiblePromotions() {
-                if (!customerEmail) return;
-
-                const email = (customerEmail.value || '').trim().toLowerCase();
+                const email = (customerEmail?.value || '').trim().toLowerCase();
+                const phone = (customerPhone?.value || '').replace(/\s+/g, '');
+                const cccd = (customerCccd?.value || '').replace(/\s+/g, '');
                 const requestSequence = ++promotionEligibilityRequestSequence;
-
-                if (!email) {
-                    if (promotionEligibilityAbortController) promotionEligibilityAbortController.abort();
-                    document.querySelectorAll('[data-promotion-card]').forEach(card => card.classList.remove('d-none'));
-                    updateVisiblePromotionCounts();
-                    return;
-                }
 
                 if (promotionEligibilityAbortController) promotionEligibilityAbortController.abort();
                 promotionEligibilityAbortController = new AbortController();
@@ -2657,7 +2961,9 @@
                     .replace(/[^0-9]/g, '');
                 const currentSubtotal = Number(subtotalText || 0);
                 const payload = {
-                    customer_email: email,
+                    customer_email: email || null,
+                    customer_phone: phone || null,
+                    customer_cccd: cccd || null,
                     subtotal_amount: currentSubtotal,
                     night_count: Math.max(1, Math.round(calculateNightCount() || 1)),
                     room_quantity: getRoomQuantity(),
@@ -2696,9 +3002,13 @@
                     updateVisiblePromotionCounts();
                 } catch (error) {
                     if (error.name === 'AbortError') return;
-                    // Khi lỗi mạng, không tự ẩn mã để tránh giao diện báo sai. Backend
-                    // vẫn kiểm tra điều kiện lần cuối khi tạo booking.
-                    document.querySelectorAll('[data-promotion-card]').forEach(card => card.classList.remove('d-none'));
+                    // Không được lộ mã chưa xác minh rồi để submit mới báo lỗi. Khi
+                    // không kiểm tra được eligibility, chỉ giữ mã cũ đang được chọn
+                    // để người dùng không mất dữ liệu; backend vẫn validate lần cuối.
+                    document.querySelectorAll('[data-promotion-card]').forEach(card => {
+                        const checkbox = card.querySelector('.promotion-check');
+                        card.classList.toggle('d-none', !checkbox?.checked);
+                    });
                     updateVisiblePromotionCounts();
                 }
             }

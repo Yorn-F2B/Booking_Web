@@ -193,6 +193,24 @@ class ChatController extends Controller
         ));
     }
 
+    public function unreadCount()
+    {
+        $user = Auth::user();
+        abort_unless($user, 403);
+
+        $query = ChatConversation::query()
+            ->whereIn('status', ['waiting', 'assigned', 'active'])
+            ->whereHas('messages', fn ($message) => $message
+                ->where('sender_type', 'customer')
+                ->where('is_read', false));
+
+        $this->applyVisibleScope($query, $user);
+
+        return response()->json([
+            'count' => $query->count(),
+        ]);
+    }
+
     public function take(ChatConversation $conversation)
     {
         $user = Auth::user();
@@ -208,7 +226,13 @@ class ChatController extends Controller
                 abort(409, 'Cuộc trò chuyện đã có nhân viên phụ trách.');
             }
 
-            $this->assignmentService->transfer($locked, $user, 'Tiếp nhận cuộc trò chuyện');
+            $this->assignmentService->transfer(
+                $locked,
+                $user,
+                'Tiếp nhận cuộc trò chuyện',
+                true,
+                $user->id
+            );
             $locked->update([
                 // Tiếp nhận chưa đồng nghĩa đã trả lời.
                 'status' => 'waiting',
@@ -256,7 +280,9 @@ class ChatController extends Controller
                         $this->assignmentService->transfer(
                             $lockedConversation,
                             $user,
-                            'Tự tiếp nhận khi trả lời khách'
+                            'Tự tiếp nhận khi trả lời khách',
+                            false,
+                            null
                         );
                     } else {
                         $this->assignmentService->assign($lockedConversation);
@@ -427,7 +453,9 @@ class ChatController extends Controller
             $this->assignmentService->transfer(
                 $locked,
                 $newStaff,
-                'Chuyển cuộc trò chuyện cho nhân viên khác'
+                'Chuyển cuộc trò chuyện cho nhân viên khác',
+                true,
+                Auth::id()
             );
             $locked->update([
                 'status' => 'active',
@@ -473,16 +501,25 @@ class ChatController extends Controller
     public function heartbeat()
     {
         $user = Auth::user();
+        $wasOnline = $user ? $this->presenceService->isOnline($user) : false;
         $presence = $this->presenceService->heartbeat($user);
         $movedFromStale = $this->assignmentService->handoffStaleOnlineStaff();
         $assignedWaiting = $presence?->status === 'online'
             ? $this->assignmentService->assignWaitingConversations()
+            : 0;
+        $assignedBookings = $presence?->status === 'online'
+            ? $this->assignmentService->assignUnassignedBookings()
+            : 0;
+        $rebalanced = (!$wasOnline && $presence?->status === 'online')
+            ? $this->assignmentService->softRebalance()
             : 0;
 
         return response()->json([
             'success' => true,
             'status' => $presence?->status,
             'assigned_waiting' => $assignedWaiting,
+            'assigned_bookings' => $assignedBookings,
+            'rebalanced' => $rebalanced,
             'moved_from_stale' => $movedFromStale,
         ]);
     }
@@ -522,11 +559,13 @@ class ChatController extends Controller
             if ($status === 'online') {
                 $this->assignmentService->handoffStaleOnlineStaff();
                 $this->assignmentService->assignWaitingConversations();
+                $this->assignmentService->assignUnassignedBookings();
+                $this->assignmentService->softRebalance();
             }
         }
 
         return back()->with('success', $status === 'offline'
-            ? "Đã chuyển Offline và bàn giao {$moved} hội thoại đang mở."
+            ? "Đã chuyển Offline và bàn giao {$moved} gói booking/chat đang mở."
             : 'Đã cập nhật trạng thái trực chat.');
     }
 
@@ -568,7 +607,7 @@ class ChatController extends Controller
             $target
         );
 
-        return back()->with('success', "Đã bàn giao {$moved} hội thoại của {$fromStaff->name}.");
+        return back()->with('success', "Đã bàn giao {$moved} gói booking/chat của {$fromStaff->name}.");
     }
 
     private function messagePayload(ChatMessage $message): array

@@ -9,8 +9,11 @@
 @section('content')
 @php
     $workflowLabels = [
-        'pending' => 'Chờ phương án',
-        'proposal_ready' => 'Đã giữ phòng - chờ gửi lễ tân',
+        'pending' => 'Chờ xử lý',
+        'awaiting_housekeeping' => 'Chờ buồng phòng kiểm tra',
+        'housekeeping_verified' => 'Đã xác nhận có sự cố',
+        'housekeeping_not_found' => 'Buồng phòng không phát hiện sự cố',
+        'proposal_ready' => 'Đã lập phương án',
         'waiting_guest_confirmation' => 'Chờ lễ tân trao đổi với khách',
         'guest_accepted' => 'Khách đã chọn phương án - chờ quản lý xác nhận',
         'guest_requested_change' => 'Khách yêu cầu phương án khác',
@@ -38,13 +41,15 @@
                 ->values(),
         ];
     });
-    $canRebuildProposal = in_array($leaderStatus, [
-        'pending',
-        'proposal_ready',
-        'waiting_guest_confirmation',
-        'guest_requested_change',
-        'guest_accepted',
-    ], true);
+    $activeIssues = $issues->where('status', 'pending');
+    $canRebuildProposal = $activeIssues->isNotEmpty()
+        && !$activeIssues->contains('workflow_status', 'awaiting_housekeeping')
+        && !$activeIssues->contains('workflow_status', 'housekeeping_not_found')
+        && $activeIssues->every(fn ($issue) => in_array($issue->workflow_status, [
+            'housekeeping_verified',
+            'proposal_ready',
+            'guest_requested_change',
+        ], true));
 @endphp
 
 <style>
@@ -202,24 +207,12 @@
 
         <div class="row g-3">
             <div class="col-xl-8">
-                <div class="settings-section mb-3 status-card">
-                    <div class="priority-flow">
-                        <span class="priority-step">1. Phòng cùng hạng</span>
-                        <i class="bx bx-right-arrow-alt"></i>
-                        <span class="priority-step">2. Hạng cao hơn gần nhất</span>
-                        <i class="bx bx-right-arrow-alt"></i>
-                        <span class="priority-step">3. Giữ nguyên, sửa gấp</span>
+                @if ($leader->guest_response_note)
+                    <div class="alert {{ $leader->guest_response === 'accepted' ? 'alert-success' : 'alert-warning' }} mb-3">
+                        <strong>Ghi chú từ lễ tân/khách:</strong>
+                        {{ $leader->guest_response_note }}
                     </div>
-                    <div class="small text-muted mt-2">
-                    </div>
-
-                    @if ($leader->guest_response_note)
-                        <div class="alert {{ $leader->guest_response === 'accepted' ? 'alert-success' : 'alert-warning' }} mt-3 mb-0">
-                            <strong>Ghi chú từ lễ tân/khách:</strong>
-                            {{ $leader->guest_response_note }}
-                        </div>
-                    @endif
-                </div>
+                @endif
 
                 @foreach ($issues as $issue)
                     @php
@@ -269,7 +262,39 @@
                             </div>
                         @endif
 
-                        @if ($preview)
+                        @if ($issue->housekeeping_verified_at)
+                            <div class="alert {{ $issue->housekeeping_verdict === 'confirmed' ? 'alert-success' : 'alert-warning' }} py-2 mb-3">
+                                <div class="d-flex justify-content-between gap-2 flex-wrap">
+                                    <strong>Buồng phòng: {{ $issue->housekeeping_verdict === 'confirmed' ? 'xác nhận có sự cố' : 'không phát hiện sự cố' }}</strong>
+                                    <span class="small">{{ $issue->housekeeping_verified_at->timezone('Asia/Ho_Chi_Minh')->format('H:i d/m/Y') }}</span>
+                                </div>
+                                <div class="small mt-1">{{ $issue->housekeeping_note }}</div>
+                                @if ($issue->housekeeping_verdict === 'confirmed' && $issue->housekeeping_can_repair_in_room)
+                                    <div class="small fw-semibold mt-1">Buồng phòng xác nhận có thể sửa ngay tại phòng.</div>
+                                @endif
+                            </div>
+                        @else
+                            <div class="alert alert-secondary py-2 mb-3">Đang chờ buồng phòng đến phòng kiểm tra thực tế.</div>
+                        @endif
+
+                        @if ($issue->status === 'pending' && $issue->workflow_status === 'housekeeping_not_found')
+                            <details class="border border-secondary-subtle rounded-3 p-3 mb-3 bg-light">
+                                <summary class="fw-semibold text-secondary" style="cursor:pointer">Đóng yêu cầu vì không phát hiện sự cố</summary>
+                                <form method="POST" action="{{ route('admin.room-issues.reject', $issue) }}" class="mt-3">
+                                    @csrf
+                                    @method('PATCH')
+                                    <div class="small text-muted mb-2">
+                                        Chỉ dùng khi buồng phòng đã kiểm tra và kết luận không phát hiện sự cố.
+                                    </div>
+                                    <textarea name="reason" class="form-control form-control-sm" rows="2" required minlength="5" placeholder="Lý do đóng yêu cầu..."></textarea>
+                                    <button class="btn btn-outline-danger btn-sm mt-2" type="submit" onclick="return confirm('Xác nhận đóng yêu cầu vì không phát hiện sự cố?')">
+                                        <i class="bx bx-x-circle me-1"></i>Đóng yêu cầu
+                                    </button>
+                                </form>
+                            </details>
+                        @endif
+
+                        @if ($preview && $issue->status === 'pending' && $issue->workflow_status !== 'housekeeping_not_found')
                             <div class="proposal-box">
                                 <div class="d-flex justify-content-between gap-2 flex-wrap">
                                     <div>
@@ -290,9 +315,13 @@
                                         Chuyển sang <strong>phòng {{ $preview['room']->room_number }}</strong>
                                         · {{ $preview['room']->category?->name ?? '---' }}.
                                     </div>
-                                @else
+                                @elseif (($preview['type'] ?? null) === 'repair_only')
                                     <div class="mt-2">
-                                        Khách tiếp tục ở phòng hiện tại; buồng phòng nhận việc sửa gấp riêng.
+                                        Buồng phòng xác nhận có thể xử lý ngay tại phòng hiện tại.
+                                    </div>
+                                @elseif (($preview['type'] ?? null) === 'replacement_required')
+                                    <div class="alert alert-danger py-2 mt-2 mb-0">
+                                        <strong>Bắt buộc chuyển phòng.</strong> Hiện chưa có phòng thay thế phù hợp; không được đóng yêu cầu hoặc giữ khách ở phòng lỗi.
                                     </div>
                                 @endif
 
@@ -307,8 +336,8 @@
                                             Giá đang tính: <strong>{{ number_format($issueOldNightPrice, 0, ',', '.') }}đ/đêm</strong><br>
                                             Giá phòng thay thế: <strong>{{ number_format($issueNewNightPrice, 0, ',', '.') }}đ/đêm</strong><br>
                                             @if ($issuePriceDifferenceTotal > 0)
-                                                Phần tăng: <strong class="text-danger">{{ number_format($issuePriceDifferencePerNight, 0, ',', '.') }}đ × {{ $issueRemainingNights }} đêm = {{ number_format($issuePriceDifferenceTotal, 0, ',', '.') }}đ</strong>
-                                                <div class="text-muted mt-1">Nếu không chọn mã hỗ trợ đủ giá trị, phần còn lại sẽ được cộng vào tiền khách phải trả.</div>
+                                                Giá niêm yết phòng thay thế cao hơn: <strong class="text-primary">{{ number_format($issuePriceDifferencePerNight, 0, ',', '.') }}đ × {{ $issueRemainingNights }} đêm = {{ number_format($issuePriceDifferenceTotal, 0, ',', '.') }}đ</strong>
+                                                <div class="text-success fw-semibold mt-1">Sự cố phía khách sạn: khách được nâng hạng miễn phí và vẫn giữ nguyên đơn giá phòng đã chốt.</div>
                                             @else
                                                 Phần giảm: <strong class="text-success">{{ number_format(abs($issuePriceDifferenceTotal), 0, ',', '.') }}đ</strong>
                                             @endif
@@ -357,18 +386,28 @@
                         @csrf
                         @method('PATCH')
 
-                        @if ($leaderStatus === 'proposal_ready')
-                            <h5 class="fw-bold mb-2">Phương án đã được giữ ngay khi khách báo</h5>
-                            <p class="small text-muted mb-3">
-                            </p>
-                        @elseif ($leaderStatus === 'pending')
-                            <p class="small text-muted mb-3">
-                            </p>
-                        @else
-                            <h5 class="fw-bold mb-2">Gửi lại đầy đủ lựa chọn cho lễ tân</h5>
-                            <p class="small text-muted mb-3">
-                            </p>
-                        @endif
+                        <h5 class="fw-bold mb-2">Lập phương án sau khi buồng phòng xác minh</h5>
+                        <p class="small text-muted mb-3">
+                            Hệ thống chỉ giữ phòng thay thế sau khi quản lý gửi phương án. Phương án sửa tại phòng chỉ xuất hiện khi buồng phòng xác nhận có thể sửa ngay tại chỗ.
+                        </p>
+
+                        <div class="d-grid gap-2 mb-3">
+                            @foreach ($activeIssues as $issue)
+                                @if ($issue->workflow_status !== 'housekeeping_not_found')
+                                    <div class="border rounded-3 p-3">
+                                        <div class="fw-semibold mb-2">Phòng {{ $issue->currentRoom?->room_number ?? '---' }}</div>
+                                        <select class="form-select form-select-sm" name="resolution_preference[{{ $issue->id }}]">
+                                            <option value="auto" @selected(old('resolution_preference.' . $issue->id, 'auto') === 'auto')>
+                                                Hệ thống tự tìm phương án hợp lệ
+                                            </option>
+                                            @if ($issue->housekeeping_can_repair_in_room)
+                                                <option value="repair_only" @selected(old('resolution_preference.' . $issue->id) === 'repair_only')>Giữ phòng hiện tại và sửa ngay tại phòng</option>
+                                            @endif
+                                        </select>
+                                    </div>
+                                @endif
+                            @endforeach
+                        </div>
 
                         @if ($selectedPromotionCodesByIssue->flatten()->isNotEmpty())
                             <div class="alert alert-info py-2">
@@ -389,13 +428,7 @@
 
                         <button class="btn btn-primary w-100 mt-2">
                             <i class="bx bx-send me-1"></i>
-                            @if ($leaderStatus === 'proposal_ready')
-                                Gửi phương án đã giữ sang lễ tân
-                            @elseif ($leaderStatus === 'pending')
-                                Tạo phương án và gửi lễ tân
-                            @else
-                                Gửi lại đầy đủ phương án và làm mới giữ phòng {{ $roomIssueHoldMinutes }} phút
-                            @endif
+                            Tạo/ cập nhật phương án và gửi lễ tân
                         </button>
                     </form>
                 @endif
@@ -441,7 +474,7 @@
                         </p>
 
                         <p class="small text-muted mb-2">
-                            Mỗi phòng lỗi có mã riêng. Giá phòng mới được tính thật; mã hỗ trợ chỉ bù cho đúng phòng này. Phần chênh chưa được mã bù sẽ do khách thanh toán.
+                            Mỗi phòng lỗi có mã hỗ trợ riêng. Nếu phải nâng hạng do sự cố phía khách sạn, khách vẫn giữ nguyên đơn giá phòng đã chốt; mã chỉ là hỗ trợ/bồi thường bổ sung.
                         </p>
 
                         <div class="finalize-action-box">
@@ -561,7 +594,7 @@
                 @elseif ($leaderStatus === 'guest_requested_change')
                     <div class="settings-section">
                         <div class="alert alert-warning mb-0">
-                            Khách muốn trao đổi lại. Bấm gửi lại để lễ tân vẫn thấy đầy đủ phương án đổi phòng/nâng hạng và giữ nguyên sửa gấp; phòng đang giữ sẽ được làm mới thêm {{ $roomIssueHoldMinutes }} phút.
+                            Khách muốn trao đổi lại. Bấm gửi lại để lễ tân nhận phương án hợp lệ mới nhất; phòng thay thế đang giữ sẽ được làm mới thêm {{ $roomIssueHoldMinutes }} phút.
                         </div>
                     </div>
                 @endif

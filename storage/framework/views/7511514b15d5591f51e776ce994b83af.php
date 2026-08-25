@@ -210,6 +210,13 @@
                                         <td><?php echo e($booking->prefer_adjacent_rooms ? 'Có' : 'Không'); ?></td>
                                     </tr>
 
+                                    <?php if((float) ($booking->room_selection_fee ?? 0) > 0): ?>
+                                        <tr>
+                                            <th>Phí chọn phòng thủ công</th>
+                                            <td><?php echo e(number_format((float) $booking->room_selection_fee, 0, ',', '.')); ?>đ</td>
+                                        </tr>
+                                    <?php endif; ?>
+
                                     <?php if((float) ($booking->discount_amount ?? 0) > 0): ?>
                                         <tr>
                                             <th>Tổng trước ưu đãi</th>
@@ -501,9 +508,15 @@
 
                     <div class="settings-section mb-4">
 
-                        <h3 class="h6 fw-bold mb-3">
-                            Phòng đã được gán
-                        </h3>
+                        <?php
+                            $roomSelectionStatus = $booking->room_selection_status ?? 'not_required';
+                            $isManualRoomSelection = ($booking->room_selection_mode ?? 'automatic') === 'manual';
+                            $hideFallbackRoomNumbers = $isManualRoomSelection && $roomSelectionStatus === 'pending';
+                            $showAssignedRoomNumbers = !$hideFallbackRoomNumbers
+                                && !in_array($roomSelectionStatus, ['fallback_declined'], true);
+                        ?>
+
+                        <h3 class="h6 fw-bold mb-3">Thông tin phòng</h3>
 
                         <?php if($booking->status == 'pending' && $booking->payment_status == 'unpaid'): ?>
                             <div class="alert alert-warning small mb-3">
@@ -511,28 +524,86 @@
                             </div>
                         <?php endif; ?>
 
-                        <?php $__empty_1 = true; $__currentLoopData = $booking->bookingRooms; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $bookingRoom): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
-
-                            <div class="border rounded p-3 mb-2">
-                                <div class="fw-bold">
-                                    Phòng <?php echo e($bookingRoom->room->room_number ?? 'Không xác định'); ?>
-
+                        <?php if($isManualRoomSelection): ?>
+                            <?php if($roomSelectionStatus === 'pending'): ?>
+                                <div class="alert alert-info small mb-3">
+                                    <strong>Đang chờ lễ tân xử lý yêu cầu phòng.</strong><br>
+                                    Yêu cầu của bạn: <?php echo e($booking->room_selection_request ?: '---'); ?><br>
+                                    Khách sạn đang giữ đủ số lượng phòng để tránh bán vượt, nhưng <strong>chưa công bố số phòng dự phòng</strong> cho đến khi có kết quả xử lý yêu cầu. Chưa thu phí đảm bảo yêu cầu phòng.
                                 </div>
+                            <?php elseif($roomSelectionStatus === 'fulfilled'): ?>
+                                <div class="alert alert-success small mb-3">
+                                    <strong>Khách sạn đã đáp ứng yêu cầu phòng.</strong><br>
+                                    Phí đảm bảo yêu cầu phòng: <?php echo e(number_format((float) ($booking->room_selection_fee ?? 0), 0, ',', '.')); ?>đ.
+                                    <?php if($booking->room_selection_handling_note): ?>
+                                        <br>Ghi chú: <?php echo e($booking->room_selection_handling_note); ?>
 
-                                <div class="small text-muted">
-                                    Tầng <?php echo e($bookingRoom->room->floor_number ?? '---'); ?>
-
+                                    <?php endif; ?>
                                 </div>
-                            </div>
-
-                        <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
-
-                            <div class="alert alert-warning mb-0">
-                                Khách sạn chưa gán phòng cụ thể cho đơn này.
-                            </div>
-
+                            <?php elseif($roomSelectionStatus === 'awaiting_guest'): ?>
+                                <div class="alert alert-warning small mb-3">
+                                    <strong>Khách sạn không thể đáp ứng đầy đủ yêu cầu đã ghi.</strong><br>
+                                    <?php if($booking->room_selection_handling_note): ?>
+                                        Lý do: <?php echo e($booking->room_selection_handling_note); ?><br>
+                                    <?php endif; ?>
+                                    Phòng dự phòng bên dưới vẫn đang được giữ cho bạn và <strong>không thu phí đảm bảo yêu cầu phòng</strong>. Vui lòng chọn Đồng ý nếu muốn tiếp tục, hoặc Từ chối để hủy booking. Nếu từ chối, khách sạn phải hoàn lại toàn bộ số tiền đã thanh toán.
+                                </div>
+                                <div class="d-grid gap-2 mb-3">
+                                    <form action="<?php echo e(route('bookings.room-selection-fallback', $booking)); ?>" method="POST">
+                                        <?php echo csrf_field(); ?>
+                                        <input type="hidden" name="decision" value="accept">
+                                        <button class="btn btn-success w-100" type="submit"
+                                            onclick="return confirm('Bạn đồng ý sử dụng phòng dự phòng đang được khách sạn giữ?');">
+                                            Đồng ý sử dụng phòng dự phòng
+                                        </button>
+                                    </form>
+                                    <form action="<?php echo e(route('bookings.room-selection-fallback', $booking)); ?>" method="POST">
+                                        <?php echo csrf_field(); ?>
+                                        <input type="hidden" name="decision" value="decline">
+                                        <button class="btn btn-outline-danger w-100" type="submit"
+                                            onclick="return confirm('Từ chối phòng dự phòng sẽ hủy booking. Khách sạn sẽ phải hoàn lại toàn bộ số tiền bạn đã thanh toán. Tiếp tục?');">
+                                            Từ chối phòng dự phòng và hủy booking
+                                        </button>
+                                    </form>
+                                    <a href="<?php echo e(route('rooms')); ?>" class="btn btn-outline-primary w-100">Xem hạng phòng khác</a>
+                                </div>
+                            <?php elseif($roomSelectionStatus === 'fallback_accepted'): ?>
+                                <div class="alert alert-success small mb-3">
+                                    <strong>Bạn đã đồng ý sử dụng phòng dự phòng.</strong><br>
+                                    Booking tiếp tục giữ nguyên và không thu phí đảm bảo yêu cầu phòng.
+                                </div>
+                            <?php elseif($roomSelectionStatus === 'fallback_declined'): ?>
+                                <div class="alert alert-secondary small mb-3">
+                                    <strong>Bạn đã từ chối phòng dự phòng và booking đã được hủy.</strong><br>
+                                    <?php if((float) ($booking->refund_due_amount ?? 0) > 0): ?>
+                                        Số tiền khách sạn phải hoàn lại: <strong><?php echo e(number_format((float) $booking->refund_due_amount, 0, ',', '.')); ?>đ</strong>.
+                                        Trạng thái hoàn tiền: <strong><?php echo e($booking->refund_status === 'completed' ? 'Đã hoàn tất' : 'Đang chờ xử lý'); ?></strong>.
+                                    <?php else: ?>
+                                        Booking chưa phát sinh khoản thanh toán cần hoàn.
+                                    <?php endif; ?>
+                                    <div class="mt-2"><a href="<?php echo e(route('rooms')); ?>">Xem các hạng phòng khác phù hợp hơn</a>.</div>
+                                </div>
+                            <?php endif; ?>
                         <?php endif; ?>
 
+                        <?php if($showAssignedRoomNumbers): ?>
+                            <?php $__empty_1 = true; $__currentLoopData = $booking->bookingRooms; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $bookingRoom): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
+                                <div class="border rounded p-3 mb-2">
+                                    <div class="fw-bold">
+                                        Phòng <?php echo e($bookingRoom->room->room_number ?? 'Không xác định'); ?>
+
+                                    </div>
+                                    <div class="small text-muted">
+                                        Tầng <?php echo e($bookingRoom->room->floor_number ?? '---'); ?>
+
+                                    </div>
+                                </div>
+                            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
+                                <div class="alert alert-warning mb-0">
+                                    Khách sạn chưa gán phòng cụ thể cho đơn này.
+                                </div>
+                            <?php endif; ?>
+                        <?php endif; ?>
                     </div>
 
 
@@ -549,12 +620,15 @@
                                         'waiting_guest_confirmation' => 'Đang trao đổi phương án',
                                         'guest_accepted' => 'Khách đã chọn phương án',
                                         'guest_requested_change' => 'Đang điều chỉnh phương án',
+                                        'awaiting_housekeeping' => 'Chờ buồng phòng kiểm tra',
+                                        'housekeeping_verified' => 'Buồng phòng đã xác nhận lỗi · chờ quản lý',
+                                        'housekeeping_not_found' => 'Buồng phòng không phát hiện lỗi · chờ quản lý kết luận',
                                         default => 'Đang chờ quản lý',
                                     },
                                     'approved' => 'Đã đổi phòng',
                                     'repair_only' => 'Đang khắc phục',
                                     'repair_completed' => 'Đã sửa xong',
-                                    'rejected' => 'Đã từ chối',
+                                    'rejected' => 'Không được đổi phòng · yêu cầu đã đóng',
                                 ];
                                 $issueStatusClasses = [
                                     'pending' => 'text-bg-warning',
@@ -624,23 +698,67 @@
                                                 <?php
                                                     $displayResolution = $groupIssue->resolution_type ?: $groupIssue->guest_selected_resolution_type ?: $groupIssue->proposed_resolution_type;
                                                     $targetRoom = $groupIssue->approvedRoom ?: $groupIssue->proposedRoom;
+                                                    $inspectionNotFound = $groupIssue->housekeeping_verdict === 'not_found'
+                                                        || $groupIssue->workflow_status === 'housekeeping_not_found';
+                                                    $requestRejected = $groupIssue->status === 'rejected'
+                                                        || $groupIssue->workflow_status === 'rejected';
                                                 ?>
                                                 <div class="border rounded-3 p-3 mb-3">
                                                     <div class="d-flex justify-content-between gap-2 flex-wrap">
-                                                        <div><strong>Phòng <?php echo e($groupIssue->currentRoom?->room_number ?? '---'); ?></strong><div class="small text-muted"><?php echo e($groupIssue->issue_description); ?></div></div>
-                                                        <span class="badge text-bg-light border"><?php echo e($issueResolutionLabels[$displayResolution] ?? ($displayResolution==='repair_only'?'Giữ nguyên phòng và sửa gấp':'Chưa có phương án')); ?></span>
-                                                    </div>
-                                                    <?php if($targetRoom): ?><div class="alert alert-info py-2 mt-3 mb-0"><?php echo e($groupIssue->status==='pending'?'Dự kiến đổi':'Đã đổi'); ?> sang phòng <strong><?php echo e($targetRoom->room_number); ?></strong> · <?php echo e($targetRoom->category?->name); ?></div><?php else: ?><div class="alert alert-warning py-2 mt-3 mb-0">Giữ nguyên phòng và chuyển buồng phòng sửa gấp.</div><?php endif; ?>
-                                                    <?php if($groupIssue->repair_status === 'completed'): ?>
-                                                        <div class="alert alert-success py-2 mt-2 mb-0">
-                                                            Đã sửa xong
-                                                            <?php if($groupIssue->repair_note): ?>
-                                                                : <?php echo e($groupIssue->repair_note); ?>
-
-                                                            <?php endif; ?>
+                                                        <div>
+                                                            <strong>Phòng <?php echo e($groupIssue->currentRoom?->room_number ?? '---'); ?></strong>
+                                                            <div class="small text-muted"><?php echo e($groupIssue->issue_description); ?></div>
                                                         </div>
-                                                    <?php elseif($groupIssue->repair_status === 'waiting'): ?>
-                                                        <div class="alert alert-secondary py-2 mt-2 mb-0">Buồng phòng đang xử lý riêng phòng này.</div>
+                                                        <?php if($requestRejected): ?>
+                                                            <span class="badge text-bg-secondary">Không được đổi phòng · đã đóng</span>
+                                                        <?php elseif($inspectionNotFound): ?>
+                                                            <span class="badge text-bg-light border">Không phát hiện sự cố</span>
+                                                        <?php else: ?>
+                                                            <span class="badge text-bg-light border"><?php echo e($issueResolutionLabels[$displayResolution] ?? ($displayResolution === 'repair_only' ? 'Giữ nguyên phòng và sửa tại chỗ' : 'Đang chờ phương án')); ?></span>
+                                                        <?php endif; ?>
+                                                    </div>
+
+                                                    <?php if($inspectionNotFound || $requestRejected): ?>
+                                                        <?php if($groupIssue->housekeeping_note): ?>
+                                                            <div class="alert alert-light border py-2 mt-3 mb-0">
+                                                                <strong>Kết quả kiểm tra:</strong>
+                                                                <?php if($inspectionNotFound): ?> Không phát hiện sự cố. <?php endif; ?>
+                                                                <?php echo e($groupIssue->housekeeping_note); ?>
+
+                                                            </div>
+                                                        <?php elseif($inspectionNotFound): ?>
+                                                            <div class="alert alert-light border py-2 mt-3 mb-0"><strong>Kết quả kiểm tra:</strong> Không phát hiện sự cố.</div>
+                                                        <?php endif; ?>
+
+                                                        <?php if($requestRejected): ?>
+                                                            <div class="alert alert-secondary py-2 mt-2 mb-0">
+                                                                <strong>Kết luận:</strong> Yêu cầu đổi phòng không được chấp thuận.
+                                                                <?php if($groupIssue->admin_note): ?>
+                                                                    <br><strong>Lý do:</strong> <?php echo e($groupIssue->admin_note); ?>
+
+                                                                <?php endif; ?>
+                                                            </div>
+                                                        <?php else: ?>
+                                                            <div class="alert alert-info py-2 mt-2 mb-0">Đang chờ quản lý kết luận sau kết quả kiểm tra của buồng phòng.</div>
+                                                        <?php endif; ?>
+                                                    <?php else: ?>
+                                                        <?php if($targetRoom): ?>
+                                                            <div class="alert alert-info py-2 mt-3 mb-0"><?php echo e($groupIssue->status === 'pending' ? 'Dự kiến đổi' : 'Đã đổi'); ?> sang phòng <strong><?php echo e($targetRoom->room_number); ?></strong> · <?php echo e($targetRoom->category?->name); ?></div>
+                                                        <?php elseif($displayResolution === 'no_room' || $displayResolution === 'repair_only'): ?>
+                                                            <div class="alert alert-warning py-2 mt-3 mb-0">Giữ nguyên phòng và chuyển buồng phòng khắc phục.</div>
+                                                        <?php endif; ?>
+
+                                                        <?php if($groupIssue->repair_status === 'completed'): ?>
+                                                            <div class="alert alert-success py-2 mt-2 mb-0">
+                                                                Đã sửa xong
+                                                                <?php if($groupIssue->repair_note): ?>
+                                                                    : <?php echo e($groupIssue->repair_note); ?>
+
+                                                                <?php endif; ?>
+                                                            </div>
+                                                        <?php elseif($groupIssue->repair_status === 'waiting'): ?>
+                                                            <div class="alert alert-secondary py-2 mt-2 mb-0">Buồng phòng đang xử lý riêng phòng này.</div>
+                                                        <?php endif; ?>
                                                     <?php endif; ?>
                                                 </div>
                                             <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
@@ -876,7 +994,7 @@
                         </div>
                     <?php endif; ?>
 
-                    <?php if($canCustomerCancel ?? false): ?>
+                    <?php if(($canCustomerCancel ?? false) && (($booking->room_selection_status ?? null) !== 'awaiting_guest')): ?>
                         <div class="settings-section" id="cancel-policy">
                             <h3 class="h6 fw-bold mb-3">Thao tác hủy đơn</h3>
                             <form action="<?php echo e(route('bookings.cancel', $booking->id)); ?>" method="POST"
@@ -949,7 +1067,7 @@
         });
     </script>
 
-<?php if (! $__env->hasRenderedOnce('d1583ed0-1615-4a50-abe9-1e9fa52f237b')): $__env->markAsRenderedOnce('d1583ed0-1615-4a50-abe9-1e9fa52f237b'); ?>
+<?php if (! $__env->hasRenderedOnce('c7308548-7914-43d4-bf2c-7e0fcd0fb65d')): $__env->markAsRenderedOnce('c7308548-7914-43d4-bf2c-7e0fcd0fb65d'); ?>
 <div class="modal fade" id="cancelBookingPolicyModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow">
     <div class="modal-header">

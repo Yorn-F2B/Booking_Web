@@ -37,7 +37,7 @@ use App\Services\HotelPolicyService;
 
 class BookingCreateController extends Controller
 {
-    public function create()
+    public function create(Request $request)
     {
         $roomCategories = RoomCategory::where('status', 'active')
             ->orderBy('name')
@@ -57,7 +57,34 @@ class BookingCreateController extends Controller
             ->orderBy('code')
             ->get();
 
-        return view('admin.pages.bookings.create', compact('roomCategories', 'services', 'availablePromotions'));
+        $queryMode = (string) $request->query('booking_mode', 'advance');
+        $queryType = (string) $request->query('booking_type', 'overnight');
+        $queryCategoryId = (int) $request->query('room_category_id', 0);
+
+        $bookingPrefill = [
+            'booking_mode' => in_array($queryMode, ['advance', 'walk_in'], true) ? $queryMode : 'advance',
+            'booking_type' => in_array($queryType, ['overnight', 'hourly'], true) ? $queryType : 'overnight',
+            'room_category_id' => $roomCategories->contains('id', $queryCategoryId) ? $queryCategoryId : null,
+            'check_in_date' => $this->safePrefillDate($request->query('check_in_date')),
+            'check_out_date' => $this->safePrefillDate($request->query('check_out_date')),
+            'check_in_time' => $this->safePrefillTime($request->query('check_in_time'))
+                ?? now('Asia/Ho_Chi_Minh')->format('H:i'),
+            'check_out_time' => $this->safePrefillTime($request->query('check_out_time')),
+        ];
+
+        // The backend never supports an advance hourly booking. Keep a crafted
+        // query string from putting the form into a state that store() will
+        // normalize differently.
+        if ($bookingPrefill['booking_mode'] === 'advance') {
+            $bookingPrefill['booking_type'] = 'overnight';
+        }
+
+        return view('admin.pages.bookings.create', compact(
+            'roomCategories',
+            'services',
+            'availablePromotions',
+            'bookingPrefill'
+        ));
     }
 
 
@@ -149,6 +176,10 @@ class BookingCreateController extends Controller
             'child_count' => 'nullable|integer|min:0',
             'room_quantity' => 'required|integer|min:1',
             'prefer_adjacent_rooms' => 'nullable|boolean',
+            'room_selection_mode' => 'required|in:automatic,manual',
+            'room_selection_request' => 'nullable|required_if:room_selection_mode,manual|string|min:5|max:1000',
+            'manual_room_ids' => 'nullable|array',
+            'manual_room_ids.*' => 'integer|distinct|exists:rooms,id',
 
             'deposit_amount' => 'nullable|numeric|min:0',
             'payment_method' => 'required|in:cash,bank_transfer,vnpay',
@@ -183,6 +214,11 @@ class BookingCreateController extends Controller
             'check_out_time.date_format' => 'Giờ trả phòng phải đúng định dạng 24 giờ, ví dụ 16:30 hoặc 18:00.',
             'adult_count.required' => 'Vui lòng nhập số người lớn.',
             'room_quantity.required' => 'Vui lòng nhập số phòng.',
+            'room_selection_mode.required' => 'Vui lòng chọn cách phân phòng.',
+            'room_selection_mode.in' => 'Cách phân phòng không hợp lệ.',
+            'room_selection_request.required_if' => 'Vui lòng ghi yêu cầu phòng khi chọn phân phòng theo yêu cầu.',
+            'room_selection_request.min' => 'Yêu cầu phòng cần có ít nhất 5 ký tự.',
+            'manual_room_ids.*.distinct' => 'Danh sách phòng chọn thủ công bị trùng.',
             'payment_method.required' => 'Vui lòng chọn phương thức thanh toán.',
             'payment_method.in' => 'Phương thức thanh toán không hợp lệ.',
             'payment_type.in' => 'Kiểu thanh toán không hợp lệ.',
@@ -191,6 +227,13 @@ class BookingCreateController extends Controller
 
         $roomCategory = RoomCategory::findOrFail($data['room_category_id']);
         $roomQuantity = (int) $data['room_quantity'];
+
+        $this->assertGuestCapacity(
+            (int) $data['adult_count'],
+            (int) ($data['child_count'] ?? 0),
+            max(0, (int) $roomCategory->adult_capacity) * max(1, $roomQuantity),
+            max(0, (int) $roomCategory->child_capacity) * max(1, $roomQuantity)
+        );
 
         try {
             $period = $this->resolveBookingPeriod($data, $roomCategory, $roomQuantity);
@@ -212,6 +255,21 @@ class BookingCreateController extends Controller
         $data['booking_mode'] = $bookingMode;
         $data['booking_type'] = $bookingType;
         $data['check_out_date'] = $checkOutAt->toDateString();
+
+        $roomSelectionMode = (string) ($data['room_selection_mode'] ?? 'automatic');
+        $manualRoomIds = collect($data['manual_room_ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+        $manualRoomSelectionFulfilled = false;
+
+        if ($roomSelectionMode === 'manual' && $manualRoomIds->isNotEmpty() && $manualRoomIds->count() !== $roomQuantity) {
+            return back()->withInput()->with(
+                'error',
+                'Nếu chọn phòng cụ thể ngay khi tạo đơn, vui lòng chọn đúng ' . $roomQuantity . ' phòng.'
+            );
+        }
 
         $preferAdjacentRooms = $bookingType === 'overnight'
             && $request->boolean('prefer_adjacent_rooms')
@@ -235,7 +293,23 @@ class BookingCreateController extends Controller
             );
         }
 
-        if ($preferAdjacentRooms) {
+        if ($roomSelectionMode === 'manual' && $manualRoomIds->isNotEmpty()) {
+            $availableRooms = Room::query()
+                ->whereIn('id', $manualRoomIds->all())
+                ->where('room_category_id', $data['room_category_id'])
+                ->bookableForPeriod($checkInAt, $checkOutAt)
+                ->with('category')
+                ->get();
+
+            if ($availableRooms->count() !== $roomQuantity) {
+                return back()->withInput()->with(
+                    'error',
+                    'Một hoặc nhiều phòng chọn thủ công không còn phù hợp với hạng/thời gian booking. Vui lòng tải lại danh sách phòng.'
+                );
+            }
+
+            $manualRoomSelectionFulfilled = true;
+        } elseif ($preferAdjacentRooms) {
             $availableRooms = $this->getAdjacentRooms(
                 $data['room_category_id'],
                 $roomQuantity,
@@ -436,7 +510,11 @@ class BookingCreateController extends Controller
                 $promotionResult['auto_service_items'] ?? []
             );
 
-            $subtotalAmount = (float) $promotionResult['subtotal_amount'];
+            $manualRoomSelectionFee = $manualRoomSelectionFulfilled
+                ? round(max(0, (float) app(HotelPolicyService::class)->get('booking.manual_room_selection_fee', 50000)) * $roomQuantity, 0)
+                : 0;
+
+            $subtotalAmount = (float) $promotionResult['subtotal_amount'] + $manualRoomSelectionFee;
             $moneyDiscountAmount = (float) ($promotionResult['money_discount_total'] ?? 0);
             $serviceDiscountAmount = (float) ($promotionResult['service_discount_total'] ?? 0);
             $roomUpgradeDiscountAmount = (float) ($promotionResult['room_upgrade_discount_total'] ?? 0);
@@ -483,6 +561,16 @@ class BookingCreateController extends Controller
                 'child_count' => $data['child_count'] ?? 0,
                 'room_quantity' => $roomQuantity,
                 'prefer_adjacent_rooms' => $preferAdjacentRooms,
+                'room_selection_mode' => $roomSelectionMode,
+                'room_selection_request' => $roomSelectionMode === 'manual'
+                    ? trim((string) ($data['room_selection_request'] ?? ''))
+                    : null,
+                'room_selection_status' => $roomSelectionMode === 'manual'
+                    ? ($manualRoomSelectionFulfilled ? 'fulfilled' : 'pending')
+                    : 'not_required',
+                'room_selection_fee' => $manualRoomSelectionFee,
+                'room_selection_handled_by' => $manualRoomSelectionFulfilled ? Auth::id() : null,
+                'room_selection_handled_at' => $manualRoomSelectionFulfilled ? now('Asia/Ho_Chi_Minh') : null,
                 'subtotal_amount' => $subtotalAmount,
                 'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
@@ -513,12 +601,8 @@ class BookingCreateController extends Controller
                 app(\App\Services\RoomPreparationService::class)
                     ->flagPriorityIfNeeded($booking, $room, 'lễ tân tạo booking');
 
-                if (!in_array($room->status, ['cleaning', 'inspection', 'maintenance'], true)) {
-                    $room->update([
-                        'status' => 'reserved',
-                        'status_from' => now('Asia/Ho_Chi_Minh'),
-                    ]);
-                }
+                // booking_rooms giữ lịch phòng theo khoảng thời gian. Booking chưa check-in
+                // không được ghi đè trạng thái vận hành hiện tại của phòng.
             }
 
             foreach ($serviceItems as $item) {
@@ -577,6 +661,18 @@ class BookingCreateController extends Controller
                 . ($discountAmount > 0 ? '. Ưu đãi giảm: ' . number_format($discountAmount, 0, ',', '.') . 'đ' : '')
                 . '. Tổng tiền tạm tính: ' . number_format($estimatedTotal, 0, ',', '.') . 'đ.'
             );
+
+            if ($roomSelectionMode === 'manual') {
+                $this->addBookingLog(
+                    $booking,
+                    $manualRoomSelectionFulfilled ? 'manual_room_selection_fulfilled' : 'manual_room_selection_requested',
+                    $manualRoomSelectionFulfilled
+                        ? 'Lễ tân đã chọn phòng theo yêu cầu ngay khi tạo đơn: ' . $roomNumbers
+                            . '. Phí đảm bảo yêu cầu phòng: ' . number_format($manualRoomSelectionFee, 0, ',', '.') . 'đ.'
+                        : 'Khách có yêu cầu chọn phòng thủ công: ' . trim((string) ($data['room_selection_request'] ?? ''))
+                            . '. Hệ thống đã giữ phòng dự phòng; chờ lễ tân chọn lại phòng và chỉ thu phí khi đáp ứng được.'
+                );
+            }
 
             if (in_array($paymentMethod, ['cash', 'bank_transfer'], true) && $initialPaymentAmount > 0) {
                 $this->recordInitialDirectPayment($booking, $paymentMethod, $paymentType, $initialPaymentAmount, $estimatedTotal);
@@ -879,6 +975,49 @@ class BookingCreateController extends Controller
         } while (BookingPayment::where('txn_ref', $txnRef)->exists());
 
         return $txnRef;
+    }
+
+    private function safePrefillDate(mixed $value): ?string
+    {
+        $value = is_string($value) ? trim($value) : '';
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return null;
+        }
+
+        try {
+            $date = Carbon::createFromFormat('Y-m-d', $value, 'Asia/Ho_Chi_Minh');
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $date && $date->format('Y-m-d') === $value ? $value : null;
+    }
+
+    private function safePrefillTime(mixed $value): ?string
+    {
+        $value = is_string($value) ? trim($value) : '';
+
+        return preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $value) ? $value : null;
+    }
+
+    private function assertGuestCapacity(int $adultCount, int $childCount, int $maxAdults, int $maxChildren): void
+    {
+        $errors = [];
+
+        if ($adultCount > $maxAdults) {
+            $errors['adult_count'] = 'Số người lớn vượt sức chứa của số phòng đã chọn (tối đa '
+                . $maxAdults . ' người lớn).';
+        }
+
+        if ($childCount > $maxChildren) {
+            $errors['child_count'] = 'Số trẻ em vượt sức chứa của số phòng đã chọn (tối đa '
+                . $maxChildren . ' trẻ em).';
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
     }
 
     private function resolveBookingPeriod(array $data, RoomCategory $roomCategory, int $roomQuantity): array
@@ -1862,6 +2001,13 @@ class BookingCreateController extends Controller
                 ->with('error', 'Một số phòng không tồn tại.');
         }
 
+        $this->assertGuestCapacity(
+            (int) $validated['adult_count'],
+            (int) ($validated['child_count'] ?? 0),
+            (int) $rooms->sum(fn ($room) => max(0, (int) ($room->category?->adult_capacity ?? 0))),
+            (int) $rooms->sum(fn ($room) => max(0, (int) ($room->category?->child_capacity ?? 0)))
+        );
+
         $roomQuantity = count($selectedRoomIds);
 
         $data = [
@@ -1870,7 +2016,7 @@ class BookingCreateController extends Controller
             'check_in_date' => $request->check_in_date,
             'check_out_date' => $request->check_out_date,
             'check_in_time' => $request->check_in_time,
-            'hourly_duration' => $request->hourly_duration,
+            'check_out_time' => $request->check_out_time,
         ];
 
         try {
@@ -1888,6 +2034,13 @@ class BookingCreateController extends Controller
         $nightCount = $period['night_count'];
         $policyExtraPercent = $period['policy_extra_percent'];
         $policyFeeNote = $period['policy_fee_note'];
+
+        if ($bookingType === 'hourly') {
+            return redirect()
+                ->route('admin.bookings.create')
+                ->withInput()
+                ->with('error', 'Booking theo giờ không dùng phương án ghép hạng phòng. Vui lòng tra cứu lại phòng trống trong đúng khung giờ.');
+        }
 
         $availableRoomIds = Room::whereIn('id', $selectedRoomIds)
             ->bookableForPeriod($checkInAt, $checkOutAt)
@@ -2070,12 +2223,8 @@ class BookingCreateController extends Controller
                 app(\App\Services\RoomPreparationService::class)
                     ->flagPriorityIfNeeded($booking, $room, 'lễ tân tạo booking');
 
-                if (!in_array($room->status, ['cleaning', 'inspection', 'maintenance'], true)) {
-                    $room->update([
-                        'status' => 'reserved',
-                        'status_from' => now('Asia/Ho_Chi_Minh'),
-                    ]);
-                }
+                // booking_rooms giữ lịch phòng theo khoảng thời gian. Booking chưa check-in
+                // không được ghi đè trạng thái vận hành hiện tại của phòng.
             }
 
             foreach ($serviceItems as $item) {
@@ -2382,6 +2531,51 @@ class BookingCreateController extends Controller
             'categories' => $categories,
             'check_in_at' => $checkInAt->format('d/m/Y H:i'),
             'check_out_at' => $checkOutAt->format('d/m/Y H:i'),
+        ]);
+    }
+
+    public function manualRoomOptions(Request $request)
+    {
+        $data = $request->validate([
+            'booking_mode' => 'required|in:advance,walk_in',
+            'booking_type' => 'required|in:overnight,hourly',
+            'room_category_id' => 'required|exists:room_categories,id',
+            'room_quantity' => 'required|integer|min:1|max:20',
+            'check_in_date' => 'required|date|after_or_equal:today',
+            'check_out_date' => 'nullable|date',
+            'check_in_time' => 'nullable|date_format:H:i',
+            'check_out_time' => 'nullable|date_format:H:i',
+        ]);
+
+        $roomCategory = RoomCategory::findOrFail($data['room_category_id']);
+
+        try {
+            $period = $this->resolveBookingPeriod($data, $roomCategory, (int) $data['room_quantity']);
+        } catch (\Throwable $e) {
+            return response()->json(['rooms' => [], 'message' => $e->getMessage()], 422);
+        }
+
+        $rooms = Room::query()
+            ->where('room_category_id', $roomCategory->id)
+            ->bookableForPeriod($period['check_in_at'], $period['check_out_at'])
+            ->with('category:id,name')
+            ->orderBy('floor_number')
+            ->orderBy('room_number')
+            ->get()
+            ->map(fn (Room $room) => [
+                'id' => (int) $room->id,
+                'room_number' => $room->room_number,
+                'floor_number' => $room->floor_number,
+                'status' => $room->status,
+                'category_name' => $room->category?->name,
+            ])
+            ->values();
+
+        return response()->json([
+            'rooms' => $rooms,
+            'required_quantity' => (int) $data['room_quantity'],
+            'check_in_at' => $period['check_in_at']->format('d/m/Y H:i'),
+            'check_out_at' => $period['check_out_at']->format('d/m/Y H:i'),
         ]);
     }
 

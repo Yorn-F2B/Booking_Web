@@ -114,6 +114,7 @@ class HotelPolicyController extends Controller
             'booking.min_age' => [16, 100],
             'booking.cleaning_buffer_minutes' => [0, 1440],
             'booking.hourly_cancel_grace_minutes' => [0, 1440],
+            'booking.manual_room_selection_fee' => [0, 10000000],
             'payment.vnpay_expire_minutes' => [5, 10080],
             'payment.admin_vnpay_expire_minutes' => [5, 43200],
             'stay.late_checkout_free_minutes' => [0, 180],

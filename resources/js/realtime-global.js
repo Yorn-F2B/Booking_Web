@@ -17,7 +17,37 @@ document.addEventListener('DOMContentLoaded', () => {
         dirty = false;
     });
 
-    const scheduleRefresh = () => {
+    const scheduleRefresh = (payload = null) => {
+        // Chat có kênh realtime riêng. Không fetch lại toàn bộ HTML / reload / toast
+        // chỉ vì tin nhắn, assignment hoặc conversation thay đổi. Chỉ lấy đúng số
+        // unread nhỏ cho badge menu.
+        const realtimeResource = payload && typeof payload === 'object' ? payload.resource : null;
+        const chatOnlyResources = [
+            'chat_message',
+            'chat_conversation',
+            'chat_assignment_log',
+            'chat_attachment',
+            'chat_staff_presence',
+        ];
+
+        // Chat/presence được cập nhật cục bộ. Không được reload cả trang chỉ vì
+        // heartbeat, tin nhắn hoặc lịch sử phân chat thay đổi.
+        if (chatOnlyResources.includes(realtimeResource)) {
+            refreshChatUnreadBadge();
+            return;
+        }
+
+        // Việc tự cân bằng booking + chat có thể thay owner nhưng không phải lý do
+        // để reload form đang làm. Booking List có fragment refresh riêng.
+        if (realtimeResource === 'booking_staff_assignment') {
+            refreshChatUnreadBadge();
+            refreshMenuBadges();
+            if (isSpecializedBookingIndex()) {
+                window.dispatchEvent(new CustomEvent('booking-index:refresh-requested'));
+            }
+            return;
+        }
+
         refreshMenuBadges();
 
         // Danh sách booking có refresh fragment riêng: không full reload làm mất filter/scroll.
@@ -33,7 +63,9 @@ document.addEventListener('DOMContentLoaded', () => {
         clearTimeout(refreshTimer);
         refreshTimer = setTimeout(() => {
             if (mustRefreshManually(dirty)) {
-                showRefreshButton();
+                // Không chen toast "Có dữ liệu mới" vào lúc người dùng đang nhập
+                // và tuyệt đối không reload làm mất dữ liệu form. Lần thao tác kế
+                // tiếp/backend vẫn revalidate dữ liệu trước khi ghi.
                 return;
             }
 
@@ -51,15 +83,20 @@ document.addEventListener('DOMContentLoaded', () => {
         hiddenAt = null;
         refreshMenuBadges();
 
-        // Sau khi quay lại tab đủ lâu, chủ động đồng bộ state để bù event có thể bỏ lỡ lúc reconnect.
-        if (hiddenFor >= 30000) {
-            scheduleRefresh();
+        // Echo/Reverb tự reconnect. Khi quay lại tab chỉ đồng bộ các badge/fragment
+        // nhỏ; không reload cả trang chỉ vì tab từng bị ẩn, tránh mất vị trí/biểu mẫu.
+        if (hiddenFor >= 30000 && isSpecializedBookingIndex()) {
+            window.dispatchEvent(new CustomEvent('booking-index:refresh-requested'));
         }
     });
 
     window.addEventListener('online', () => {
-        // Echo/Reverb tự reconnect; đồng bộ lại dữ liệu sau khi mạng trở lại.
-        scheduleRefresh();
+        // Sau khi mạng trở lại, Reverb tự reconnect. Chỉ làm mới dữ liệu phụ trợ;
+        // event nghiệp vụ thật sẽ tự quyết định fragment nào cần cập nhật.
+        refreshMenuBadges();
+        if (isSpecializedBookingIndex()) {
+            window.dispatchEvent(new CustomEvent('booking-index:refresh-requested'));
+        }
     });
 
     if (document.body.classList.contains('admin-page')) {
@@ -78,6 +115,41 @@ document.addEventListener('DOMContentLoaded', () => {
         window.addEventListener('customer-booking:updated', scheduleRefresh);
     }
 });
+
+let chatBadgeRefreshing = false;
+
+async function refreshChatUnreadBadge() {
+    if (chatBadgeRefreshing || !document.body.classList.contains('admin-page')) return;
+
+    const badge = document.querySelector('[data-realtime-menu-count="unread-chats"]');
+    const url = badge?.dataset.chatUnreadUrl;
+    if (!badge || !url) return;
+
+    chatBadgeRefreshing = true;
+    try {
+        const response = await fetch(url, {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            cache: 'no-store',
+            credentials: 'same-origin',
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        const count = Math.max(0, Number.parseInt(payload.count, 10) || 0);
+        const previous = Math.max(0, Number.parseInt(badge.textContent, 10) || 0);
+        badge.textContent = count > 99 ? '99+' : String(count);
+        badge.hidden = count < 1;
+        if (count > previous) {
+            badge.animate(
+                [{ transform: 'scale(.8)' }, { transform: 'scale(1.2)' }, { transform: 'scale(1)' }],
+                { duration: 420, easing: 'ease-out' },
+            );
+        }
+    } catch (error) {
+        console.debug('Không thể cập nhật badge chat.', error);
+    } finally {
+        chatBadgeRefreshing = false;
+    }
+}
 
 let menuBadgeRefreshing = false;
 
@@ -146,36 +218,3 @@ function mustRefreshManually(dirty) {
 function isSpecializedBookingIndex() {
     return window.location.pathname.replace(/\/+$/, '') === '/admin/bookings';
 }
-
-function showRefreshButton() {
-    if (document.querySelector('[data-realtime-refresh-pending]')) return;
-
-    const marker = document.createElement('span');
-    marker.dataset.realtimeRefreshPending = 'true';
-    marker.hidden = true;
-    document.body.appendChild(marker);
-
-    const options = {
-        title: 'Có dữ liệu mới',
-        duration: 9000,
-        actionLabel: 'Cập nhật',
-        onAction: () => window.location.reload(),
-    };
-
-    const done = () => window.setTimeout(() => marker.remove(), 9500);
-
-    if (window.AppToast && typeof window.AppToast.info === 'function') {
-        window.AppToast.info('Trang có dữ liệu mới. Bạn có thể cập nhật sau khi hoàn tất nội dung đang nhập.', options);
-        done();
-        return;
-    }
-
-    window.__appToastQueue = window.__appToastQueue || [];
-    window.__appToastQueue.push({
-        message: 'Trang có dữ liệu mới. Bạn có thể cập nhật sau khi hoàn tất nội dung đang nhập.',
-        type: 'info',
-        options,
-    });
-    done();
-}
-
