@@ -5,7 +5,7 @@
     <?php
         $policyService = app(\App\Services\HotelPolicyService::class);
         $minBookingAge = max(0, (int) $policyService->get('booking.min_age', 18));
-        $depositPercent = max(0, min(100, (float) $policyService->get('payment.deposit_percent', 30)));
+        $depositPercent = max(0, min(100, (float) $policyService->depositPercentForRooms((int) ($bookingData['room_quantity'] ?? 1))));
         $depositRate = $depositPercent / 100;
         $standardCheckInTime = (string) $policyService->get('stay.standard_check_in_time', '14:00');
         $standardCheckOutTime = (string) $policyService->get('stay.standard_check_out_time', '12:00');
@@ -115,7 +115,26 @@
                 <input type="hidden" name="check_out_date" value="<?php echo e($bookingData['check_out_date']); ?>">
                 <input type="hidden" name="adult_count" value="<?php echo e($bookingData['adult_count']); ?>">
                 <input type="hidden" name="child_count" value="<?php echo e($bookingData['child_count'] ?? 0); ?>">
+                <input type="hidden" name="baby_count" value="<?php echo e($bookingData['baby_count'] ?? 0); ?>">
+                <input type="hidden" name="room_quantity" value="<?php echo e($bookingData['room_quantity'] ?? 1); ?>">
                 <input type="hidden" name="note" value="<?php echo e($bookingData['note'] ?? ''); ?>">
+
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <div><h2 class="h5 fw-bold mb-1">Thông tin lưu trú</h2><div class="small text-muted">Có thể chỉnh ngay tại bước xác nhận; hệ thống sẽ kiểm tra lại tồn phòng và tính lại giá trước khi đặt.</div></div>
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="recheckBookingOption"><i class="bx bx-refresh me-1"></i>Cập nhật phương án</button>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-3"><label class="form-label">Nhận phòng</label><input id="editBookingCheckIn" type="date" class="form-control" value="<?php echo e($bookingData['check_in_date']); ?>"></div>
+                            <div class="col-md-3"><label class="form-label">Trả phòng</label><input id="editBookingCheckOut" type="date" class="form-control" value="<?php echo e($bookingData['check_out_date']); ?>"></div>
+                            <div class="col-md-2"><label class="form-label">Người lớn</label><input id="editBookingAdults" type="number" min="1" max="<?php echo e((int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_guests',60)); ?>" class="form-control" value="<?php echo e($bookingData['adult_count']); ?>"></div>
+                            <div class="col-md-2"><label class="form-label">Trẻ em</label><input id="editBookingChildren" type="number" min="0" max="<?php echo e((int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_guests',60)); ?>" class="form-control" value="<?php echo e($bookingData['child_count'] ?? 0); ?>"></div>
+                            <div class="col-md-2"><label class="form-label">Em bé</label><input id="editBookingBabies" type="number" min="0" max="<?php echo e((int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_guests',60)); ?>" class="form-control" value="<?php echo e($bookingData['baby_count'] ?? 0); ?>"></div>
+                            <div class="col-md-2"><label class="form-label">Số phòng</label><input id="editBookingRooms" type="number" min="1" max="<?php echo e((int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_rooms',30)); ?>" class="form-control" value="<?php echo e($bookingData['room_quantity'] ?? 1); ?>"></div>
+                        </div>
+                    </div>
+                </div>
 
                 <div class="row g-4">
 
@@ -293,7 +312,7 @@ unset($__errorArgs, $__bag); ?>
                             <div class="card-body">
                                 <h2 class="h5 fw-bold mb-2">Cách khách sạn phân phòng</h2>
                                 <p class="text-muted small mb-3">
-                                    Hệ thống luôn giữ một phòng phù hợp để tránh hết phòng. Nếu chọn theo yêu cầu, lễ tân sẽ đọc nội dung và chọn lại phòng nếu đáp ứng được.
+                                    Hệ thống giữ đủ số phòng theo booking để tránh hết phòng. Nếu chọn theo yêu cầu, lễ tân sẽ đọc nội dung và chọn lại các phòng nếu đáp ứng được.
                                 </p>
 
                                 <div class="d-grid gap-2">
@@ -302,7 +321,7 @@ unset($__errorArgs, $__bag); ?>
                                             <?php if(old('room_selection_mode', 'automatic') === 'automatic'): echo 'checked'; endif; ?>>
                                         <span>
                                             <strong>Hệ thống tự chọn phòng</strong>
-                                            <span class="d-block text-muted small">Miễn phí. Hệ thống tự chọn một phòng đang khả dụng.</span>
+                                            <span class="d-block text-muted small">Miễn phí. Hệ thống tự chọn đủ số phòng đang khả dụng cho booking.</span>
                                         </span>
                                     </label>
 
@@ -456,11 +475,15 @@ unset($__errorArgs, $__bag); ?>
                                     Mã ghi “chỉ dùng một mình” không thể chọn cùng mã khác. Mã hỗ trợ chỉ do khách sạn áp dụng.
                                 </p>
 
-                                <?php if(($availablePromotions ?? collect())->count() > 0): ?>
+                                <?php
+                                    $eligiblePromotionCodes = ($availablePromotions ?? collect())->pluck('code')->map(fn ($code) => (string) $code)->all();
+                                    $promotionCatalog = $promotionCatalog ?? ($availablePromotions ?? collect());
+                                ?>
+                                <?php if(($promotionCatalog ?? collect())->count() > 0): ?>
                                     <details class="promotion-collapsible" <?php echo e(!empty(old('promotion_codes', [])) ? 'open' : ''); ?>>
                                         <summary>
                                             <span>
-                                                Có <?php echo e(($availablePromotions ?? collect())->count()); ?> mã phù hợp
+                                                Có <span id="eligiblePromotionCount"><?php echo e(count($eligiblePromotionCodes)); ?></span> mã phù hợp
                                                 <span class="promotion-selected-hint d-block" id="selectedPromotionCountText">
                                                     Chưa chọn mã nào
                                                 </span>
@@ -470,7 +493,7 @@ unset($__errorArgs, $__bag); ?>
 
                                         <div class="promotion-collapsible-body">
                                             <div class="promotion-list">
-                                                <?php $__currentLoopData = $availablePromotions; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $promotion): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                                <?php $__currentLoopData = $promotionCatalog; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $promotion): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                                                     <?php
                                                         $promotionTypeLabel = match ($promotion->promotion_type) {
                                                             'normal_discount' => 'Mã thường',
@@ -508,9 +531,10 @@ unset($__errorArgs, $__bag); ?>
                                                                 'auto_add_service' => (bool) $offer->auto_add_service,
                                                             ];
                                                         })->values()->toArray();
+                                                        $promotionInitiallyEligible = in_array((string) $promotion->code, $eligiblePromotionCodes, true);
                                                     ?>
 
-                                                    <label class="promotion-card mb-0">
+                                                    <label class="promotion-card mb-0 <?php echo e($promotionInitiallyEligible ? '' : 'd-none'); ?>" data-promotion-card data-code="<?php echo e($promotion->code); ?>">
                                                         <div class="form-check">
                                                             <input type="checkbox"
                                                                 name="promotion_codes[]"
@@ -523,7 +547,8 @@ unset($__errorArgs, $__bag); ?>
                                                                 data-discount-value="<?php echo e((float) $promotion->discount_value); ?>"
                                                                 data-max-discount="<?php echo e((float) $promotion->max_discount_amount); ?>"
                                                                 data-service-offers='<?php echo json_encode($promotionServiceOffersJson, 15, 512) ?>'
-                                                                <?php if(in_array($promotion->code, old('promotion_codes', []))): echo 'checked'; endif; ?>>
+                                                                <?php if(!$promotionInitiallyEligible): echo 'disabled'; endif; ?>
+                                                                <?php if($promotionInitiallyEligible && in_array($promotion->code, old('promotion_codes', []))): echo 'checked'; endif; ?>>
 
                                                             <div class="ms-1">
                                                                 <div class="d-flex justify-content-between align-items-start gap-2">
@@ -562,7 +587,7 @@ unset($__errorArgs, $__bag); ?>
                                         </div>
                                     </details>
                                 <?php else: ?>
-                                    <div class="alert alert-light border mb-0">
+                                    <div class="alert alert-light border mb-0" id="promotionEmptyState">
                                         Hiện chưa có mã ưu đãi phù hợp với đơn này.
                                     </div>
                                 <?php endif; ?>
@@ -653,7 +678,8 @@ unset($__errorArgs, $__bag); ?>
                                     </div>
                                     <div class="fw-bold">
                                         <?php echo e($bookingData['adult_count']); ?> người lớn,
-                                        <?php echo e($bookingData['child_count'] ?? 0); ?> trẻ em
+                                        <?php echo e($bookingData['child_count'] ?? 0); ?> trẻ em,
+                                        <?php echo e($bookingData['baby_count'] ?? 0); ?> em bé
                                     </div>
                                 </div>
 
@@ -662,7 +688,7 @@ unset($__errorArgs, $__bag); ?>
                                         Số phòng
                                     </div>
                                     <div class="fw-bold">
-                                        1 phòng
+                                        <?php echo e((int) ($bookingData['room_quantity'] ?? 1)); ?> phòng
                                     </div>
                                 </div>
 
@@ -717,7 +743,7 @@ unset($__errorArgs, $__bag); ?>
                                     </div>
                                 </div>
 
-                                <button type="submit" class="btn btn-primary w-100 py-2">
+                                <button type="submit" id="finalBookingSubmit" class="btn btn-primary w-100 py-2">
                                     <i class="bx bx-check-circle me-1"></i>
                                     Thanh toán
                                 </button>
@@ -727,13 +753,14 @@ unset($__errorArgs, $__bag); ?>
         'check_out_date' => $bookingData['check_out_date'],
         'adult_count' => $bookingData['adult_count'],
         'child_count' => $bookingData['child_count'] ?? 0,
+        'baby_count' => $bookingData['baby_count'] ?? 0,
         'room_category_id' => $roomCategory->id,
     ])); ?>" class="btn btn-outline-secondary w-100 mt-2">
                                     Quay lại danh sách phòng
                                 </a>
 
                                 <p class="small text-muted mt-3 mb-0">
-                                    Nếu cần đặt nhiều phòng hoặc khách đoàn, vui lòng liên hệ hotline/lễ tân để được hỗ trợ.
+                                    Booking nhiều phòng đã được hỗ trợ trực tuyến. Hệ thống sẽ kiểm tra lại tồn phòng, sức chứa và mức cọc trước khi tạo đơn.
                                 </p>
 
                             </div>
@@ -787,8 +814,8 @@ unset($__errorArgs, $__bag); ?>
 
             const selectedServices = new Map();
             const bookingNightCount = Math.max(1, <?php echo e((int) $nightCount); ?>);
-            const bookingRoomCount = 1;
-            const bookingGuestCount = Math.max(1, <?php echo e((int) $bookingData['adult_count'] + (int) ($bookingData['child_count'] ?? 0)); ?>);
+            const bookingRoomCount = Math.max(1, <?php echo e((int) ($bookingData['room_quantity'] ?? 1)); ?>);
+            const bookingGuestCount = Math.max(1, <?php echo e((int) $bookingData['adult_count'] + (int) ($bookingData['child_count'] ?? 0) + (int) ($bookingData['baby_count'] ?? 0)); ?>);
 
             function serviceMultiplier(billingRule) {
                 if (billingRule === 'per_night') return bookingNightCount;
@@ -1193,10 +1220,96 @@ unset($__errorArgs, $__bag); ?>
                 checkbox.addEventListener('change', updateSelectedPromotionCountText);
             });
 
+            let promotionRefreshTimer = null;
+            async function refreshPromotionEligibility() {
+                const cccdInput = document.querySelector('input[name="cccd"]');
+                const csrf = document.querySelector('input[name="_token"]')?.value;
+                if (!csrf) return;
+
+                const body = new URLSearchParams({
+                    _token: csrf,
+                    room_category_id: <?php echo json_encode($bookingData['room_category_id'], 15, 512) ?>,
+                    check_in_date: document.querySelector('input[name="check_in_date"]')?.value || <?php echo json_encode($bookingData['check_in_date'], 15, 512) ?>,
+                    check_out_date: document.querySelector('input[name="check_out_date"]')?.value || <?php echo json_encode($bookingData['check_out_date'], 15, 512) ?>,
+                    adult_count: document.querySelector('input[name="adult_count"]')?.value || <?php echo json_encode($bookingData['adult_count'], 15, 512) ?>,
+                    child_count: document.querySelector('input[name="child_count"]')?.value || <?php echo json_encode($bookingData['child_count'] ?? 0, 15, 512) ?>,
+                    baby_count: document.querySelector('input[name="baby_count"]')?.value || <?php echo json_encode($bookingData['baby_count'] ?? 0, 15, 512) ?>,
+                    room_quantity: document.querySelector('input[name="room_quantity"]')?.value || <?php echo json_encode($bookingData['room_quantity'] ?? 1, 15, 512) ?>,
+                    customer_cccd: (cccdInput?.value || '').replace(/\D/g, '')
+                });
+
+                try {
+                    const response = await fetch(<?php echo json_encode(route('bookings.eligible-promotions'), 15, 512) ?>, {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+                        },
+                        body: body.toString()
+                    });
+                    if (!response.ok) return;
+                    const payload = await response.json();
+                    const eligible = new Set((payload.codes || []).map(String));
+                    document.querySelectorAll('[data-promotion-card]').forEach(function (card) {
+                        const code = String(card.dataset.code || '');
+                        const checkbox = card.querySelector('.promotion-check');
+                        const allowed = eligible.has(code);
+                        card.classList.toggle('d-none', !allowed);
+                        if (checkbox) {
+                            checkbox.disabled = !allowed;
+                            if (!allowed && checkbox.checked) checkbox.checked = false;
+                        }
+                    });
+                    const count = document.getElementById('eligiblePromotionCount');
+                    if (count) count.textContent = String(eligible.size);
+                    updateSelectedPromotionCountText();
+                    renderSelectedServices();
+                } catch (error) {
+                    console.debug('Không thể làm mới mã ưu đãi theo CCCD.', error);
+                }
+            }
+
+            const cccdPromotionInput = document.querySelector('input[name="cccd"]');
+            cccdPromotionInput?.addEventListener('input', function () {
+                clearTimeout(promotionRefreshTimer);
+                promotionRefreshTimer = setTimeout(refreshPromotionEligibility, 450);
+            });
+
         });
     </script>
 
 <?php echo $__env->make('partials.cccd-scanner-script', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+<script>
+const bookingOptionInputs = ['editBookingCheckIn','editBookingCheckOut','editBookingAdults','editBookingChildren','editBookingBabies','editBookingRooms']
+    .map(id => document.getElementById(id)).filter(Boolean);
+const finalBookingSubmit = document.getElementById('finalBookingSubmit');
+const initialBookingOption = bookingOptionInputs.map(input => input.value).join('|');
+function syncBookingOptionDirtyState() {
+    const dirty = bookingOptionInputs.map(input => input.value).join('|') !== initialBookingOption;
+    if (finalBookingSubmit) {
+        finalBookingSubmit.disabled = dirty;
+        finalBookingSubmit.title = dirty ? 'Hãy bấm Cập nhật phương án để kiểm tra lại tồn phòng và giá.' : '';
+    }
+    document.getElementById('recheckBookingOption')?.classList.toggle('btn-warning', dirty);
+}
+bookingOptionInputs.forEach(input => input.addEventListener('input', syncBookingOptionDirtyState));
+syncBookingOptionDirtyState();
+
+document.getElementById('recheckBookingOption')?.addEventListener('click', function () {
+    const params = new URLSearchParams({
+        room_category_id: <?php echo json_encode($bookingData['room_category_id'], 15, 512) ?>,
+        check_in_date: document.getElementById('editBookingCheckIn').value,
+        check_out_date: document.getElementById('editBookingCheckOut').value,
+        adult_count: document.getElementById('editBookingAdults').value,
+        child_count: document.getElementById('editBookingChildren').value,
+        baby_count: document.getElementById('editBookingBabies').value,
+        room_quantity: document.getElementById('editBookingRooms').value,
+        note: <?php echo json_encode($bookingData['note'] ?? '', 15, 512) ?>
+    });
+    window.location.href = <?php echo json_encode(route('bookings.confirm'), 15, 512) ?> + '?' + params.toString();
+});
+</script>
+
 <?php $__env->stopSection(); ?>
 
 <?php echo $__env->make('layouts.user', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH C:\xampp\htdocs\booking-web\resources\views/user/pages/booking-confirm.blade.php ENDPATH**/ ?>

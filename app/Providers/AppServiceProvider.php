@@ -42,6 +42,7 @@ use App\Observers\BookingObserver;
 use App\Observers\ChatMessageObserver;
 use App\Observers\RoomInspectionObserver;
 use App\Observers\RoomObserver;
+use App\Services\HotelPolicyService;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Pagination\Paginator;
 
@@ -49,7 +50,9 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        // Một request dùng rất nhiều policy ở controller + Blade. Singleton giúp
+        // dùng chung cache trong request, tránh query hotel_policies lặp lại.
+        $this->app->singleton(HotelPolicyService::class, fn () => new HotelPolicyService());
     }
 
     public function boot(): void

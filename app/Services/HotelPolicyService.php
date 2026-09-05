@@ -18,7 +18,13 @@ class HotelPolicyService
         'booking.direct_cancel_cutoff_time' => ['group' => 'booking', 'default' => '14:00', 'type' => 'time', 'label' => 'Mốc hủy trực tiếp ngày nhận phòng', 'description' => 'Từ mốc này khách không tự hủy trực tiếp mà chuyển sang luồng xác nhận/đến muộn.', 'sort' => 21],
         'booking.hourly_cancel_grace_minutes' => ['group' => 'booking', 'default' => 30, 'type' => 'integer', 'label' => 'Ân hạn hủy booking theo giờ (phút)', 'description' => 'Khoảng thời gian sau giờ nhận dự kiến mà booking theo giờ còn áp dụng mốc hủy.', 'sort' => 22],
         'booking.manual_room_selection_fee' => ['group' => 'booking', 'default' => 50000, 'type' => 'decimal', 'label' => 'Phí đảm bảo yêu cầu phòng (đ/phòng)', 'description' => 'Chỉ thu khi khách sạn đáp ứng được yêu cầu chọn phòng thủ công. Không thu nếu không thể đáp ứng.', 'sort' => 23],
-        'payment.deposit_percent' => ['group' => 'payment', 'default' => 30, 'type' => 'decimal', 'label' => 'Mức cọc tối thiểu (%)', 'description' => 'Tính trên tiền phòng sau ưu đãi áp vào phòng.', 'sort' => 30],
+        'payment.deposit_percent' => ['group' => 'payment', 'default' => 30, 'type' => 'decimal', 'label' => 'Mức cọc tối thiểu (%)', 'description' => 'Mức nền cho 1 phòng; booking nhiều phòng tăng theo bậc rủi ro.', 'sort' => 30],
+        'payment.deposit_percent_2_rooms' => ['group' => 'payment', 'default' => 35, 'type' => 'decimal', 'label' => 'Cọc booking 2 phòng (%)', 'description' => 'Tính trên tiền phòng sau ưu đãi áp vào phòng.', 'sort' => 31],
+        'payment.deposit_percent_3_rooms' => ['group' => 'payment', 'default' => 40, 'type' => 'decimal', 'label' => 'Cọc booking 3 phòng (%)', 'description' => 'Tính trên tiền phòng sau ưu đãi áp vào phòng.', 'sort' => 32],
+        'payment.deposit_percent_4_rooms' => ['group' => 'payment', 'default' => 45, 'type' => 'decimal', 'label' => 'Cọc booking 4 phòng (%)', 'description' => 'Tính trên tiền phòng sau ưu đãi áp vào phòng.', 'sort' => 33],
+        'payment.deposit_percent_5plus_rooms' => ['group' => 'payment', 'default' => 50, 'type' => 'decimal', 'label' => 'Cọc booking từ 5 phòng (%)', 'description' => 'Giới hạn rủi ro giữ nhiều inventory.', 'sort' => 34],
+        'booking.max_online_guests' => ['group' => 'booking', 'default' => 60, 'type' => 'integer', 'label' => 'Số khách tối đa mỗi booking online', 'description' => 'Cho phép đoàn lớn; hệ thống tự tính số phòng tối thiểu theo tồn phòng thật.', 'sort' => 24],
+        'booking.max_online_rooms' => ['group' => 'booking', 'default' => 30, 'type' => 'integer', 'label' => 'Số phòng tối đa mỗi booking online', 'description' => 'Giới hạn an toàn kỹ thuật, không phải 5 phòng cố định.', 'sort' => 25],
         'payment.vnpay_expire_minutes' => ['group' => 'payment', 'default' => 30, 'type' => 'integer', 'label' => 'Thời hạn link VNPay khi khách đặt online (phút)', 'description' => 'Hết hạn thì link không còn được dùng để thanh toán đơn đó.', 'sort' => 40],
         'payment.admin_vnpay_expire_minutes' => ['group' => 'payment', 'default' => 1440, 'type' => 'integer', 'label' => 'Thời hạn link VNPay do lễ tân gửi (phút)', 'description' => 'Link mới phải vô hiệu hóa link cũ còn hiệu lực của cùng mục đích.', 'sort' => 50],
 
@@ -66,13 +72,14 @@ class HotelPolicyService
     ];
 
     private ?array $rows = null;
+    private ?bool $tableAvailable = null;
 
     public function get(string $key, mixed $fallback = null): mixed
     {
         $definition = self::DEFINITIONS[$key] ?? null;
         $fallback = $fallback ?? ($definition['default'] ?? null);
 
-        if (!Schema::hasTable('hotel_policies')) {
+        if (!$this->tableAvailable()) {
             return $fallback;
         }
 
@@ -110,9 +117,83 @@ class HotelPolicyService
         return $snapshot;
     }
 
-    public function depositRate(?Booking $booking = null): float
+    public function depositRate(?Booking $booking = null, ?int $roomQuantity = null): float
     {
-        return max(0, min(100, (float) $this->forBooking($booking, 'payment.deposit_percent', 30))) / 100;
+        $rooms = max(1, $roomQuantity ?? (int) ($booking?->room_quantity ?? 1));
+        $key = match (true) {
+            $rooms >= 5 => 'payment.deposit_percent_5plus_rooms',
+            $rooms === 4 => 'payment.deposit_percent_4_rooms',
+            $rooms === 3 => 'payment.deposit_percent_3_rooms',
+            $rooms === 2 => 'payment.deposit_percent_2_rooms',
+            default => 'payment.deposit_percent',
+        };
+        $fallback = match (true) { $rooms >= 5 => 50, $rooms === 4 => 45, $rooms === 3 => 40, $rooms === 2 => 35, default => 30 };
+
+        // Booking cũ được tạo trước khi có các tier theo số phòng chỉ snapshot
+        // payment.deposit_percent. Không được lấy tier hiện tại rồi hồi tố làm tăng
+        // tiền cọc của một booking đã chốt chính sách trước đó.
+        $snapshot = $booking?->policy_snapshot;
+        if ($booking && is_array($snapshot) && !array_key_exists($key, $snapshot)
+            && array_key_exists('payment.deposit_percent', $snapshot)) {
+            return max(0, min(100, (float) $snapshot['payment.deposit_percent'])) / 100;
+        }
+
+        return max(0, min(100, (float) $this->forBooking($booking, $key, $fallback))) / 100;
+    }
+
+    public function depositPercentForRooms(int $roomQuantity, ?Booking $booking = null): float
+    {
+        return $this->depositRate($booking, $roomQuantity) * 100;
+    }
+
+
+    /**
+     * Bổ sung các policy mới còn thiếu trong DB mà không cần người dùng import
+     * dữ liệu cấu hình bằng SQL. Chỉ chạy ở trang quản trị chính sách.
+     */
+    public function ensureDefinitions(): void
+    {
+        if (!$this->tableAvailable()) {
+            return;
+        }
+
+        $existingKeys = HotelPolicy::query()->pluck('key')->all();
+        $existing = array_fill_keys($existingKeys, true);
+        $now = now();
+        $rows = [];
+
+        foreach (self::DEFINITIONS as $key => $definition) {
+            if (isset($existing[$key])) {
+                continue;
+            }
+
+            $rows[] = [
+                'policy_group' => $definition['group'],
+                'key' => $key,
+                'value' => (string) $definition['default'],
+                'type' => $definition['type'],
+                'label' => $definition['label'],
+                'description' => $definition['description'],
+                'sort_order' => $definition['sort'],
+                'active' => true,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        if ($rows !== []) {
+            HotelPolicy::query()->insert($rows);
+            $this->flush();
+        }
+    }
+
+    private function tableAvailable(): bool
+    {
+        if ($this->tableAvailable === null) {
+            $this->tableAvailable = Schema::hasTable('hotel_policies');
+        }
+
+        return $this->tableAvailable;
     }
 
     public function definitions(): array
@@ -123,6 +204,7 @@ class HotelPolicyService
     public function flush(): void
     {
         $this->rows = null;
+        // Không reset tableAvailable: cấu trúc bảng không đổi trong cùng request.
     }
 
     private function cast(mixed $value, string $type): mixed

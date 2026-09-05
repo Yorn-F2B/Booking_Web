@@ -44,7 +44,6 @@
                 <div class="col-lg-8">
 
 @if ($errors->any())
-                        @if ($errors->any())
                             <div class="alert alert-danger">
                                 <div class="fw-semibold mb-1">
                                     Vui lòng kiểm tra lại thông tin đặt phòng.
@@ -56,7 +55,6 @@
                                     @endforeach
                                 </ul>
                             </div>
-                        @endif
                     @endif
 
                     <div class="room-gallery mb-4">
@@ -341,13 +339,13 @@
                                     Đặt phòng nhanh
                                 </h3>
 
-                                <form action="{{ route('bookings.confirm') }}" method="GET">
+                                <form action="{{ route('bookings.confirm') }}" method="GET" id="roomDetailBookingForm">
 
                                     <input type="hidden" name="room_category_id" value="{{ $roomCategory->id }}">
 
-                                    <div class="alert alert-light border small mb-3">
+                                    <div class="alert alert-light border small mb-3" id="detail_availability_status">
                                         <i class="bx bx-calendar-check me-1"></i>
-                                        Ngày bị làm mờ đã kín phòng.
+                                        Chọn ngày và số khách để kiểm tra số phòng trống thực tế.
                                     </div>
 
                                     <div class="row g-2 mb-3">
@@ -377,37 +375,32 @@
 
                                     </div>
 
-                                    <div class="row g-2 mb-3">
-
-                                        <div class="col-4">
-                                            <label class="form-label small">
-                                                Người lớn
-                                            </label>
-
-                                            <select name="adult_count" class="form-select" required>
-                                                @for ($i = 1; $i <= $roomCategory->adult_capacity; $i++)
-                                                    <option value="{{ $i }}">
-                                                        {{ $i }}
-                                                    </option>
-                                                @endfor
-                                            </select>
+                                    @php
+                                        $maxBookingGuests = max(1, (int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_guests', 60));
+                                        $maxBookingRooms = max(1, (int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_rooms', 30));
+                                    @endphp
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-3">
+                                            <label class="form-label small" for="detail_adult_count">Người lớn</label>
+                                            <input type="number" id="detail_adult_count" name="adult_count" class="form-control" min="1" max="{{ $maxBookingGuests }}" value="{{ old('adult_count', 2) }}" required>
                                         </div>
 
-                                        <div class="col-4">
-                                            <label class="form-label small">
-                                                Trẻ em
-                                            </label>
-
-                                            <select name="child_count" class="form-select">
-                                                @for ($i = 0; $i <= $roomCategory->child_capacity; $i++)
-                                                    <option value="{{ $i }}">
-                                                        {{ $i }}
-                                                    </option>
-                                                @endfor
-                                            </select>
+                                        <div class="col-3">
+                                            <label class="form-label small" for="detail_child_count">Trẻ em</label>
+                                            <input type="number" id="detail_child_count" name="child_count" class="form-control" min="0" max="{{ $maxBookingGuests }}" value="{{ old('child_count', 0) }}">
                                         </div>
 
+                                        <div class="col-3">
+                                            <label class="form-label small" for="detail_baby_count">Em bé</label>
+                                            <input type="number" id="detail_baby_count" name="baby_count" class="form-control" min="0" max="{{ $maxBookingGuests }}" value="{{ old('baby_count', 0) }}">
+                                        </div>
+
+                                        <div class="col-3">
+                                            <label class="form-label small" for="detail_room_quantity">Số phòng</label>
+                                            <input type="number" id="detail_room_quantity" name="room_quantity" class="form-control" min="1" max="{{ $maxBookingRooms }}" value="{{ old('room_quantity', 1) }}" required>
+                                        </div>
                                     </div>
+                                    <div id="detail_room_quantity_hint" class="form-text mb-3"></div>
 
                                     <div class="mb-3">
                                         <label class="form-label small">
@@ -430,103 +423,236 @@
                                     document.addEventListener('DOMContentLoaded', function () {
                                         const checkIn = document.getElementById('detail_check_in_date');
                                         const checkOut = document.getElementById('detail_check_out_date');
+                                        const adultInput = document.getElementById('detail_adult_count');
+                                        const childInput = document.getElementById('detail_child_count');
+                                        const babyInput = document.getElementById('detail_baby_count');
+                                        const roomQuantityInput = document.getElementById('detail_room_quantity');
+                                        const roomQuantityHint = document.getElementById('detail_room_quantity_hint');
+                                        const availabilityStatus = document.getElementById('detail_availability_status');
+                                        const bookingForm = document.getElementById('roomDetailBookingForm');
+                                        const submitButton = bookingForm?.querySelector('button[type="submit"]');
+                                        const adultCapacityPerRoom = {{ max(1, (int) $roomCategory->adult_capacity) }};
+                                        const childCapacityPerRoom = {{ max(0, (int) $roomCategory->child_capacity) }};
+                                        const maxBookingGuests = {{ $maxBookingGuests ?? 60 }};
+                                        const maxBookingRooms = {{ $maxBookingRooms ?? 30 }};
+                                        const minCheckInDate = @json($minOnlineCheckInDate);
+                                        const defaultMinCheckOutDate = @json($minOnlineCheckOutDate);
+                                        const availabilityUrl = @json(route('rooms.availability', $roomCategory));
+                                        let availabilityData = null;
+                                        let availabilityKey = null;
+                                        let availabilityTimer = null;
+                                        let availabilityRequest = null;
 
-                                        const minCheckInDate = "{{ $minOnlineCheckInDate }}";
-                                        const defaultMinCheckOutDate = "{{ $minOnlineCheckOutDate }}";
-                                        const fullyBookedDates = @json($fullyBookedDates ?? []);
-                                        const fullyBookedSet = new Set(fullyBookedDates);
-                                        const checkoutBlockedDates = fullyBookedDates.filter(function (dateString) {
-                                            const d = new Date(dateString + 'T00:00:00');
-                                            d.setDate(d.getDate() - 1);
-                                            const prev = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-                                            return fullyBookedSet.has(prev);
-                                        });
+                                        function values() {
+                                            return {
+                                                adults: Math.max(1, parseInt(adultInput?.value || '1', 10)),
+                                                children: Math.max(0, parseInt(childInput?.value || '0', 10)),
+                                                babies: Math.max(0, parseInt(babyInput?.value || '0', 10)),
+                                                rooms: Math.max(1, parseInt(roomQuantityInput?.value || '1', 10)),
+                                            };
+                                        }
+
+                                        function minimumRoomsForGuests(adults, children, babies) {
+                                            const roomsForAdults = Math.ceil(adults / adultCapacityPerRoom);
+                                            const minors = children + babies;
+                                            if (minors > 0 && childCapacityPerRoom < 1) {
+                                                return Number.POSITIVE_INFINITY;
+                                            }
+                                            const roomsForChildren = minors > 0 ? Math.ceil(minors / childCapacityPerRoom) : 1;
+                                            return Math.max(1, roomsForAdults, roomsForChildren);
+                                        }
+
+                                        function currentAvailabilityKey() {
+                                            return [checkIn?.value || '', checkOut?.value || '', adultInput?.value || '', childInput?.value || '0', babyInput?.value || '0'].join('|');
+                                        }
+
+                                        function setStatus(message, type) {
+                                            if (!availabilityStatus) return;
+                                            availabilityStatus.className = `alert small mb-3 ${type === 'danger' ? 'alert-danger' : (type === 'success' ? 'alert-success' : 'alert-light border')}`;
+                                            availabilityStatus.textContent = message;
+                                        }
+
+                                        function refreshRoomQuantityHint() {
+                                            if (!adultInput || !childInput || !roomQuantityInput || !roomQuantityHint) return false;
+                                            const { adults, children, babies, rooms } = values();
+                                            const totalGuests = adults + children + babies;
+                                            const minimumRooms = minimumRoomsForGuests(adults, children, babies);
+                                            let error = null;
+
+                                            if (totalGuests > maxBookingGuests) {
+                                                error = `Tổng số khách không được vượt quá ${maxBookingGuests} người.`;
+                                            } else if (!Number.isFinite(minimumRooms) || minimumRooms > maxBookingRooms) {
+                                                error = childCapacityPerRoom < 1 && (children + babies) > 0
+                                                    ? 'Hạng phòng này không nhận trẻ em/em bé theo sức chứa đã cấu hình. Vui lòng chọn hạng khác.'
+                                                    : 'Số khách vượt giới hạn số phòng có thể đặt trong một booking.';
+                                            } else if (rooms > adults) {
+                                                error = `${rooms} phòng cần tối thiểu ${rooms} người lớn đại diện.`;
+                                            } else if (rooms < minimumRooms || adults > adultCapacityPerRoom * rooms || (children + babies) > childCapacityPerRoom * rooms) {
+                                                error = `Cần tối thiểu ${minimumRooms} phòng để đủ sức chứa cho đoàn khách.`;
+                                            } else if (availabilityData && availabilityKey === currentAvailabilityKey() && (!availabilityData.capacity_possible || !availabilityData.inventory_enough)) {
+                                                error = availabilityData.message || 'Hạng phòng này không đủ sức chứa hoặc không còn đủ phòng trong khoảng đã chọn.';
+                                            } else if (availabilityData && availabilityKey === currentAvailabilityKey() && rooms > Number(availabilityData.max_bookable_rooms || 0)) {
+                                                error = `Khoảng ngày này chỉ có thể đặt tối đa ${availabilityData.max_bookable_rooms} phòng của hạng này.`;
+                                            }
+
+                                            if (error) {
+                                                roomQuantityHint.textContent = error;
+                                                roomQuantityHint.className = 'form-text text-danger mb-3';
+                                                if (submitButton) submitButton.disabled = true;
+                                                return false;
+                                            }
+
+                                            const inventoryText = availabilityData && availabilityKey === currentAvailabilityKey()
+                                                ? ` Còn ${availabilityData.available_rooms} phòng trống trong khoảng đã chọn.`
+                                                : '';
+                                            roomQuantityHint.textContent = `Gợi ý tối thiểu ${minimumRooms} phòng.${inventoryText}`;
+                                            roomQuantityHint.className = 'form-text text-muted mb-3';
+                                            if (submitButton) submitButton.disabled = false;
+                                            return true;
+                                        }
+
+                                        function scheduleAvailabilityCheck() {
+                                            clearTimeout(availabilityTimer);
+                                            availabilityTimer = setTimeout(checkAvailability, 250);
+                                        }
+
+                                        async function checkAvailability() {
+                                            if (!checkIn?.value || !checkOut?.value) {
+                                                availabilityData = null;
+                                                availabilityKey = null;
+                                                setStatus('Chọn ngày nhận/trả phòng để kiểm tra tồn phòng thực tế.', 'neutral');
+                                                refreshRoomQuantityHint();
+                                                return;
+                                            }
+
+                                            const { adults, children, babies } = values();
+                                            if (!refreshRoomQuantityHint() && adults + children + babies > maxBookingGuests) {
+                                                return;
+                                            }
+
+                                            if (availabilityRequest) {
+                                                availabilityRequest.abort();
+                                            }
+                                            availabilityRequest = new AbortController();
+                                            const requestedKey = currentAvailabilityKey();
+                                            const params = new URLSearchParams({
+                                                check_in_date: checkIn.value,
+                                                check_out_date: checkOut.value,
+                                                adult_count: String(adults),
+                                                child_count: String(children),
+                                                baby_count: String(babies),
+                                            });
+                                            setStatus('Đang kiểm tra số phòng trống...', 'neutral');
+
+                                            try {
+                                                const response = await fetch(`${availabilityUrl}?${params.toString()}`, {
+                                                    headers: { 'Accept': 'application/json' },
+                                                    signal: availabilityRequest.signal,
+                                                });
+                                                const data = await response.json().catch(() => ({}));
+                                                if (requestedKey !== currentAvailabilityKey()) return;
+                                                if (!response.ok) {
+                                                    availabilityData = null;
+                                                    availabilityKey = null;
+                                                    setStatus(data.message || 'Thông tin ngày hoặc số khách chưa hợp lệ.', 'danger');
+                                                    refreshRoomQuantityHint();
+                                                    return;
+                                                }
+
+                                                availabilityData = data;
+                                                availabilityKey = requestedKey;
+                                                const minimumRooms = Number(data.minimum_rooms || 1);
+                                                const maxBookable = Number(data.max_bookable_rooms || 0);
+                                                roomQuantityInput.max = String(Math.max(1, maxBookable));
+                                                if (data.inventory_enough && maxBookable > 0) {
+                                                    let currentRooms = Math.max(1, parseInt(roomQuantityInput.value || '1', 10));
+                                                    if (currentRooms < minimumRooms) currentRooms = minimumRooms;
+                                                    if (currentRooms > maxBookable) currentRooms = maxBookable;
+                                                    roomQuantityInput.value = String(currentRooms);
+                                                    setStatus(data.message, 'success');
+                                                } else {
+                                                    setStatus(data.message, 'danger');
+                                                }
+                                                refreshRoomQuantityHint();
+                                            } catch (error) {
+                                                if (error.name === 'AbortError') return;
+                                                availabilityData = null;
+                                                availabilityKey = null;
+                                                setStatus('Không thể kiểm tra nhanh tồn phòng lúc này. Hệ thống vẫn sẽ kiểm tra lại khi bạn sang bước xác nhận.', 'neutral');
+                                                refreshRoomQuantityHint();
+                                            }
+                                        }
 
                                         function addOneDay(dateString) {
                                             const parts = dateString.split('-');
-
-                                            const date = new Date(
-                                                Number(parts[0]),
-                                                Number(parts[1]) - 1,
-                                                Number(parts[2])
-                                            );
-
+                                            const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
                                             date.setDate(date.getDate() + 1);
-
                                             const yyyy = date.getFullYear();
                                             const mm = String(date.getMonth() + 1).padStart(2, '0');
                                             const dd = String(date.getDate()).padStart(2, '0');
-
                                             return `${yyyy}-${mm}-${dd}`;
                                         }
 
-                                        if (!checkIn || !checkOut) {
-                                            return;
+                                        if (checkIn && checkOut) {
+                                            checkIn.min = minCheckInDate;
+                                            checkOut.min = defaultMinCheckOutDate;
+                                            if (checkIn.value && checkIn.value < minCheckInDate) checkIn.value = '';
+                                            if (checkOut.value && checkOut.value < defaultMinCheckOutDate) checkOut.value = '';
+                                            if (checkIn.value) checkOut.min = addOneDay(checkIn.value);
+
+                                            checkIn.addEventListener('change', function () {
+                                                if (!this.value || this.value < minCheckInDate) {
+                                                    if (this.value < minCheckInDate) this.value = '';
+                                                    checkOut.value = '';
+                                                    checkOut.min = defaultMinCheckOutDate;
+                                                    scheduleAvailabilityCheck();
+                                                    return;
+                                                }
+                                                const nextDay = addOneDay(this.value);
+                                                checkOut.min = nextDay;
+                                                if (checkOut._flatpickr) checkOut._flatpickr.set('minDate', nextDay);
+                                                if (!checkOut.value || checkOut.value <= this.value) checkOut.value = nextDay;
+                                                scheduleAvailabilityCheck();
+                                            });
+
+                                            checkOut.addEventListener('change', function () {
+                                                if (checkIn.value) {
+                                                    const minimum = addOneDay(checkIn.value);
+                                                    if (this.value && this.value < minimum) this.value = minimum;
+                                                }
+                                                scheduleAvailabilityCheck();
+                                            });
                                         }
 
-                                        checkIn.min = minCheckInDate;
-                                        checkOut.min = defaultMinCheckOutDate;
+                                        [adultInput, childInput, babyInput].forEach(function (input) {
+                                            input?.addEventListener('input', function () {
+                                                availabilityData = null;
+                                                availabilityKey = null;
+                                                roomQuantityInput.max = String(maxBookingRooms);
+                                                refreshRoomQuantityHint();
+                                                scheduleAvailabilityCheck();
+                                            });
+                                        });
+                                        roomQuantityInput?.addEventListener('input', refreshRoomQuantityHint);
 
-                                        function applyUnavailableDates() {
-                                            if (checkIn._flatpickr) {
-                                                checkIn._flatpickr.set('disable', fullyBookedDates);
-                                            }
-                                            if (checkOut._flatpickr) {
-                                                checkOut._flatpickr.set('disable', checkoutBlockedDates);
-                                            }
-                                        }
-                                        setTimeout(applyUnavailableDates, 0);
-
-                                        if (checkIn.value && checkIn.value < minCheckInDate) {
-                                            checkIn.value = '';
-                                        }
-
-                                        if (checkOut.value && checkOut.value < defaultMinCheckOutDate) {
-                                            checkOut.value = '';
-                                        }
-
-                                        if (checkIn.value) {
-                                            checkOut.min = addOneDay(checkIn.value);
-                                        }
-
-                                        checkIn.addEventListener('change', function () {
-                                            if (!this.value) {
-                                                checkOut.min = defaultMinCheckOutDate;
-                                                checkOut.value = '';
+                                        bookingForm?.addEventListener('submit', function (event) {
+                                            const locallyValid = refreshRoomQuantityHint();
+                                            const currentKey = currentAvailabilityKey();
+                                            if (!locallyValid) {
+                                                event.preventDefault();
                                                 return;
                                             }
-
-                                            if (this.value < minCheckInDate) {
-                                                this.value = '';
-                                                checkOut.value = '';
-                                                checkOut.min = defaultMinCheckOutDate;
-                                                return;
-                                            }
-
-                                            const nextDay = addOneDay(this.value);
-
-                                            checkOut.min = nextDay;
-                                            if (checkOut._flatpickr) {
-                                                checkOut._flatpickr.set('minDate', nextDay);
-                                                checkOut._flatpickr.set('disable', checkoutBlockedDates);
-                                            }
-
-                                            if (!checkOut.value || checkOut.value <= this.value) {
-                                                checkOut.value = nextDay;
+                                            if (availabilityData && availabilityKey === currentKey) {
+                                                const rooms = values().rooms;
+                                                if (!availabilityData.inventory_enough || rooms > Number(availabilityData.max_bookable_rooms || 0)) {
+                                                    event.preventDefault();
+                                                    setStatus(availabilityData.message || 'Không đủ phòng trống cho lựa chọn hiện tại.', 'danger');
+                                                }
                                             }
                                         });
 
-                                        checkOut.addEventListener('change', function () {
-                                            if (!checkIn.value) {
-                                                return;
-                                            }
-
-                                            const minCheckOutDate = addOneDay(checkIn.value);
-
-                                            if (this.value && this.value < minCheckOutDate) {
-                                                this.value = minCheckOutDate;
-                                            }
-                                        });
+                                        refreshRoomQuantityHint();
+                                        if (checkIn?.value && checkOut?.value) scheduleAvailabilityCheck();
                                     });
                                 </script>
 

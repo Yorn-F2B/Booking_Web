@@ -13,7 +13,12 @@ class RoomActionLogController extends Controller
 {
     public function getLogsByDate(Request $request, Room $room)
     {
-        $date = $request->input('date', now('Asia/Ho_Chi_Minh')->toDateString());
+        $validated = $request->validate([
+            'date' => ['nullable', 'date_format:Y-m-d'],
+        ], [
+            'date.date_format' => 'Ngày xem lịch sử phải đúng định dạng Y-m-d.',
+        ]);
+        $date = $validated['date'] ?? now('Asia/Ho_Chi_Minh')->toDateString();
 
         // ── Action Logs ──────────────────────────────────────────────
         $logs = $room->actionLogs()
@@ -70,35 +75,49 @@ class RoomActionLogController extends Controller
             'checked_out'          => 'Đã trả phòng',
             'completed'            => 'Hoàn thành',
             'cancelled'            => 'Đã hủy',
+            'canceled'             => 'Đã hủy',
         ];
 
         $bookings = $room->bookingRooms()
-            ->with(['booking.customer'])
+            ->with(['booking.customer', 'booking.staffAssignments'])
             ->whereHas('booking', function ($q) use ($dayStart, $dayEnd) {
                 $q->where('check_in_at', '<', $dayEnd)
                   ->where('check_out_at', '>', $dayStart)
-                  ->whereNotIn('status', ['cancelled']);
+                  ->whereNotIn('status', ['cancelled', 'canceled']);
             })
             ->get()
-            ->map(function ($br) use ($bookingStatusLabels) {
+            ->map(function ($br) use ($bookingStatusLabels, $currentUser) {
                 $b = $br->booking;
                 if (!$b) return null;
 
-                $customer = $b->customer;
-                $guestName = $customer
-                    ? trim(($customer->last_name ?? '') . ' ' . ($customer->first_name ?? ''))
-                    : 'Khách vãng lai';
+                // Lễ tân vẫn cần biết phòng đang bị chiếm trong khung giờ để vận hành,
+                // nhưng không được xem PII/mã đơn của booking đã phân cho lễ tân khác.
+                $canViewDetails = $currentUser
+                    && ($currentUser->role !== 'receptionist'
+                        || $b->staffAssignments->contains(function ($assignment) use ($currentUser) {
+                            return (int) $assignment->staff_id === (int) $currentUser->id
+                                && in_array($assignment->status, ['active', 'done'], true);
+                        }));
+
+                $customer = $canViewDetails ? $b->customer : null;
+                $guestName = !$canViewDetails
+                    ? 'Booking ngoài phạm vi'
+                    : ($customer
+                        ? trim(($customer->last_name ?? '') . ' ' . ($customer->first_name ?? ''))
+                        : 'Khách vãng lai');
 
                 return [
-                    'id'           => $b->id,
-                    'booking_code' => $b->booking_code,
+                    'id'           => $canViewDetails ? $b->id : null,
+                    'booking_code' => $canViewDetails ? $b->booking_code : null,
                     'status'       => $b->status,
                     'status_label' => $bookingStatusLabels[$b->status] ?? $b->status,
                     'guest_name'   => $guestName,
                     'check_in_at'  => Carbon::parse($b->check_in_at)->setTimezone('Asia/Ho_Chi_Minh')->format('H:i d/m/Y'),
                     'check_out_at' => Carbon::parse($b->check_out_at)->setTimezone('Asia/Ho_Chi_Minh')->format('H:i d/m/Y'),
-                    'adult_count'  => $b->adult_count ?? 0,
-                    'child_count'  => $b->child_count ?? 0,
+                    'adult_count'  => $canViewDetails ? ($b->adult_count ?? 0) : null,
+                    'child_count'  => $canViewDetails ? ($b->child_count ?? 0) : null,
+                    'baby_count'   => $canViewDetails ? ($b->baby_count ?? 0) : null,
+                    'can_view_details' => (bool) $canViewDetails,
                 ];
             })
             ->filter()

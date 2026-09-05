@@ -45,12 +45,20 @@ class HousekeepingController extends Controller
             'note' => null,
         ]);
 
+        // Dọn xong chỉ có nghĩa phòng đã sẵn sàng về mặt vận hành. Nếu phòng
+        // đang được một booking còn hiệu lực giữ, phải hiển thị reserved thay
+        // vì để available và tạo cảm giác có thể bán/gán lại tùy ý.
+        app(\App\Services\RoomReservationStatusService::class)->syncRoomIds([$room->id]);
+        $room->refresh();
+
         \App\Models\RoomActionLog::create([
             'room_id' => $room->id,
             'user_id' => Auth::id(),
             'action_type' => 'cleaning',
             'action_time' => now(),
-            'note' => 'Nhân viên hoàn tất dọn phòng. Chuyển phòng sang trạng thái trống.',
+            'note' => $room->status === 'reserved'
+                ? 'Nhân viên hoàn tất dọn phòng. Phòng đã sẵn sàng và tiếp tục được giữ cho booking đang hiệu lực.'
+                : 'Nhân viên hoàn tất dọn phòng. Phòng đã chuyển sang trạng thái trống.',
         ]);
 
         $user = Auth::user();
@@ -63,7 +71,9 @@ class HousekeepingController extends Controller
                 ->update(['status' => 'completed']);
         }
 
-        return back()->with('success', 'Đã xác nhận dọn xong. Phòng đã chuyển về trạng thái còn trống.');
+        return back()->with('success', $room->status === 'reserved'
+            ? 'Đã xác nhận dọn xong. Phòng sẵn sàng và đang được giữ cho booking tiếp theo.'
+            : 'Đã xác nhận dọn xong. Phòng đã chuyển về trạng thái còn trống.');
     }
 
 

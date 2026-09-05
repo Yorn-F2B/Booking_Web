@@ -1,5 +1,6 @@
     @php
         $isReceptionDesk = in_array(auth()->user()?->role, ['receptionist', 'receptionist_lead'], true);
+        $canConfirmRefund = in_array(auth()->user()?->role, ['manager', 'super_admin'], true);
 
         $bookingStatusLabels = [
             'pending' => 'Chờ xác nhận',
@@ -76,7 +77,7 @@
         $lateArrivalNextDayPercentPolicy = $positiveLateArrivalPercent('stay.late_arrival_percent_next_day', 100);
         $lateArrivalGraceMinutesPolicy = max(0, (int) $bookingPolicy('stay.late_arrival_grace_minutes', 30));
         $shortStayOvernightHoursPolicy = max(1, (int) $bookingPolicy('stay.short_stay_to_overnight_hours', 12));
-        $depositPercentPolicy = (float) $bookingPolicy('payment.deposit_percent', 30);
+        $depositPercentPolicy = (float) app(\App\Services\HotelPolicyService::class)->depositRate($booking) * 100;
         $depositPercentLabel = $formatPercent($depositPercentPolicy) . '%';
 
         $setPolicyTime = function (\Carbon\Carbon $date, string $time): \Carbon\Carbon {
@@ -106,7 +107,7 @@
             return in_array($room->status ?? null, ['inspection', 'cleaning']);
         });
         $roomsNotReadyForCheckIn = $assignedRooms->filter(function ($room) {
-            return in_array($room->status ?? null, ['inspection', 'cleaning', 'maintenance']);
+            return !in_array($room->status ?? null, ['available', 'reserved'], true);
         });
         $canRequestPriorityCleaning = $booking->status == 'confirmed'
             && $priorityCleaningStartAt
@@ -140,6 +141,7 @@
         $earlyCheckInFinalTotalPreview = 0;
         $isEarlyCheckInNow = false;
         $isBeforeBookingDateNow = false;
+        $isBeforeHourlyCheckInNow = false;
         $beforeBookingDateMessage = '';
         $stayDateChangeCheckInDateDefault = $nowVnForCheckInFlow->toDateString();
         $stayDateChangeCheckInTimeDefault = $nowVnForCheckInFlow->format('H:i');
@@ -170,6 +172,16 @@
         ) {
             $isBeforeBookingDateNow = true;
             $beforeBookingDateMessage = 'Chưa đến ngày nhận phòng. Nếu khách muốn nhận ngay, hãy đổi ngày lưu trú và kiểm tra lại phòng trống trước khi xác nhận.';
+        }
+
+        if (
+            $booking->status === 'confirmed'
+            && $booking->booking_type === 'hourly'
+            && $bookingCheckInAtForFlow
+            && $nowVnForCheckInFlow->lessThan($bookingCheckInAtForFlow)
+        ) {
+            $isBeforeHourlyCheckInNow = true;
+            $beforeBookingDateMessage = 'Chưa đến giờ bắt đầu booking theo giờ. Nếu khách muốn vào sớm, hãy đổi thời gian lưu trú để hệ thống tính lại giá và kiểm tra lại phòng trống.';
         }
 
         if (
@@ -402,9 +414,12 @@
         $adminPaymentDepositTarget = (float) $paymentAllocation['required_deposit'];
         $actualDepositPaid = (float) $paymentAllocation['allocated_deposit'];
         $additionalPaidTotal = (float) $paymentAllocation['prepaid_amount'];
-        $adminPaymentDepositAmount = (float) $paymentAllocation['deposit_shortfall'];
-        $remainingTotal = (float) $paymentAllocation['remaining'];
-        $currentOverpaymentTotal = (float) $paymentAllocation['overpayment'];
+        $isCancelledBooking = in_array($booking->status, ['cancelled', 'canceled'], true);
+        // Booking đã hủy không còn nghĩa vụ phải thu thêm. Tiền đã thu/đã hoàn
+        // được trình bày riêng để tránh workspace báo nợ dù đơn đã kết thúc.
+        $adminPaymentDepositAmount = $isCancelledBooking ? 0.0 : (float) $paymentAllocation['deposit_shortfall'];
+        $remainingTotal = $isCancelledBooking ? 0.0 : (float) $paymentAllocation['remaining'];
+        $currentOverpaymentTotal = $isCancelledBooking ? 0.0 : (float) $paymentAllocation['overpayment'];
         $totalBeforeDiscount = (float) ($roomTotal + $serviceItemTotal + $approvedInspectionTotal
             + $manualRoomSelectionFee + $checkoutLateFeePreview);
         $confirmedServiceItemsForBreakdown = $booking->serviceItems
@@ -428,7 +443,7 @@
             $baseQuantity = max(1, (int) ($item->base_quantity ?: $item->quantity ?: 1));
             $nights = max(1, (int) ($item->nights_snapshot ?: $nightCount));
             $rooms = max(1, (int) ($item->rooms_snapshot ?: $booking->room_quantity ?: 1));
-            $people = max(1, (int) ($item->people_snapshot ?: ((int) $booking->adult_count + (int) $booking->child_count) ?: 1));
+            $people = max(1, (int) ($item->people_snapshot ?: ((int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0)) ?: 1));
             $parts = [number_format((float) $item->unit_price, 0, ',', '.') . 'đ', '× ' . $baseQuantity];
 
             if (in_array($rule, [\App\Models\Service::BILLING_PER_NIGHT, \App\Models\Service::BILLING_PER_ROOM_PER_NIGHT, \App\Models\Service::BILLING_PER_GUEST_PER_NIGHT], true)) {
@@ -604,7 +619,10 @@
                 * max(1, (int) $booking->room_quantity);
         }
 
-        $disableCheckInSubmitNow = $isBeforeBookingDateNow || $lateShowIsPastStayTime || $lateShowIsCheckInTooLate;
+        $disableCheckInSubmitNow = $isBeforeBookingDateNow
+            || $isBeforeHourlyCheckInNow
+            || $lateShowIsPastStayTime
+            || $lateShowIsCheckInTooLate;
 
         $lateShowHours = 0;
         $lateShowMinutes = 0;
@@ -1657,7 +1675,7 @@
                     <div class="metric-grid">
                         <div class="metric-card"><span>Khách hàng</span><strong>{{ $customerName }}</strong></div>
                         <div class="metric-card"><span>Thời gian lưu trú</span><strong>{{ $lateShowCheckInAt?->format('d/m/Y H:i') ?? '---' }}<br>→ {{ $lateShowCheckOutAt?->format('d/m/Y H:i') ?? '---' }}</strong></div>
-                        <div class="metric-card"><span>Hạng phòng khách đặt</span><strong>{{ $booking->roomCategory->name ?? 'Không xác định' }}<br><span class="text-muted small">{{ $booking->room_quantity }} phòng · {{ $booking->adult_count }} NL / {{ $booking->child_count }} TE · Sức chứa {{ $currentAdultCapacity }} NL / {{ $currentChildCapacity }} TE</span></strong></div>
+                        <div class="metric-card"><span>Hạng phòng khách đặt</span><strong>{{ $booking->roomCategory->name ?? 'Không xác định' }}<br><span class="text-muted small">{{ $booking->room_quantity }} phòng · {{ $booking->adult_count }} NL / {{ $booking->child_count }} TE / {{ $booking->baby_count ?? 0 }} EB · Sức chứa {{ $currentAdultCapacity }} NL / {{ $currentChildCapacity }} TE</span></strong></div>
                         <div class="metric-card"><span>Còn lại cần thu</span><strong class="text-danger fs-5">{{ number_format($remainingTotal, 0, ',', '.') }}đ</strong></div>
                     </div>
                 </div>
@@ -2186,10 +2204,13 @@
                                     @endif
 
                                     @php
-                                        $checkInRoomCapacityStates = $booking->bookingRooms->map(function ($bookingRoom) use ($booking) {
-                                            $roomGuests = $booking->guests->where('booking_room_id', $bookingRoom->id);
-                                            $adultCount = $roomGuests->where('guest_type', 'adult')->count();
-                                            $minorCount = $roomGuests->whereIn('guest_type', ['child', 'infant'])->count();
+                                        // booking_rooms là nguồn số người thực tế; booking_guests chỉ lưu
+                                        // hồ sơ đại diện/giấy tờ nên không dùng số hồ sơ để tính sức chứa.
+                                        $checkInRoomCapacityStates = $booking->bookingRooms->map(function ($bookingRoom) {
+                                            $adultCount = max(0, (int) $bookingRoom->adult_count);
+                                            $childCount = max(0, (int) $bookingRoom->child_count);
+                                            $babyCount = max(0, (int) ($bookingRoom->baby_count ?? 0));
+                                            $minorCount = $childCount + $babyCount;
                                             $adultCapacity = (int) ($bookingRoom->room?->category?->adult_capacity ?? 0);
                                             $childCapacity = (int) ($bookingRoom->room?->category?->child_capacity ?? 0);
 
@@ -2197,92 +2218,24 @@
                                                 'booking_room_id' => (int) $bookingRoom->id,
                                                 'room_number' => $bookingRoom->room?->room_number ?? '---',
                                                 'adult_count' => $adultCount,
+                                                'child_count' => $childCount,
+                                                'baby_count' => $babyCount,
                                                 'minor_count' => $minorCount,
                                                 'adult_capacity' => $adultCapacity,
                                                 'child_capacity' => $childCapacity,
                                                 'adult_over' => max(0, $adultCount - $adultCapacity),
                                                 'minor_over' => max(0, $minorCount - $childCapacity),
-                                                'adult_spare' => max(0, $adultCapacity - $adultCount),
-                                                'minor_spare' => max(0, $childCapacity - $minorCount),
-                                                'adult_guests' => $roomGuests->where('guest_type', 'adult')->values(),
-                                                'minor_guests' => $roomGuests->whereIn('guest_type', ['child', 'infant'])->values(),
                                             ];
                                         })->values();
 
                                         $perRoomOverCapacityForCheckIn = $checkInRoomCapacityStates
                                             ->contains(fn ($state) => $state['adult_over'] > 0 || $state['minor_over'] > 0);
+                                        $canResolveCapacityByMovingGuests = false;
+                                        $capacityMoveSuggestionGroups = collect();
 
-                                        $virtualRoomStates = $checkInRoomCapacityStates->map(fn ($state) => $state)->all();
-                                        $capacityMoveSuggestions = [];
-                                        $unresolvedAdultOver = 0;
-                                        $unresolvedMinorOver = 0;
-
-                                        foreach ($virtualRoomStates as $sourceIndex => $sourceState) {
-                                            for ($move = 0; $move < $sourceState['adult_over']; $move++) {
-                                                $destinationIndex = collect($virtualRoomStates)->search(
-                                                    fn ($candidate, $index) => $index !== $sourceIndex && $candidate['adult_spare'] > 0
-                                                );
-
-                                                if ($destinationIndex === false) {
-                                                    $unresolvedAdultOver++;
-                                                    continue;
-                                                }
-
-                                                $guest = $sourceState['adult_guests']->reverse()->values()->get($move);
-                                                $capacityMoveSuggestions[] = [
-                                                    'guest_name' => $guest?->full_name,
-                                                    'guest_type' => 'người lớn',
-                                                    'from_room' => $sourceState['room_number'],
-                                                    'to_room' => $virtualRoomStates[$destinationIndex]['room_number'],
-                                                ];
-                                                $virtualRoomStates[$destinationIndex]['adult_spare']--;
-                                            }
-
-                                            for ($move = 0; $move < $sourceState['minor_over']; $move++) {
-                                                $destinationIndex = collect($virtualRoomStates)->search(
-                                                    fn ($candidate, $index) => $index !== $sourceIndex && $candidate['minor_spare'] > 0
-                                                );
-
-                                                if ($destinationIndex === false) {
-                                                    $unresolvedMinorOver++;
-                                                    continue;
-                                                }
-
-                                                $guest = $sourceState['minor_guests']->reverse()->values()->get($move);
-                                                $capacityMoveSuggestions[] = [
-                                                    'guest_name' => $guest?->full_name,
-                                                    'guest_type' => 'trẻ em/em bé',
-                                                    'from_room' => $sourceState['room_number'],
-                                                    'to_room' => $virtualRoomStates[$destinationIndex]['room_number'],
-                                                ];
-                                                $virtualRoomStates[$destinationIndex]['minor_spare']--;
-                                            }
-                                        }
-
-                                        $canResolveCapacityByMovingGuests = $perRoomOverCapacityForCheckIn
-                                            && $unresolvedAdultOver === 0
-                                            && $unresolvedMinorOver === 0
-                                            && count($capacityMoveSuggestions) > 0;
-
-                                        $capacityMoveSuggestionGroups = collect($capacityMoveSuggestions)
-                                            ->groupBy(function ($suggestion) {
-                                                return $suggestion['guest_type'] . '|' . $suggestion['from_room'] . '|' . $suggestion['to_room'];
-                                            })
-                                            ->map(function ($suggestions) {
-                                                $first = $suggestions->first();
-
-                                                return [
-                                                    'count' => $suggestions->count(),
-                                                    'guest_type' => $first['guest_type'],
-                                                    'from_room' => $first['from_room'],
-                                                    'to_room' => $first['to_room'],
-                                                ];
-                                            })
-                                            ->values();
-
-                                        $initialActualAdults = (int) $booking->guests->where('guest_type', 'adult')->count();
-                                        $initialActualChildren = (int) $booking->guests->where('guest_type', 'child')->count();
-                                        $initialActualBabies = (int) $booking->guests->where('guest_type', 'infant')->count();
+                                        $initialActualAdults = (int) $booking->bookingRooms->sum('adult_count');
+                                        $initialActualChildren = (int) $booking->bookingRooms->sum('child_count');
+                                        $initialActualBabies = (int) $booking->bookingRooms->sum('baby_count');
                                         $initialAggregateOverCapacity = $initialActualAdults > $currentAdultCapacity
                                             || ($initialActualChildren + $initialActualBabies) > $currentChildCapacity;
                                         $initialAnyOverCapacity = $initialAggregateOverCapacity || $perRoomOverCapacityForCheckIn;
@@ -2315,17 +2268,74 @@
                                             $checkInDeclaredChildren = $booking->guests->where('guest_type', 'child')->count();
                                             $checkInDeclaredInfants = $booking->guests->where('guest_type', 'infant')->count();
                                             $hasRepresentative = $booking->guests->where('is_booking_representative', true)->count() === 1;
+                                            $missingAdultRepresentativeRooms = $booking->bookingRooms
+                                                ->filter(function ($bookingRoom) use ($booking) {
+                                                    if ((int) ($bookingRoom->adult_count ?? 0) <= 0) {
+                                                        return false;
+                                                    }
+
+                                                    return !$booking->guests->contains(function ($guest) use ($bookingRoom) {
+                                                        return (int) $guest->booking_room_id === (int) $bookingRoom->id
+                                                            && $guest->guest_type === 'adult';
+                                                    });
+                                                });
+                                            $checkInProfileReady = !$booking->guests->isEmpty()
+                                                && $hasRepresentative
+                                                && $missingAdultRepresentativeRooms->isEmpty();
+                                            $checkInRequiredRoomCount = max(1, (int) ($booking->room_quantity ?? 1));
+                                            $checkInAssignedRoomIds = $booking->bookingRooms->pluck('room_id')->filter()->map(fn ($id) => (int) $id);
+                                            $checkInHasExactRoomAssignments = $booking->bookingRooms->count() === $checkInRequiredRoomCount
+                                                && $checkInAssignedRoomIds->unique()->count() === $checkInRequiredRoomCount;
+                                            $checkInSelectionReady = $booking->room_selection_mode !== 'manual'
+                                                || in_array($booking->room_selection_status, ['fulfilled', 'fallback_accepted'], true);
+                                            $checkInRoomsReady = $checkInHasExactRoomAssignments && $roomsNotReadyForCheckIn->isEmpty();
+                                            $checkInPaymentReady = $adminPaymentDepositTarget <= 0
+                                                || ($adminPaymentPaidAmount + 0.01 >= $adminPaymentDepositTarget);
+                                            $checkInStaticDisabled = $disableCheckInSubmitNow
+                                                || !$checkInProfileReady
+                                                || !$checkInHasExactRoomAssignments
+                                                || !$checkInSelectionReady
+                                                || !$checkInRoomsReady
+                                                || !$checkInPaymentReady;
                                         @endphp
-                                        @if ($booking->guests->isEmpty() || !$hasRepresentative)
+                                        @if (!$checkInProfileReady)
                                             <div class="alert alert-warning small mb-3">
-                                                <strong>Chưa đủ thông tin khách lưu trú.</strong>
-                                                Hiện có {{ $checkInDeclaredAdults }} người lớn / {{ $checkInDeclaredChildren }} trẻ em / {{ $checkInDeclaredInfants }} em bé.
-                                                Hãy khai báo đủ khách, gán phòng và chọn một người đại diện trước khi nhận phòng.
-                                                <a href="#stayingGuestsPanel" class="alert-link">Khai báo ngay</a>.
+                                                <strong>Chưa đủ hồ sơ người đại diện để check-in.</strong>
+                                                Hiện đã khai {{ $checkInDeclaredAdults }} người lớn / {{ $checkInDeclaredChildren }} trẻ em / {{ $checkInDeclaredInfants }} em bé.
+                                                Mỗi phòng cần ít nhất một hồ sơ người lớn và toàn booking cần đúng một người đại diện đoàn.
+                                                @if ($missingAdultRepresentativeRooms->isNotEmpty())
+                                                    <div class="mt-1">
+                                                        Thiếu người lớn đại diện tại:
+                                                        {{ $missingAdultRepresentativeRooms->map(fn ($bookingRoom) => $bookingRoom->room?->room_number ?: ('phòng #' . $bookingRoom->id))->implode(', ') }}.
+                                                    </div>
+                                                @endif
+                                                <a href="#stayingGuestsPanel" class="alert-link">Bổ sung hồ sơ</a>.
                                             </div>
                                         @else
                                             <div class="small text-muted mb-3">
-                                                Đã khai báo {{ $checkInDeclaredAdults }} người lớn / {{ $checkInDeclaredChildren }} trẻ em / {{ $checkInDeclaredInfants }} em bé và đã chọn người đại diện.
+                                                Hồ sơ đại diện đã hợp lệ cho từng phòng: {{ $checkInDeclaredAdults }} người lớn / {{ $checkInDeclaredChildren }} trẻ em / {{ $checkInDeclaredInfants }} em bé. Số khách thực tế được quản lý riêng theo từng phòng.
+                                            </div>
+                                        @endif
+
+                                        @if (!$checkInHasExactRoomAssignments)
+                                            <div class="alert alert-danger small mb-3">
+                                                <strong>Chưa gán đủ phòng:</strong>
+                                                booking cần đúng {{ $checkInRequiredRoomCount }} phòng khác nhau nhưng hiện chỉ có {{ $checkInAssignedRoomIds->unique()->count() }} phòng hợp lệ.
+                                                Hãy hoàn tất phân phòng trước khi check-in.
+                                            </div>
+                                        @endif
+
+                                        @if (!$checkInSelectionReady)
+                                            <div class="alert alert-warning small mb-3">
+                                                <strong>Yêu cầu chọn phòng của khách chưa hoàn tất.</strong>
+                                                Cần xử lý xong yêu cầu/phương án dự phòng trước khi check-in.
+                                            </div>
+                                        @endif
+
+                                        @if (!$checkInPaymentReady)
+                                            <div class="alert alert-warning small mb-3">
+                                                <strong>Chưa đủ mức cọc:</strong>
+                                                đã thu {{ number_format($adminPaymentPaidAmount, 0, ',', '.') }}đ / cần tối thiểu {{ number_format($adminPaymentDepositTarget, 0, ',', '.') }}đ.
                                             </div>
                                         @endif
 
@@ -2387,26 +2397,26 @@
                                         <div class="row g-2 mb-3">
                                             <div class="col-12">
                                                 <div class="soft-note mb-0">
-                                                    <strong>Số khách thực tế được lấy tự động từ danh sách khách lưu trú bên dưới.</strong>
-                                                    Thêm, sửa hoặc xóa khách xong trang sẽ tự cập nhật; lễ tân không cần nhập lại số lượng.
+                                                    <strong>Số khách thực tế lấy từ phân bổ của booking theo từng phòng.</strong>
+                                                    Hồ sơ khách bên dưới chỉ cần người đại diện/giấy tờ cần lưu, không dùng số hồ sơ để suy ra số người thực tế.
                                                 </div>
                                             </div>
                                             <div class="col-md-4">
-                                                <label class="form-label small">Người lớn đã khai</label>
+                                                <label class="form-label small">Người lớn thực tế</label>
                                                 <input type="number" name="actual_adult_count" id="actualAdultCount"
-                                                    class="form-control bg-light" value="{{ $checkInDeclaredAdults }}" readonly>
+                                                    class="form-control bg-light" value="{{ $initialActualAdults }}" readonly>
                                             </div>
 
                                             <div class="col-md-4">
-                                                <label class="form-label small">Trẻ em đã khai</label>
+                                                <label class="form-label small">Trẻ em thực tế</label>
                                                 <input type="number" name="actual_child_count" id="actualChildCount"
-                                                    class="form-control bg-light" value="{{ $checkInDeclaredChildren }}" readonly>
+                                                    class="form-control bg-light" value="{{ $initialActualChildren }}" readonly>
                                             </div>
 
                                             <div class="col-md-4">
-                                                <label class="form-label small">Em bé đã khai</label>
+                                                <label class="form-label small">Em bé thực tế</label>
                                                 <input type="number" name="actual_baby_count" id="actualBabyCount"
-                                                    class="form-control bg-light" value="{{ $checkInDeclaredInfants }}" readonly>
+                                                    class="form-control bg-light" value="{{ $initialActualBabies }}" readonly>
                                             </div>
                                         </div>
 
@@ -2465,32 +2475,11 @@
                                                 @endforeach
                                             </div>
 
-                                            @if($canResolveCapacityByMovingGuests)
-                                                <div class="alert alert-info small mb-2">
-                                                    <strong>Phương án nên làm trước:</strong>
-                                                    @foreach($capacityMoveSuggestionGroups as $suggestion)
-                                                        <div>
-                                                            Chuyển
-                                                            <strong>{{ $suggestion['count'] }} {{ $suggestion['guest_type'] }}</strong>
-                                                            từ phòng {{ $suggestion['from_room'] }}
-                                                            sang phòng {{ $suggestion['to_room'] }}.
-                                                        </div>
-                                                    @endforeach
-                                                    Sau khi chuyển, phân bổ sẽ nằm trong sức chứa và không cần phụ thu vượt sức chứa.
-                                                    <div class="mt-2">
-                                                        <a href="#stayingGuestsPanel" class="btn btn-sm btn-outline-primary"
-                                                           onclick="const panel=document.getElementById('stayingGuestsPanel'); if(panel){panel.open=true;}">
-                                                            Mở khai báo khách để chuyển phòng
-                                                        </a>
-                                                    </div>
-                                                </div>
-                                            @else
-                                                <div class="alert alert-warning small mb-2">
-                                                    Không thể xử lý hết chỉ bằng cách chuyển khách giữa các phòng hiện có.
-                                                    Lễ tân cần chọn <strong>thu phụ phí</strong>, hoặc dùng mục
-                                                    <strong>Quản lý phòng</strong> để thêm phòng / đổi hạng toàn bộ phòng trước khi check-in.
-                                                </div>
-                                            @endif
+                                            <div class="alert alert-warning small mb-2">
+                                                Phân bổ số người thực tế được lưu ở từng phòng, không suy ra từ số hồ sơ CCCD.
+                                                Nếu phân bổ vượt sức chứa, lễ tân cần dùng <strong>Quản lý phòng</strong> để thêm phòng/đổi hạng,
+                                                hoặc xác nhận <strong>thu phụ phí vượt sức chứa</strong> trước khi check-in.
+                                            </div>
 
                                             <label class="form-label">Cách xử lý nếu vẫn giữ phân bổ hiện tại</label>
                                             <select name="over_capacity_action" id="overCapacityAction"
@@ -2592,9 +2581,14 @@
                                             </div>
                                         </div>
 
-                                        <button type="submit" id="checkInSubmitButton" class="btn btn-success w-100" disabled data-policy-disabled="{{ $disableCheckInSubmitNow ? 1 : 0 }}">
+                                        <button type="submit" id="checkInSubmitButton" class="btn btn-success w-100"
+                                            @disabled($checkInStaticDisabled || $initialAnyOverCapacity)
+                                            data-static-disabled="{{ $checkInStaticDisabled ? 1 : 0 }}"
+                                            data-ready-label="Xác nhận nhận phòng"
+                                            data-blocked-label="Chưa thể nhận phòng"
+                                            data-capacity-label="Chọn cách xử lý sức chứa">
                                             <i class="bx bx-log-in-circle me-1"></i>
-                                            {{ $disableCheckInSubmitNow ? 'Chưa thể nhận phòng' : 'Xác nhận nhận phòng' }}
+                                            <span class="check-in-submit-label">{{ $checkInStaticDisabled ? 'Chưa thể nhận phòng' : ($initialAnyOverCapacity ? 'Chọn cách xử lý sức chứa' : 'Xác nhận nhận phòng') }}</span>
                                         </button>
                                     </form>
 
@@ -2841,7 +2835,7 @@
                                         <div class="row g-2 mb-3">
                                             <div class="col-md-6">
                                                 <label class="form-label">Ngày trả phòng mới</label>
-                                                <input type="date" id="newCheckOutDateVn" name="new_check_out_date" class="form-control"
+                                                <input type="date" id="extendCheckOutDateVn" name="new_check_out_date" class="form-control"
                                                     min="{{ $lateShowCheckOutAt ? $lateShowCheckOutAt->format('Y-m-d') : date('Y-m-d') }}"
                                                     data-extension-min-date="{{ $lateShowCheckOutAt ? $lateShowCheckOutAt->format('Y-m-d') : date('Y-m-d') }}"
                                                     value="{{ $previewDateValue }}" required>
@@ -4212,16 +4206,23 @@
                                             {{ $booking->refund_status === 'completed' ? 'Đã xác nhận hoàn tất' : 'Đang chờ hoàn tiền' }}.
                                             @if ($booking->refund_status === 'completed' && $booking->refund_processed_at)
                                                 <br>Hoàn tất lúc {{ $booking->refund_processed_at->timezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') }}.
+                                                @if ($booking->refund_processed_note)
+                                                    <br>Ghi chú đối soát: {{ $booking->refund_processed_note }}
+                                                @endif
                                             @endif
                                         </div>
                                         @if ($booking->refund_status === 'pending')
-                                            <form action="{{ route('admin.bookings.manual-room-selection.refund-completed', $booking) }}" method="POST">
-                                                @csrf
-                                                @method('PATCH')
-                                                <label class="form-label small fw-semibold">Xác nhận sau khi đã thực sự hoàn tiền cho khách</label>
-                                                <textarea name="refund_note" class="form-control" rows="2" placeholder="Ví dụ: Đã hoàn qua cổng VNPay / hoàn tiền mặt tại quầy..."></textarea>
-                                                <button class="btn btn-success w-100 mt-2" onclick="return confirm('Chỉ xác nhận khi tiền đã thực sự được hoàn cho khách. Tiếp tục?');">Xác nhận đã hoàn tiền</button>
-                                            </form>
+                                            @if ($canConfirmRefund)
+                                                <form action="{{ route('admin.bookings.refund-completed', $booking) }}" method="POST">
+                                                    @csrf
+                                                    @method('PATCH')
+                                                    <label class="form-label small fw-semibold">Xác nhận sau khi đã thực sự hoàn tiền cho khách</label>
+                                                    <textarea name="refund_note" class="form-control" rows="2" placeholder="Ví dụ: Đã hoàn qua cổng VNPay / hoàn tiền mặt tại quầy..."></textarea>
+                                                    <button class="btn btn-success w-100 mt-2" onclick="return confirm('Chỉ xác nhận khi tiền đã thực sự được hoàn cho khách. Tiếp tục?');">Xác nhận đã hoàn tiền</button>
+                                                </form>
+                                            @else
+                                                <div class="small text-muted">Khoản hoàn này đang chờ Quản lý/Super Admin xác nhận sau khi đối soát tiền thực tế.</div>
+                                            @endif
                                         @endif
                                     @else
                                         <div class="alert alert-info small mb-0">Booking chưa phát sinh khoản thanh toán cần hoàn.</div>
@@ -4487,13 +4488,10 @@
                                                         <label class="form-label small">Áp dụng cho</label>
                                                         <input type="hidden" name="services[0][scope]" class="service-scope-input" value="booking">
                                                         <select name="services[0][booking_room_id]" class="form-select service-room-select">
-                                                            <option value="" data-room-count="{{ max(1, $booking->bookingRooms->count()) }}" data-guest-count="{{ max(1, $booking->guests->count()) }}">Toàn bộ đơn</option>
+                                                            <option value="" data-room-count="{{ max(1, $booking->bookingRooms->count()) }}" data-guest-count="{{ max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0)) }}">Toàn bộ đơn</option>
                                                             @foreach ($booking->bookingRooms as $serviceBookingRoom)
                                                                 @php
-                                                                    $serviceRoomGuestCount = $booking->guests->where('booking_room_id', $serviceBookingRoom->id)->count();
-                                                                    if ($serviceRoomGuestCount <= 0) {
-                                                                        $serviceRoomGuestCount = max(1, (int) $serviceBookingRoom->adult_count + (int) $serviceBookingRoom->child_count);
-                                                                    }
+                                                                    $serviceRoomGuestCount = max(1, (int) $serviceBookingRoom->adult_count + (int) $serviceBookingRoom->child_count + (int) ($serviceBookingRoom->baby_count ?? 0));
                                                                 @endphp
                                                                 <option value="{{ $serviceBookingRoom->id }}" data-room-count="1" data-guest-count="{{ $serviceRoomGuestCount }}">
                                                                     Phòng {{ $serviceBookingRoom->room?->room_number ?? '---' }} · {{ $serviceBookingRoom->room?->category?->name ?? '---' }}
@@ -4612,6 +4610,35 @@
                             </span>
                         </div>
 
+                        @if ((float) ($booking->refund_due_amount ?? 0) > 0)
+                            <div class="alert {{ $booking->refund_status === 'completed' ? 'alert-success' : 'alert-warning' }} small mt-2 mb-2">
+                                <div class="d-flex justify-content-between gap-2">
+                                    <span>{{ $booking->refund_status === 'completed' ? 'Đã hoàn khách' : 'Đang chờ hoàn khách' }}</span>
+                                    <strong>{{ number_format((float) $booking->refund_due_amount, 0, ',', '.') }}đ</strong>
+                                </div>
+                                @if ($booking->refund_status === 'completed' && $booking->refund_processed_at)
+                                    <div class="text-muted mt-1">Hoàn tất lúc {{ $booking->refund_processed_at->timezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') }}.</div>
+                                    @if ($booking->refund_processed_note)
+                                        <div class="text-muted mt-1">Ghi chú đối soát: {{ $booking->refund_processed_note }}</div>
+                                    @endif
+                                @elseif ($booking->refund_status === 'pending' && in_array($booking->status, ['cancelled', 'canceled'], true))
+                                    @if ($canConfirmRefund)
+                                        <form action="{{ route('admin.bookings.refund-completed', $booking) }}" method="POST" class="mt-2">
+                                            @csrf
+                                            @method('PATCH')
+                                            <textarea name="refund_note" class="form-control form-control-sm" rows="2" placeholder="Kênh hoàn tiền / mã giao dịch / ghi chú đối soát..."></textarea>
+                                            <button type="submit" class="btn btn-sm btn-success w-100 mt-2"
+                                                onclick="return confirm('Chỉ xác nhận khi tiền đã thực sự được hoàn cho khách. Tiếp tục?');">
+                                                Xác nhận đã hoàn tiền
+                                            </button>
+                                        </form>
+                                    @else
+                                        <div class="text-muted mt-1">Chờ Quản lý/Super Admin đối soát và xác nhận hoàn tiền.</div>
+                                    @endif
+                                @endif
+                            </div>
+                        @endif
+
                         <details class="payment-components-details">
                             <summary>Xem chi tiết cấu thành và phân bổ tiền</summary>
                             <div class="info-list">
@@ -4710,6 +4737,7 @@
                                     @csrf
 
                                     <input type="hidden" name="payment_method" id="adminDirectPaymentMethod" value="">
+                                    <input type="hidden" name="payment_request_token" value="{{ old('payment_request_token', (string) \Illuminate\Support\Str::uuid()) }}">
 
                                     <div class="row g-2">
                                         <div class="col-12">
@@ -4948,7 +4976,7 @@
                             </div>
                             <div class="info-line">
                                 <span class="info-label">Số khách</span>
-                                <span class="info-value">{{ $booking->adult_count }} NL / {{ $booking->child_count }}
+                                <span class="info-value">{{ $booking->adult_count }} NL / {{ $booking->child_count }} TE / {{ $booking->baby_count ?? 0 }} EB
                                     TE</span>
                             </div>
                             <div class="info-line">
@@ -5223,12 +5251,14 @@
             const perRoomOverCapacityInput = document.getElementById('perRoomOverCapacity');
             const actualAdultInput = document.getElementById('actualAdultCount');
             const actualChildInput = document.getElementById('actualChildCount');
+            const actualBabyInput = document.getElementById('actualBabyCount');
             const normalCheckInBox = document.getElementById('normalCheckInBox');
             const overCapacityBox = document.getElementById('overCapacityBox');
             const overCapacityAction = document.getElementById('overCapacityAction');
             const extraFeeBox = document.getElementById('extraFeeBox');
 
             const checkInForm = document.getElementById('checkInForm');
+            const checkInSubmitButton = document.getElementById('checkInSubmitButton');
             const checkInBirthdayInput = document.getElementById('checkInScannedBirthday');
 
             if (checkInBirthdayInput && window.initializeProjectDatePicker) {
@@ -5269,20 +5299,52 @@
                 }
             }
 
-            function checkCapacity() {
-                if (!adultCapacityInput || !childCapacityInput || !actualAdultInput || !actualChildInput || !normalCheckInBox || !overCapacityBox || !overCapacityAction) {
-                    return;
+            function currentCheckInCapacityIsOver() {
+                if (!adultCapacityInput || !childCapacityInput || !actualAdultInput || !actualChildInput || !actualBabyInput) {
+                    return false;
                 }
 
                 const adultCapacity = parseInt(adultCapacityInput.value || 0);
                 const childCapacity = parseInt(childCapacityInput.value || 0);
                 const actualAdult = parseInt(actualAdultInput.value || 0);
                 const actualChild = parseInt(actualChildInput.value || 0);
+                const actualBaby = parseInt(actualBabyInput.value || 0);
                 const hasPerRoomOverCapacity = perRoomOverCapacityInput
                     && perRoomOverCapacityInput.value === '1';
-                const isOver = actualAdult > adultCapacity
-                    || actualChild > childCapacity
+
+                return actualAdult > adultCapacity
+                    || (actualChild + actualBaby) > childCapacity
                     || hasPerRoomOverCapacity;
+            }
+
+            function updateCheckInSubmitState() {
+                if (!checkInSubmitButton) {
+                    return;
+                }
+
+                const staticDisabled = checkInSubmitButton.dataset.staticDisabled === '1';
+                const isOver = currentCheckInCapacityIsOver();
+                const capacityResolved = !isOver || (overCapacityAction && overCapacityAction.value === 'extra_fee');
+                const disabled = staticDisabled || !capacityResolved;
+                checkInSubmitButton.disabled = disabled;
+
+                const label = checkInSubmitButton.querySelector('.check-in-submit-label');
+                if (label) {
+                    label.textContent = staticDisabled
+                        ? (checkInSubmitButton.dataset.blockedLabel || 'Chưa thể nhận phòng')
+                        : (!capacityResolved
+                            ? (checkInSubmitButton.dataset.capacityLabel || 'Chọn cách xử lý sức chứa')
+                            : (checkInSubmitButton.dataset.readyLabel || 'Xác nhận nhận phòng'));
+                }
+            }
+
+            function checkCapacity() {
+                if (!normalCheckInBox || !overCapacityBox || !overCapacityAction) {
+                    updateCheckInSubmitState();
+                    return;
+                }
+
+                const isOver = currentCheckInCapacityIsOver();
 
                 if (isOver) {
                     normalCheckInBox.classList.add('d-none');
@@ -5293,10 +5355,13 @@
                     overCapacityAction.value = '';
                     hideAllActionBoxes();
                 }
+
+                updateCheckInSubmitState();
             }
 
             function toggleActionBox() {
                 if (!overCapacityAction) {
+                    updateCheckInSubmitState();
                     return;
                 }
 
@@ -5305,6 +5370,8 @@
                 if (overCapacityAction.value === 'extra_fee' && extraFeeBox) {
                     extraFeeBox.classList.remove('d-none');
                 }
+
+                updateCheckInSubmitState();
             }
 
             const extraFeeRows = document.getElementById('extraFeeRows');

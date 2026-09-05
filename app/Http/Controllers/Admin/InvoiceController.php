@@ -6,12 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Services\BookingFinancialService;
 use App\Services\StayPricingPolicyService;
+use Illuminate\Support\Facades\Auth;
 use PDF;
 
 class InvoiceController extends Controller
 {
     public function generate(Booking $booking)
     {
+        $this->ensureBookingAccess($booking);
         $data = $this->buildInvoiceData($booking);
         $pdf = PDF::loadView('admin.pages.invoices.pdf', $data);
 
@@ -20,7 +22,18 @@ class InvoiceController extends Controller
 
     public function view(Booking $booking)
     {
+        $this->ensureBookingAccess($booking);
+
         return view('admin.pages.invoices.pdf', $this->buildInvoiceData($booking));
+    }
+
+    private function ensureBookingAccess(Booking $booking): void
+    {
+        abort_unless(
+            $booking->canBeHandledBy(Auth::user()),
+            403,
+            'Bạn không được phân công xử lý booking này.'
+        );
     }
 
     private function buildInvoiceData(Booking $booking): array
@@ -100,9 +113,19 @@ class InvoiceController extends Controller
         $serviceTotal = round((float) $serviceLines->sum('total'), 0);
         $inspectionTotal = round((float) $inspectionLines->sum('total'), 0);
         $grandTotal = round($financialService->currentTotal($booking), 0);
+        // Giữ nguyên lịch sử tiền đã thu. Khoản hoàn được theo dõi riêng ở booking
+        // vì hiện tại hệ thống chưa có bảng giao dịch refund riêng.
         $paidTotal = round((float) $successfulPayments->sum('amount'), 0);
-        $remainingTotal = max(0, round($grandTotal - $paidTotal, 0));
-        $overpaymentTotal = max(0, round($paidTotal - $grandTotal, 0));
+        $refundDueTotal = round(max(0, (float) ($booking->refund_due_amount ?? 0)), 0);
+        $refundedTotal = $booking->refund_status === 'completed' ? $refundDueTotal : 0;
+        $pendingRefundTotal = $booking->refund_status === 'pending' ? $refundDueTotal : 0;
+        $netPaidTotal = max(0, round($paidTotal - $refundedTotal, 0));
+        $isCancelled = in_array($booking->status, ['cancelled', 'canceled'], true);
+
+        // Booking đã hủy không còn nghĩa vụ phải thu thêm. Nếu có tiền đã thu thì
+        // khoản cần hoàn/đã hoàn được trình bày riêng, không biến thành "còn phải thu".
+        $remainingTotal = $isCancelled ? 0 : max(0, round($grandTotal - $netPaidTotal, 0));
+        $overpaymentTotal = $isCancelled ? 0 : max(0, round($netPaidTotal - $grandTotal, 0));
 
         return compact(
             'booking',
@@ -116,6 +139,11 @@ class InvoiceController extends Controller
             'inspectionTotal',
             'grandTotal',
             'paidTotal',
+            'refundDueTotal',
+            'refundedTotal',
+            'pendingRefundTotal',
+            'netPaidTotal',
+            'isCancelled',
             'remainingTotal',
             'overpaymentTotal',
             'nightCount',

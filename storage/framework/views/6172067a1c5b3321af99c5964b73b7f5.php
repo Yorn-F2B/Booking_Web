@@ -4,7 +4,11 @@
     $declaredChildren = $stayingGuests->where('guest_type', 'child')->count();
     $declaredInfants = $stayingGuests->where('guest_type', 'infant')->count();
     $declaredTotal = $stayingGuests->count();
-    $expectedTotal = (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0);
+    $actualTotal = (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0);
+    $roomsMissingAdultRepresentative = $booking->bookingRooms->filter(function ($bookingRoom) use ($stayingGuests) {
+        return !$stayingGuests->where('booking_room_id', $bookingRoom->id)
+            ->contains(fn ($guest) => $guest->guest_type === 'adult');
+    })->count();
     $adultGuests = $stayingGuests->where('guest_type', 'adult');
     $procedureGuestAlreadyDeclared = $stayingGuests->contains(function ($guest) use ($booking) {
         $bookingDocument = trim((string) $booking->booked_customer_cccd);
@@ -29,9 +33,9 @@
 
 <details class="compact-panel mb-3" id="stayingGuestsPanel" <?php if($errors->any()): ?> open <?php endif; ?>>
     <summary>
-        <span>Khai báo toàn bộ khách lưu trú</span>
-        <span class="badge-clean <?php echo e($declaredTotal >= $expectedTotal ? 'status-done' : 'status-warning'); ?>">
-            <?php echo e($declaredTotal); ?> khách đã khai · <?php echo e($declaredAdults); ?> NL / <?php echo e($declaredChildren); ?> TE / <?php echo e($declaredInfants); ?> EB
+        <span>Hồ sơ đại diện / giấy tờ lưu trú</span>
+        <span class="badge-clean <?php echo e($roomsMissingAdultRepresentative === 0 && $booking->bookingRooms->isNotEmpty() ? 'status-done' : 'status-warning'); ?>">
+            <?php echo e($declaredTotal); ?> hồ sơ · <?php echo e($roomsMissingAdultRepresentative); ?> phòng thiếu đại diện người lớn
         </span>
     </summary>
 
@@ -47,14 +51,14 @@
         <div class="row g-2 mb-3">
             <div class="col-md-4">
                 <div class="border rounded p-2 h-100">
-                    <div class="text-muted small">Dự kiến khi đặt</div>
-                    <strong><?php echo e($booking->adult_count); ?> NL / <?php echo e($booking->child_count); ?> TE / <?php echo e($booking->baby_count ?? 0); ?> EB</strong>
+                    <div class="text-muted small">Khách thực tế</div>
+                    <strong><?php echo e($booking->adult_count); ?> NL / <?php echo e($booking->child_count); ?> TE / <?php echo e($booking->baby_count ?? 0); ?> EB · <?php echo e($actualTotal); ?> người</strong>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="border rounded p-2 h-100">
-                    <div class="text-muted small">Đã khai báo</div>
-                    <strong><?php echo e($declaredAdults); ?> NL / <?php echo e($declaredChildren); ?> TE / <?php echo e($declaredInfants); ?> EB</strong>
+                    <div class="text-muted small">Hồ sơ đã khai</div>
+                    <strong><?php echo e($declaredAdults); ?> NL / <?php echo e($declaredChildren); ?> TE / <?php echo e($declaredInfants); ?> EB · <?php echo e($declaredTotal); ?> hồ sơ</strong>
                 </div>
             </div>
             <div class="col-md-4">
@@ -68,14 +72,19 @@
         <?php $__currentLoopData = $booking->bookingRooms; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $bookingRoom): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
             <?php
                 $roomGuests = $stayingGuests->where('booking_room_id', $bookingRoom->id);
-                $roomAdults = $roomGuests->where('guest_type', 'adult')->count();
-                $roomChildren = $roomGuests->whereIn('guest_type', ['child', 'infant'])->count();
+                $profileAdultCount = $roomGuests->where('guest_type', 'adult')->count();
+                $roomActualAdults = max(0, (int) $bookingRoom->adult_count);
+                $roomActualChildren = max(0, (int) $bookingRoom->child_count);
+                $roomActualBabies = max(0, (int) ($bookingRoom->baby_count ?? 0));
+                $roomActualMinors = $roomActualChildren + $roomActualBabies;
+                $roomActualTotal = $roomActualAdults + $roomActualMinors;
                 $roomCategory = $bookingRoom->room?->category;
                 $adultCapacity = (int) ($roomCategory?->adult_capacity ?? 0);
                 $childCapacity = (int) ($roomCategory?->child_capacity ?? 0);
-                $adultOver = max(0, $roomAdults - $adultCapacity);
-                $childOver = max(0, $roomChildren - $childCapacity);
+                $adultOver = max(0, $roomActualAdults - $adultCapacity);
+                $childOver = max(0, $roomActualMinors - $childCapacity);
                 $isRoomOverCapacity = $adultOver > 0 || $childOver > 0;
+                $missingAdultRepresentative = $profileAdultCount === 0;
             ?>
             <details class="border rounded mb-3 overflow-hidden <?php echo e($isRoomOverCapacity ? 'border-danger' : ''); ?>" <?php if($errors->any()): ?> open <?php endif; ?>>
                 <summary class="px-3 py-2 bg-light" style="cursor:pointer">
@@ -84,13 +93,18 @@
                             <strong>Phòng <?php echo e($bookingRoom->room?->room_number ?? '---'); ?></strong>
                             <span class="text-muted small">· <?php echo e($roomCategory?->name ?? 'Chưa rõ hạng'); ?></span>
                         </span>
-                        <span class="badge <?php echo e($isRoomOverCapacity ? 'text-bg-danger' : 'text-bg-light border'); ?>">
-                            <?php echo e($roomGuests->count()); ?> khách · <?php echo e($roomAdults); ?>/<?php echo e($adultCapacity); ?> NL · <?php echo e($roomChildren); ?>/<?php echo e($childCapacity); ?> TE/EB
+                        <span class="badge <?php echo e($isRoomOverCapacity || $missingAdultRepresentative ? 'text-bg-warning' : 'text-bg-light border'); ?>">
+                            <?php echo e($roomActualTotal); ?> khách thực tế · <?php echo e($roomActualAdults); ?>/<?php echo e($adultCapacity); ?> NL · <?php echo e($roomActualMinors); ?>/<?php echo e($childCapacity); ?> TE/EB · <?php echo e($roomGuests->count()); ?> hồ sơ
                         </span>
                     </span>
                 </summary>
 
                 <div class="p-3 border-top">
+                    <?php if($missingAdultRepresentative): ?>
+                        <div class="alert alert-warning py-2 small mb-2">
+                            <strong>Thiếu người đại diện phòng:</strong> trước check-in cần ít nhất một hồ sơ người lớn đại diện cho phòng này. Không cần khai hồ sơ của toàn bộ khách nếu không cần thiết.
+                        </div>
+                    <?php endif; ?>
                     <?php if($isRoomOverCapacity): ?>
                         <div class="alert alert-danger py-2 small mb-2">
                             <strong>Phòng đang vượt sức chứa:</strong>
@@ -151,7 +165,7 @@
                             </div>
                         </details>
                     <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
-                        <div class="text-muted small">Chưa khai khách nào cho phòng này.</div>
+                        <div class="text-muted small">Chưa có hồ sơ đại diện/giấy tờ cho phòng này.</div>
                     <?php endif; ?>
                 </div>
             </details>
@@ -160,12 +174,12 @@
         <?php if($canEditStayGuests): ?>
             <details class="border rounded bg-light" id="batchGuestEntry" <?php if($errors->any()): ?> open <?php endif; ?>>
                 <summary class="px-3 py-2 fw-semibold" style="cursor:pointer">
-                    Thêm khách lưu trú
-                    <span class="text-muted small ms-2">· Mở khi cần khai báo thêm</span>
+                    Thêm hồ sơ đại diện / giấy tờ
+                    <span class="text-muted small ms-2">· Mỗi phòng cần tối thiểu một người lớn đại diện; có thể khai thêm khi cần</span>
                 </summary>
                 <div class="p-3 border-top">
                 <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-3">
-                    <h6 class="fw-bold mb-1">Khai báo khách lưu trú</h6>
+                    <h6 class="fw-bold mb-1">Khai báo hồ sơ lưu trú</h6>
                     <div class="d-flex align-items-center gap-3 flex-wrap">
                         <div class="form-check mb-0">
                             <input class="form-check-input" type="checkbox" id="procedureGuestIsStaying"
@@ -191,7 +205,7 @@
                         <button type="button" class="btn btn-outline-primary" id="addBatchGuestRowBottom">
                             <i class="bx bx-user-plus me-1"></i> Thêm người khác
                         </button>
-                        <button type="submit" class="btn btn-primary">Xác nhận thêm toàn bộ khách</button>
+                        <button type="submit" class="btn btn-primary">Lưu các hồ sơ đã nhập</button>
                     </div>
                 </form>
                 <template id="batchGuestRowTemplate">
@@ -252,7 +266,7 @@
     </div>
 </div>
 
-<?php if (! $__env->hasRenderedOnce('a747a670-cff3-4ea0-a98a-db4890ac0e6c')): $__env->markAsRenderedOnce('a747a670-cff3-4ea0-a98a-db4890ac0e6c'); ?>
+<?php if (! $__env->hasRenderedOnce('7e59dce2-98d6-4316-8a03-5de19a1d0f20')): $__env->markAsRenderedOnce('7e59dce2-98d6-4316-8a03-5de19a1d0f20'); ?>
 <style>
 .no-document-risk-backdrop {
     position: fixed;

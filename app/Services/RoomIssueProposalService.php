@@ -164,7 +164,7 @@ class RoomIssueProposalService
         $sameCategoryRoom = Room::with('category')
             ->where('room_category_id', $issue->current_room_category_id)
             ->whereNotIn('id', $excludedRoomIds)
-            ->availableForPeriod($from, $to, $booking->id)
+            ->bookableForPeriod($from, $to, $booking->id)
             ->orderBy('floor_number')
             ->orderBy('room_number')
             ->first();
@@ -190,7 +190,7 @@ class RoomIssueProposalService
             ->whereHas('category', fn ($query) => $query
                 ->where('status', 'active')
                 ->where('price', '>', $currentPrice))
-            ->availableForPeriod($from, $to, $booking->id)
+            ->bookableForPeriod($from, $to, $booking->id)
             ->get()
             ->sortBy(fn ($room) => [
                 (float) ($room->category?->price ?? PHP_INT_MAX),

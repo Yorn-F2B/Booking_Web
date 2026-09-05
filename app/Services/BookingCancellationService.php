@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Booking;
 use App\Models\BookingLog;
 use App\Models\BookingPayment;
+use App\Models\BookingPromotion;
+use App\Models\Promotion;
 use App\Models\BookingServiceItem;
 use Illuminate\Support\Facades\DB;
 
@@ -53,6 +55,12 @@ class BookingCancellationService
                     . ' - ' . $actorLabel . ' xác nhận hủy booking. ' . ($policy['label'] ?? 'Theo chính sách hủy') . '.'
                     . ' Tiền cọc đã thanh toán không hoàn lại và không bảo lưu.'),
             ]);
+
+            app(RoomReservationStatusService::class)->syncRoomIds(
+                $locked->bookingRooms()->pluck('room_id')
+            );
+
+            $this->releasePromotionUsageCounters($locked->id);
 
             $customerUser = $locked->customer?->user;
             if (config('account_restrictions.enabled', false) && $customerUser) {
@@ -156,6 +164,7 @@ class BookingCancellationService
                 'refund_reason' => trim($reason),
                 'refund_processed_at' => $refundDue > 0 ? null : $now,
                 'refund_processed_by' => null,
+                'refund_processed_note' => null,
                 'note' => trim(($locked->note ? $locked->note . "\n" : '')
                     . $now->format('d/m/Y H:i') . ' - ' . $actorLabel
                     . ' từ chối phòng dự phòng do khách sạn không đáp ứng yêu cầu. Booking được hủy không phạt khách.'
@@ -163,6 +172,12 @@ class BookingCancellationService
                         ? ' Cần hoàn lại toàn bộ ' . number_format($refundDue, 0, ',', '.') . 'đ đã thanh toán.'
                         : ' Booking chưa phát sinh khoản đã thanh toán nên không có tiền cần hoàn.')),
             ])->save();
+
+            app(RoomReservationStatusService::class)->syncRoomIds(
+                $locked->bookingRooms()->pluck('room_id')
+            );
+
+            $this->releasePromotionUsageCounters($locked->id);
 
             BookingLog::create([
                 'booking_id' => $locked->id,
@@ -175,6 +190,107 @@ class BookingCancellationService
 
             return $refundDue;
         });
+    }
+
+
+    /**
+     * Hủy booking vì hết thời hạn giữ thanh toán nhưng khách đã trả một phần
+     * chưa đạt mức cọc tối thiểu. Đây là hủy do quy trình thanh toán chưa hoàn
+     * tất, không phải khách chủ động hủy/no-show: toàn bộ tiền đã thu phải hoàn.
+     */
+    public function cancelForExpiredPaymentHold(Booking $booking, ?int $actorUserId = null): float
+    {
+        return DB::transaction(function () use ($booking, $actorUserId) {
+            $locked = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
+
+            if ($locked->status !== 'pending' || $locked->actual_check_in) {
+                throw new \RuntimeException('Booking không còn ở trạng thái chờ thanh toán để tự hủy.');
+            }
+
+            $refundDue = round((float) BookingPayment::where('booking_id', $locked->id)
+                ->where('status', 'success')
+                ->sum('amount'), 0);
+
+            BookingServiceItem::where('booking_id', $locked->id)
+                ->where('billing_status', 'pending')
+                ->update([
+                    'billing_status' => 'cancelled',
+                    'used_quantity' => 0,
+                    'total' => 0,
+                    'note' => DB::raw("CONCAT(COALESCE(note, ''), ' | Đã hủy do booking hết thời hạn giữ thanh toán.')"),
+                ]);
+
+            BookingPayment::where('booking_id', $locked->id)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'failed',
+                    'response_code' => 'EXPIRED',
+                    'transaction_status' => 'EXPIRED',
+                ]);
+
+            $now = now('Asia/Ho_Chi_Minh');
+            $requiredDeposit = $this->financials->requiredDeposit($locked);
+
+            $locked->forceFill([
+                'status' => 'cancelled',
+                'payment_expires_at' => null,
+                'refund_due_amount' => $refundDue,
+                'refund_status' => $refundDue > 0 ? 'pending' : 'none',
+                'refund_reason' => $refundDue > 0
+                    ? 'Booking tự hủy do hết thời hạn giữ thanh toán khi chưa đủ mức cọc. Hoàn lại toàn bộ số tiền đã thu.'
+                    : null,
+                'refund_processed_at' => null,
+                'refund_processed_by' => null,
+                'refund_processed_note' => null,
+                'note' => trim(($locked->note ? $locked->note . "\n" : '')
+                    . $now->format('d/m/Y H:i')
+                    . ' - Booking tự hủy vì hết thời hạn giữ thanh toán và chưa đủ mức cọc '
+                    . number_format($requiredDeposit, 0, ',', '.') . 'đ.'
+                    . ($refundDue > 0
+                        ? ' Cần hoàn lại toàn bộ ' . number_format($refundDue, 0, ',', '.') . 'đ đã thu.'
+                        : ' Chưa phát sinh khoản đã thu nên không có tiền cần hoàn.')),
+            ])->save();
+
+            app(RoomReservationStatusService::class)->syncRoomIds(
+                $locked->bookingRooms()->pluck('room_id')
+            );
+
+            $this->releasePromotionUsageCounters($locked->id);
+
+            BookingLog::create([
+                'booking_id' => $locked->id,
+                'user_id' => $actorUserId,
+                'action' => 'payment_hold_expired',
+                'description' => 'Booking tự hủy vì hết thời hạn giữ thanh toán khi chưa đủ mức cọc. '
+                    . 'Đã thu: ' . number_format($refundDue, 0, ',', '.') . 'đ; '
+                    . 'mức cọc yêu cầu: ' . number_format($requiredDeposit, 0, ',', '.') . 'đ; '
+                    . ($refundDue > 0 ? 'đã tạo yêu cầu hoàn toàn bộ số tiền đã thu.' : 'không phát sinh hoàn tiền.'),
+            ]);
+
+            return $refundDue;
+        });
+    }
+
+    /**
+     * Booking hủy không tiêu lượt ưu đãi. BookingPromotion vẫn giữ nguyên để
+     * audit số tiền/mã đã áp, chỉ trả lại counter tổng hợp trên promotions.
+     * Hàm chỉ được gọi trong transition từ booking còn hoạt động -> cancelled.
+     */
+    private function releasePromotionUsageCounters(int $bookingId): void
+    {
+        $counts = BookingPromotion::query()
+            ->where('booking_id', $bookingId)
+            ->selectRaw('promotion_id, COUNT(*) as usage_count')
+            ->groupBy('promotion_id')
+            ->pluck('usage_count', 'promotion_id');
+
+        foreach ($counts as $promotionId => $usageCount) {
+            Promotion::query()
+                ->whereKey((int) $promotionId)
+                ->update([
+                    'used_count' => DB::raw('GREATEST(COALESCE(used_count, 0) - ' . max(0, (int) $usageCount) . ', 0)'),
+                ]);
+        }
     }
 
 }

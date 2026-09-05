@@ -50,6 +50,8 @@ class BookingController extends Controller
                     'check_out_date',
                     'adult_count',
                     'child_count',
+                    'baby_count',
+                    'room_quantity',
                     'note',
                 ])),
             ]);
@@ -67,33 +69,27 @@ class BookingController extends Controller
             'check_out_date' => 'required|date|after:check_in_date',
             'adult_count' => 'required|integer|min:1',
             'child_count' => 'nullable|integer|min:0',
+            'baby_count' => 'nullable|integer|min:0',
+            'room_quantity' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)),
             'note' => 'nullable|string|max:1000',
         ], [
             'check_in_date.after_or_equal' => 'Đã quá mốc giữ phòng online hôm nay lúc ' . $this->standardCheckInLabel() . '. Vui lòng chọn ngày nhận phòng từ ' . Carbon::parse($minOnlineCheckInDate)->format('d/m/Y') . '.',
             'check_out_date.after' => 'Ngày trả phòng phải sau ngày nhận phòng.',
         ]);
 
-        // Khách đặt phòng online chỉ được đặt đúng 1 phòng.
-        // Không nhận room_quantity từ request để tránh can thiệp phía client.
-        $data['room_quantity'] = 1;
+        $maxOnlineGuests = max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60));
+        if (((int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0)) > $maxOnlineGuests) {
+            return back()->withInput()->withErrors(['adult_count' => 'Tổng số người lớn, trẻ em và em bé không được vượt quá ' . $maxOnlineGuests . ' người trong một booking.']);
+        }
+        if (isset($data['room_quantity']) && (int) $data['adult_count'] < (int) $data['room_quantity']) {
+            return back()->withInput()->withErrors(['adult_count' => 'Mỗi phòng cần ít nhất một người lớn đại diện. Với ' . (int) $data['room_quantity'] . ' phòng cần tối thiểu ' . (int) $data['room_quantity'] . ' người lớn.']);
+        }
 
         $checkInAt = $data['check_in_date'] . ' ' . $this->standardCheckInTime();
         $checkOutAt = $data['check_out_date'] . ' ' . $this->standardCheckOutTime();
 
         $roomCategory = RoomCategory::where('status', 'active')
             ->findOrFail($data['room_category_id']);
-
-        if ($data['adult_count'] > $roomCategory->adult_capacity) {
-            return back()
-                ->withInput()
-                ->with('error', 'Số người lớn vượt quá sức chứa của hạng phòng.');
-        }
-
-        if (($data['child_count'] ?? 0) > $roomCategory->child_capacity) {
-            return back()
-                ->withInput()
-                ->with('error', 'Số trẻ em vượt quá sức chứa của hạng phòng.');
-        }
 
         $customer = Customer::where('user_id', Auth::id())->first();
 
@@ -111,7 +107,11 @@ class BookingController extends Controller
             }
         }
 
-        $requestedRoomQuantity = 1;
+        $requestedRoomQuantity = max(1, (int) $data['room_quantity']);
+        if ((int)$data['adult_count'] > (int)$roomCategory->adult_capacity * $requestedRoomQuantity
+            || ((int)($data['child_count'] ?? 0) + (int)($data['baby_count'] ?? 0)) > (int)$roomCategory->child_capacity * $requestedRoomQuantity) {
+            return back()->withInput()->with('error', 'Số phòng đã chọn không đủ sức chứa cho đoàn khách. Vui lòng chọn lại phương án được hệ thống gợi ý.');
+        }
 
         $availableRooms = $this->findAvailableRooms(
             $roomCategory->id,
@@ -148,8 +148,8 @@ class BookingController extends Controller
             ->get();
 
         $availablePromotions = app(PromotionService::class)->availablePromotions([
-            // Email là khóa quyền lợi ưu đãi chính. Phải dùng cùng identity với lúc
-            // submit để UI không hiện mã mà backend sau đó mới báo đã hết lượt.
+            // CCCD là khóa quyền lợi ưu đãi. Dùng cùng identity với lúc submit để
+            // UI không hiện mã mà backend sau đó mới báo đã hết lượt.
             'customer_id' => $customer?->id,
             'customer_email' => $customer?->email ?? Auth::user()?->email,
             'customer_phone' => $customer?->phone,
@@ -158,8 +158,20 @@ class BookingController extends Controller
             'check_in_at' => $checkInAt,
             'check_out_at' => $checkOutAt,
             'night_count' => $nightCount,
-            'room_quantity' => 1,
+            'room_quantity' => $requestedRoomQuantity,
         ], 'user');
+
+        // Render catalog công khai một lần rồi JS chỉ ẩn/hiện theo kết quả backend.
+        // Nhờ vậy khách mới nhập CCCD ngay tại confirm vẫn có thể thấy mã dành cho
+        // chính CCCD đó, thay vì phải quay lại trang trước.
+        $promotionCatalog = Promotion::with(['serviceOffers.service', 'roomUpgradeOffers.fromCategory', 'roomUpgradeOffers.toCategory'])
+            ->where('status', 'active')
+            ->where('user_can_apply', true)
+            ->where('is_public', true)
+            ->where('promotion_type', '!=', Promotion::TYPE_SUPPORT)
+            ->orderByRaw("FIELD(promotion_type, 'normal_discount', 'event_discount', 'conditional_discount', 'support_discount')")
+            ->orderBy('code')
+            ->get();
 
         return view('user.pages.booking-confirm', [
             'bookingData' => $data,
@@ -169,6 +181,46 @@ class BookingController extends Controller
             'estimatedTotal' => $estimatedTotal,
             'services' => $services,
             'availablePromotions' => $availablePromotions,
+            'promotionCatalog' => $promotionCatalog,
+        ]);
+    }
+
+    public function eligiblePromotions(Request $request)
+    {
+        $data = $request->validate([
+            'room_category_id' => ['required', 'exists:room_categories,id'],
+            'check_in_date' => ['required', 'date'],
+            'check_out_date' => ['required', 'date', 'after:check_in_date'],
+            'adult_count' => ['required', 'integer', 'min:1'],
+            'child_count' => ['nullable', 'integer', 'min:0'],
+            'baby_count' => ['nullable', 'integer', 'min:0'],
+            'room_quantity' => ['required', 'integer', 'min:1', 'max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30))],
+            'customer_cccd' => ['nullable', 'regex:/^[0-9]{12}$/'],
+        ]);
+
+        $maxGuests = max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60));
+        if ((int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0) > $maxGuests) {
+            return response()->json(['codes' => [], 'message' => 'Tổng số khách vượt giới hạn booking.'], 422);
+        }
+
+        $category = RoomCategory::where('status', 'active')->findOrFail($data['room_category_id']);
+        $nights = $this->getNightCount($data['check_in_date'], $data['check_out_date']);
+        $subtotal = (float) $category->price * $nights * (int) $data['room_quantity'];
+        $customer = Customer::where('user_id', Auth::id())->first();
+
+        $promotions = app(PromotionService::class)->availablePromotions([
+            'customer_id' => $customer?->id,
+            'customer_cccd' => $data['customer_cccd'] ?? $customer?->cccd,
+            'subtotal_amount' => $subtotal,
+            'check_in_at' => $data['check_in_date'] . ' ' . $this->standardCheckInTime(),
+            'check_out_at' => $data['check_out_date'] . ' ' . $this->standardCheckOutTime(),
+            'night_count' => $nights,
+            'room_quantity' => (int) $data['room_quantity'],
+        ], 'user');
+
+        return response()->json([
+            'codes' => $promotions->pluck('code')->values(),
+            'count' => $promotions->count(),
         ]);
     }
 
@@ -192,8 +244,10 @@ class BookingController extends Controller
             'room_category_id' => ['required', 'exists:room_categories,id'],
             'check_in_date' => ['required', 'date', 'after_or_equal:' . $minOnlineCheckInDate],
             'check_out_date' => ['required', 'date', 'after:check_in_date'],
-            'adult_count' => ['required', 'integer', 'min:1'],
-            'child_count' => ['nullable', 'integer', 'min:0'],
+            'adult_count' => ['required', 'integer', 'min:1', 'max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60))],
+            'child_count' => ['nullable', 'integer', 'min:0', 'max:' . max(0, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60))],
+            'baby_count' => ['nullable', 'integer', 'min:0', 'max:' . max(0, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60))],
+            'room_quantity' => ['required', 'integer', 'min:1', 'max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30))],
             'last_name' => ['required', 'string', 'max:100'],
             'first_name' => ['required', 'string', 'max:100'],
             'phone' => [
@@ -256,9 +310,13 @@ class BookingController extends Controller
             'payment_type.in' => 'Hình thức thanh toán không hợp lệ.',
         ]);
 
-        // Khách đặt phòng online chỉ được đặt đúng 1 phòng.
-        // Giá trị này do backend quyết định, không phụ thuộc dữ liệu gửi từ form.
-        $data['room_quantity'] = 1;
+        $maxOnlineGuests = max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60));
+        if (((int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0)) > $maxOnlineGuests) {
+            return back()->withInput()->withErrors(['adult_count' => 'Tổng số người lớn, trẻ em và em bé không được vượt quá ' . $maxOnlineGuests . ' người trong một booking.']);
+        }
+        if (isset($data['room_quantity']) && (int) $data['adult_count'] < (int) $data['room_quantity']) {
+            return back()->withInput()->withErrors(['adult_count' => 'Mỗi phòng cần ít nhất một người lớn đại diện. Với ' . (int) $data['room_quantity'] . ' phòng cần tối thiểu ' . (int) $data['room_quantity'] . ' người lớn.']);
+        }
 
         $checkInAt = $data['check_in_date'] . ' ' . $this->standardCheckInTime();
         $checkOutAt = $data['check_out_date'] . ' ' . $this->standardCheckOutTime();
@@ -266,19 +324,11 @@ class BookingController extends Controller
         $roomCategory = RoomCategory::where('status', 'active')
             ->findOrFail($data['room_category_id']);
 
-        if ($data['adult_count'] > $roomCategory->adult_capacity) {
-            return back()
-                ->withInput()
-                ->with('error', 'Số người lớn vượt quá sức chứa của hạng phòng.');
+        $requestedRoomQuantity = max(1, (int) $data['room_quantity']);
+        if ((int)$data['adult_count'] > (int)$roomCategory->adult_capacity * $requestedRoomQuantity
+            || ((int)($data['child_count'] ?? 0) + (int)($data['baby_count'] ?? 0)) > (int)$roomCategory->child_capacity * $requestedRoomQuantity) {
+            return back()->withInput()->with('error', 'Số phòng đã chọn không đủ sức chứa cho đoàn khách.');
         }
-
-        if (($data['child_count'] ?? 0) > $roomCategory->child_capacity) {
-            return back()
-                ->withInput()
-                ->with('error', 'Số trẻ em vượt quá sức chứa của hạng phòng.');
-        }
-
-        $requestedRoomQuantity = 1;
 
         $booking = DB::transaction(function () use ($data, $roomCategory, $checkInAt, $checkOutAt, $requestedRoomQuantity) {
             $existingCustomer = Customer::query()->where('user_id', Auth::id())->lockForUpdate()->first();
@@ -363,10 +413,10 @@ class BookingController extends Controller
                 $data['promotion_codes'] ?? [],
                 [
                     // Dùng đúng cùng một identity với màn xác nhận để mã được
-                    // hiển thị là mã backend thực sự cho phép áp dụng. Email là
-                    // khóa quyền lợi chính; phone/CCCD chỉ fallback khi không có email.
+                    // hiển thị là mã backend thực sự cho phép áp dụng. Quyền lợi
+                    // promotion được nhận diện theo CCCD; email/SĐT chỉ là kênh liên hệ.
                     'customer_id' => $customer->id,
-                    'customer_email' => $customer->email ?: $currentUser?->email,
+                    'customer_email' => $customer->email ?: $user?->email,
                     'customer_phone' => $customer->phone,
                     'customer_cccd' => $customer->cccd,
                     'subtotal_amount' => $subtotalAmount,
@@ -399,7 +449,7 @@ class BookingController extends Controller
             $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
             $roomBaseTotal = (float) $roomCategory->price * $nightCount * $requestedRoomQuantity;
             $roomDiscountForDeposit = min($roomBaseTotal, $moneyDiscountAmount + $roomUpgradeDiscountAmount);
-            $requiredDepositAmount = round(max(0, $roomBaseTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(), 0);
+            $requiredDepositAmount = round(max(0, $roomBaseTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(null, $requestedRoomQuantity), 0);
 
             $booking = Booking::create([
                 'booking_code' => $this->generateBookingCode(),
@@ -418,6 +468,7 @@ class BookingController extends Controller
                 'check_out_at' => $checkOutAt,
                 'adult_count' => $data['adult_count'],
                 'child_count' => $data['child_count'] ?? 0,
+                'baby_count' => $data['baby_count'] ?? 0,
                 'room_quantity' => $requestedRoomQuantity,
                 'prefer_adjacent_rooms' => 0,
                 'room_selection_mode' => $data['room_selection_mode'],
@@ -438,13 +489,24 @@ class BookingController extends Controller
                 'note' => $data['note'] ?? null,
             ]);
 
-            // Create booking rooms for each requested room
-            foreach ($availableRooms as $index => $room) {
+            // booking_rooms là nguồn số người vận hành; mỗi phòng luôn có ít nhất
+            // một người lớn đại diện và tổng phân bổ phải khớp booking.
+            $roomsForAllocation = $availableRooms->take($requestedRoomQuantity)->values();
+            $roomsForAllocation->loadMissing('category');
+            $occupancyAllocation = app(\App\Services\BookingRoomOccupancyAllocator::class)->allocate(
+                $roomsForAllocation,
+                (int) $data['adult_count'],
+                (int) ($data['child_count'] ?? 0),
+                (int) ($data['baby_count'] ?? 0)
+            );
+            foreach ($roomsForAllocation as $room) {
+                $roomOccupancy = $occupancyAllocation[(int) $room->id];
                 BookingRoom::create([
                     'booking_id' => $booking->id,
                     'room_id' => $room->id,
-                    'adult_count' => $data['adult_count'],
-                    'child_count' => $data['child_count'] ?? 0,
+                    'adult_count' => $roomOccupancy['adult_count'],
+                    'child_count' => $roomOccupancy['child_count'],
+                    'baby_count' => $roomOccupancy['baby_count'],
                     'price_at_booking' => (float) $roomCategory->price,
                     'surcharge' => 0,
                     'surcharge_reason' => null,
@@ -511,7 +573,7 @@ class BookingController extends Controller
                     'action' => 'manual_room_selection_requested',
                     'description' => 'Khách yêu cầu lễ tân chọn phòng thủ công: '
                         . trim((string) $data['room_selection_request'])
-                        . '. Hệ thống vẫn giữ một phòng dự phòng và chỉ thu phí nếu yêu cầu được đáp ứng.',
+                        . '. Hệ thống vẫn giữ đủ số phòng dự phòng và chỉ thu phí nếu yêu cầu được đáp ứng.',
                 ]);
             }
 
@@ -617,7 +679,7 @@ class BookingController extends Controller
         }
 
         try {
-            Mail::to($email)->send(new BookingCreatedMail($booking, $source));
+            app(\App\Services\EmailDeliveryService::class)->sendOrFail($email, new BookingCreatedMail($booking, $source), 'booking_confirmation', $booking);
 
             BookingLog::create([
                 'booking_id' => $booking->id,
@@ -1049,8 +1111,10 @@ class BookingController extends Controller
             'room_category_id' => ['required', 'exists:room_categories,id'],
             'check_in_date' => ['required', 'date', 'after_or_equal:' . $minOnlineCheckInDate],
             'check_out_date' => ['required', 'date', 'after:check_in_date'],
-            'adult_count' => ['required', 'integer', 'min:1'],
-            'child_count' => ['nullable', 'integer', 'min:0'],
+            'adult_count' => ['required', 'integer', 'min:1', 'max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60))],
+            'child_count' => ['nullable', 'integer', 'min:0', 'max:' . max(0, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60))],
+            'baby_count' => ['nullable', 'integer', 'min:0', 'max:' . max(0, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60))],
+            'room_quantity' => ['required', 'integer', 'min:1', 'max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30))],
             'last_name' => ['required', 'string', 'max:100'],
             'first_name' => ['required', 'string', 'max:100'],
             'phone' => ['required', 'regex:/^0[0-9]{9}$/', Rule::unique('customers', 'phone')->ignore($currentCustomer->id)],
@@ -1078,6 +1142,14 @@ class BookingController extends Controller
             'birthday.before_or_equal' => 'Người đứng tên đặt phòng phải đủ ' . $minimumAge . ' tuổi.',
         ]);
 
+        $maxOnlineGuests = max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60));
+        if (((int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0)) > $maxOnlineGuests) {
+            return back()->withInput()->withErrors(['adult_count' => 'Tổng số người lớn, trẻ em và em bé không được vượt quá ' . $maxOnlineGuests . ' người trong một booking.']);
+        }
+        if (isset($data['room_quantity']) && (int) $data['adult_count'] < (int) $data['room_quantity']) {
+            return back()->withInput()->withErrors(['adult_count' => 'Mỗi phòng cần ít nhất một người lớn đại diện. Với ' . (int) $data['room_quantity'] . ' phòng cần tối thiểu ' . (int) $data['room_quantity'] . ' người lớn.']);
+        }
+
         $result = DB::transaction(function () use ($booking, $currentCustomer, $currentUser, $data) {
             $lockedBooking = Booking::query()->whereKey($booking->id)->lockForUpdate()->firstOrFail();
 
@@ -1090,11 +1162,12 @@ class BookingController extends Controller
             app(BookingIdentityGuard::class)->assertNoActiveBookingForCccd($data['cccd'], $lockedBooking->id);
 
             $roomCategory = RoomCategory::query()->where('status', 'active')->findOrFail($data['room_category_id']);
-            if ((int) $data['adult_count'] > (int) $roomCategory->adult_capacity) {
-                return ['error' => 'Số người lớn vượt quá sức chứa của hạng phòng đã chọn.'];
+            $requestedRoomQuantity = max(1, (int) $data['room_quantity']);
+            if ((int) $data['adult_count'] > (int) $roomCategory->adult_capacity * $requestedRoomQuantity) {
+                return ['error' => 'Số người lớn vượt quá tổng sức chứa của số phòng đã chọn.'];
             }
-            if ((int) ($data['child_count'] ?? 0) > (int) $roomCategory->child_capacity) {
-                return ['error' => 'Số trẻ em vượt quá sức chứa của hạng phòng đã chọn.'];
+            if (((int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0)) > (int) $roomCategory->child_capacity * $requestedRoomQuantity) {
+                return ['error' => 'Số trẻ em vượt quá tổng sức chứa của số phòng đã chọn.'];
             }
 
             $checkInAt = $data['check_in_date'] . ' ' . $this->standardCheckInTime();
@@ -1114,18 +1187,18 @@ class BookingController extends Controller
             $availableRooms = Room::query()
                 ->where('room_category_id', $roomCategory->id)
                 ->bookableForPeriod($checkInAt, $checkOutAt, $lockedBooking->id)
-                ->limit(1)
+                ->limit($requestedRoomQuantity)
                 ->lockForUpdate()
                 ->get();
-            if ($availableRooms->count() < 1) {
-                return ['error' => 'Hạng phòng này vừa hết phòng trống trong khoảng thời gian mới. Vui lòng chọn hạng/ngày khác.'];
+            if ($availableRooms->count() < $requestedRoomQuantity) {
+                return ['error' => 'Hạng phòng này không còn đủ ' . $requestedRoomQuantity . ' phòng trống trong khoảng thời gian mới. Vui lòng giảm số phòng hoặc chọn hạng/ngày khác.'];
             }
 
             $nightCount = $this->getNightCount($data['check_in_date'], $data['check_out_date']);
-            $guestCount = max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0));
-            $serviceItems = $this->prepareServiceItems($data['services'] ?? [], $nightCount, 1, $guestCount);
+            $guestCount = max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0));
+            $serviceItems = $this->prepareServiceItems($data['services'] ?? [], $nightCount, $requestedRoomQuantity, $guestCount);
             $serviceItemTotal = collect($serviceItems)->sum('total');
-            $roomBaseTotal = (float) $roomCategory->price * $nightCount;
+            $roomBaseTotal = (float) $roomCategory->price * $nightCount * $requestedRoomQuantity;
             $rawSubtotal = $roomBaseTotal + $serviceItemTotal;
 
             $promotionResult = app(PromotionService::class)->validateCodes(
@@ -1141,7 +1214,7 @@ class BookingController extends Controller
                     'check_in_at' => $checkInAt,
                     'check_out_at' => $checkOutAt,
                     'night_count' => $nightCount,
-                    'room_quantity' => 1,
+                    'room_quantity' => $requestedRoomQuantity,
                     'guest_count' => $guestCount,
                 ],
                 'user'
@@ -1161,7 +1234,7 @@ class BookingController extends Controller
             $discountAmount = (float) ($promotionResult['discount_total'] ?? 0);
             $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
             $roomDiscountForDeposit = min($roomBaseTotal, $moneyDiscountAmount + $roomUpgradeDiscountAmount);
-            $requiredDepositAmount = round(max(0, $roomBaseTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(), 0);
+            $requiredDepositAmount = round(max(0, $roomBaseTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(null, $requestedRoomQuantity), 0);
 
             // Link VNPay cũ mang số tiền cũ phải hết hiệu lực trước khi ghi giá mới.
             app(PendingPaymentRequestService::class)->expire(
@@ -1218,27 +1291,29 @@ class BookingController extends Controller
                 $currentUser->save();
             }
 
-            // Booking online của khách chỉ có một suất phòng. Cập nhật ngay trên
-            // booking_room hiện hữu để giữ nguyên ID cho mọi lịch sử/FK đã trỏ tới nó.
-            $bookingRooms = $lockedBooking->bookingRooms()->lockForUpdate()->get();
-            if ($bookingRooms->count() > 1) {
-                return ['error' => 'Đơn này đã có nhiều suất phòng nên không thể chỉnh sửa bằng màn khách hàng. Vui lòng liên hệ lễ tân.'];
-            }
-
-            $bookingRoom = $bookingRooms->first();
-            $roomAttributes = [
-                'room_id' => $availableRooms->first()->id,
-                'adult_count' => $data['adult_count'],
-                'child_count' => $data['child_count'] ?? 0,
-                'price_at_booking' => (float) $roomCategory->price,
-                'surcharge' => 0,
-                'surcharge_reason' => null,
-            ];
-
-            if ($bookingRoom) {
-                $bookingRoom->fill($roomAttributes)->save();
-            } else {
-                BookingRoom::create(['booking_id' => $lockedBooking->id, ...$roomAttributes]);
+            // Dựng lại các suất phòng trước thanh toán theo số lượng mới. Ở giai đoạn này
+            // booking chưa có thanh toán thành công nên chưa phát sinh lịch sử lưu trú cần giữ ID.
+            $lockedBooking->bookingRooms()->delete();
+            $roomsForAllocation = $availableRooms->take($requestedRoomQuantity)->values();
+            $roomsForAllocation->loadMissing('category');
+            $occupancyAllocation = app(\App\Services\BookingRoomOccupancyAllocator::class)->allocate(
+                $roomsForAllocation,
+                (int) $data['adult_count'],
+                (int) ($data['child_count'] ?? 0),
+                (int) ($data['baby_count'] ?? 0)
+            );
+            foreach ($roomsForAllocation as $room) {
+                $roomOccupancy = $occupancyAllocation[(int) $room->id];
+                BookingRoom::create([
+                    'booking_id' => $lockedBooking->id,
+                    'room_id' => $room->id,
+                    'adult_count' => $roomOccupancy['adult_count'],
+                    'child_count' => $roomOccupancy['child_count'],
+                    'baby_count' => $roomOccupancy['baby_count'],
+                    'price_at_booking' => (float) $roomCategory->price,
+                    'surcharge' => 0,
+                    'surcharge_reason' => null,
+                ]);
             }
 
             $holdMinutes = max(5, (int) app(HotelPolicyService::class)->get(
@@ -1254,7 +1329,8 @@ class BookingController extends Controller
                 'check_out_at' => $checkOutAt,
                 'adult_count' => $data['adult_count'],
                 'child_count' => $data['child_count'] ?? 0,
-                'room_quantity' => 1,
+                'baby_count' => $data['baby_count'] ?? 0,
+                'room_quantity' => $requestedRoomQuantity,
                 'subtotal_amount' => $subtotalAmount,
                 'discount_amount' => $discountAmount,
                 'estimated_total' => $estimatedTotal,
@@ -1365,8 +1441,9 @@ class BookingController extends Controller
             abort(403);
         }
 
-        if (!in_array($booking->status, ['pending', 'confirmed', 'checked_in'], true)) {
-            return back()->with('error', 'Chỉ có thể thêm dịch vụ từ lúc tạo booking đến trước khi chuyển sang kiểm tra phòng.');
+        if (!in_array($booking->status, ['confirmed', 'checked_in'], true)
+            || !in_array($booking->payment_status, ['partial', 'paid'], true)) {
+            return back()->with('error', 'Chỉ có thể tự thêm dịch vụ sau khi booking đã được xác nhận và đã thanh toán đủ mức cọc hoặc thanh toán đủ.');
         }
 
         $data = $request->validate([
@@ -1397,8 +1474,9 @@ class BookingController extends Controller
         try {
             $booking = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
 
-            if (!in_array($booking->status, ['pending', 'confirmed', 'checked_in'], true)) {
-                throw new \Exception('Booking đã chuyển sang kiểm tra phòng hoặc đã kết thúc nên không thể thêm dịch vụ.');
+            if (!in_array($booking->status, ['confirmed', 'checked_in'], true)
+                || !in_array($booking->payment_status, ['partial', 'paid'], true)) {
+                throw new \Exception('Booking chưa đủ điều kiện tự thêm dịch vụ hoặc đã kết thúc.');
             }
 
             $quantity = max(1, (int) $data['quantity']);
@@ -1472,10 +1550,6 @@ class BookingController extends Controller
 
             Realtime::booking($booking, 'service_updated');
 
-            $booking->refresh();
-            $booking->load(['customer', 'roomCategory', 'bookingRooms.room']);
-
-            Realtime::booking($booking, 'created');
             return back()->with('success', 'Đã gửi yêu cầu dịch vụ. Khoản tiền chỉ được tính sau khi nhân viên xác nhận đã cung cấp hoặc khách đã sử dụng.');
         } catch (\Throwable $e) {
             DB::rollBack();

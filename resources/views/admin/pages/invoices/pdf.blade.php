@@ -55,9 +55,15 @@
                     → {{ \Carbon\Carbon::parse($booking->check_out_at)->format('d/m/Y H:i') }}
                 </p>
                 <p><strong>Thanh toán:</strong>
-                    @if($remainingTotal <= 0.01)
+                    @if($isCancelled && $pendingRefundTotal > 0)
+                        <span class="status partial">Đã hủy · Chờ hoàn tiền</span>
+                    @elseif($isCancelled && $refundedTotal > 0)
+                        <span class="status paid">Đã hủy · Đã hoàn tiền</span>
+                    @elseif($isCancelled)
+                        <span class="status unpaid">Đã hủy</span>
+                    @elseif($remainingTotal <= 0.01)
                         <span class="status paid">Đã thanh toán</span>
-                    @elseif($paidTotal > 0)
+                    @elseif($netPaidTotal > 0)
                         <span class="status partial">Thanh toán một phần</span>
                     @else
                         <span class="status unpaid">Chưa thanh toán</span>
@@ -216,19 +222,38 @@
         @if((float) $booking->discount_amount > 0)
             <tr><td>Giảm giá:</td><td class="text-right">-{{ number_format($booking->discount_amount, 0, ',', '.') }}đ</td></tr>
         @endif
-        <tr class="grand"><td>Tổng thanh toán:</td><td class="text-right">{{ number_format($grandTotal, 0, ',', '.') }}đ</td></tr>
-        <tr><td>Đã thanh toán:</td><td class="text-right">{{ number_format($paidTotal, 0, ',', '.') }}đ</td></tr>
-        @if($remainingTotal > 0)
+        <tr class="grand"><td>Tổng giá trị booking:</td><td class="text-right">{{ number_format($grandTotal, 0, ',', '.') }}đ</td></tr>
+        <tr><td>Tổng tiền đã thu:</td><td class="text-right">{{ number_format($paidTotal, 0, ',', '.') }}đ</td></tr>
+        @if($refundedTotal > 0)
+            <tr><td>Đã hoàn khách:</td><td class="text-right">-{{ number_format($refundedTotal, 0, ',', '.') }}đ</td></tr>
+            <tr><td>Thực giữ sau hoàn:</td><td class="text-right">{{ number_format($netPaidTotal, 0, ',', '.') }}đ</td></tr>
+        @elseif($pendingRefundTotal > 0)
+            <tr class="remaining"><td>Đang chờ hoàn khách:</td><td class="text-right">{{ number_format($pendingRefundTotal, 0, ',', '.') }}đ</td></tr>
+        @endif
+        @if($isCancelled)
+            <tr class="remaining"><td>Còn phải thu:</td><td class="text-right">0đ</td></tr>
+        @elseif($remainingTotal > 0)
             <tr class="remaining"><td>Còn phải thu:</td><td class="text-right">{{ number_format($remainingTotal, 0, ',', '.') }}đ</td></tr>
         @elseif($overpaymentTotal > 0)
             <tr class="remaining"><td>Khách thanh toán dư:</td><td class="text-right">{{ number_format($overpaymentTotal, 0, ',', '.') }}đ</td></tr>
         @else
             <tr class="remaining"><td>Còn phải thu:</td><td class="text-right">0đ</td></tr>
         @endif
+        @if($refundDueTotal ?? false)
+            @if($booking->refund_reason)
+                <tr><td>Lý do hoàn:</td><td class="text-right">{{ $booking->refund_reason }}</td></tr>
+            @endif
+            @if($booking->refund_status === 'completed' && $booking->refund_processed_at)
+                <tr><td>Hoàn tất lúc:</td><td class="text-right">{{ $booking->refund_processed_at->timezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') }}</td></tr>
+                @if($booking->refund_processed_note)
+                    <tr><td>Ghi chú hoàn tiền:</td><td class="text-right">{{ $booking->refund_processed_note }}</td></tr>
+                @endif
+            @endif
+        @endif
     </table>
 
     @if($successfulPayments->isNotEmpty())
-        <h3 style="margin-top: 28px;">Lịch sử thanh toán thành công</h3>
+        <h3 style="margin-top: 28px;">Lịch sử tiền đã thu</h3>
         <table class="table">
             <thead>
             <tr>

@@ -22,6 +22,8 @@ class HotelPolicyController extends Controller
 
     public function index(HotelPolicyService $policies)
     {
+        $policies->ensureDefinitions();
+
         $rows = HotelPolicy::query()->orderBy('sort_order')->orderBy('id')->get();
         $groups = $rows->groupBy('policy_group');
 
@@ -34,6 +36,8 @@ class HotelPolicyController extends Controller
 
     public function update(Request $request, HotelPolicyService $service)
     {
+        $service->ensureDefinitions();
+
         $data = $request->validate([
             'values' => 'required|array',
             'values.*' => 'nullable|string|max:5000',
@@ -115,6 +119,8 @@ class HotelPolicyController extends Controller
             'booking.cleaning_buffer_minutes' => [0, 1440],
             'booking.hourly_cancel_grace_minutes' => [0, 1440],
             'booking.manual_room_selection_fee' => [0, 10000000],
+            'booking.max_online_guests' => [1, 500],
+            'booking.max_online_rooms' => [1, 100],
             'payment.vnpay_expire_minutes' => [5, 10080],
             'payment.admin_vnpay_expire_minutes' => [5, 43200],
             'stay.late_checkout_free_minutes' => [0, 180],
@@ -182,6 +188,27 @@ class HotelPolicyController extends Controller
         $arrivalTier1 = $minutes((string) ($values['stay.late_arrival_tier1_end'] ?? '21:00'));
         if ($arrivalTier1 <= $arrivalCutoff) {
             $fail('stay.late_arrival_tier1_end', 'Mốc đến muộn mức 1 phải sau giờ G giữ phòng.');
+        }
+
+        $depositTiers = [
+            'payment.deposit_percent' => (float) ($values['payment.deposit_percent'] ?? 30),
+            'payment.deposit_percent_2_rooms' => (float) ($values['payment.deposit_percent_2_rooms'] ?? 35),
+            'payment.deposit_percent_3_rooms' => (float) ($values['payment.deposit_percent_3_rooms'] ?? 40),
+            'payment.deposit_percent_4_rooms' => (float) ($values['payment.deposit_percent_4_rooms'] ?? 45),
+            'payment.deposit_percent_5plus_rooms' => (float) ($values['payment.deposit_percent_5plus_rooms'] ?? 50),
+        ];
+        $tierValues = array_values($depositTiers);
+        for ($i = 1; $i < count($tierValues); $i++) {
+            if ($tierValues[$i] < $tierValues[$i - 1]) {
+                $keys = array_keys($depositTiers);
+                $fail($keys[$i], 'Mức cọc theo số phòng phải tăng dần hoặc bằng mức của bậc trước.');
+            }
+        }
+
+        $maxGuests = (int) ($values['booking.max_online_guests'] ?? 60);
+        $maxRooms = (int) ($values['booking.max_online_rooms'] ?? 30);
+        if ($maxRooms > $maxGuests) {
+            $fail('booking.max_online_rooms', 'Số phòng tối đa không nên lớn hơn số khách tối đa của một booking.');
         }
 
         $baseHours = (int) ($values['stay.short_stay_base_hours'] ?? 2);

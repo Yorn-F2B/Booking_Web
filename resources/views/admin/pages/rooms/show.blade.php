@@ -23,10 +23,12 @@
                     <p>Thông tin chi tiết phòng khách sạn</p>
                 </div>
 
-                <a href="{{ route('admin.rooms.index', ['edit_room' => $room->id]) }}" class="btn btn-gold">
-                    <i class="bx bx-edit me-1"></i>
-                    Chỉnh sửa
-                </a>
+                @if(in_array(auth()->user()?->role, ['super_admin', 'manager'], true))
+                    <a href="{{ route('admin.rooms.index', ['edit_room' => $room->id]) }}" class="btn btn-gold">
+                        <i class="bx bx-edit me-1"></i>
+                        Chỉnh sửa
+                    </a>
+                @endif
 
             </div>
 
@@ -118,6 +120,12 @@
                                             Đang dọn phòng
                                         </span>
 
+                                    @elseif($room->status == 'inspection')
+
+                                        <span class="badge bg-primary">
+                                            Chờ kiểm tra
+                                        </span>
+
                                     @else
 
                                         <span class="badge bg-secondary">
@@ -166,10 +174,12 @@
 
                 <div class="mt-4 d-flex gap-2">
 
-                    <a href="{{ route('admin.rooms.index', ['edit_room' => $room->id]) }}"
-                        class="btn btn-primary">
-                        Chỉnh sửa
-                    </a>
+                    @if(in_array(auth()->user()?->role, ['super_admin', 'manager'], true))
+                        <a href="{{ route('admin.rooms.index', ['edit_room' => $room->id]) }}"
+                            class="btn btn-primary">
+                            Chỉnh sửa
+                        </a>
+                    @endif
 
                     <a href="{{ route('admin.rooms.index') }}"
                         class="btn btn-outline-secondary">

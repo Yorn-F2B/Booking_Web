@@ -518,10 +518,9 @@ class BookingRepricingService
             ? $newCategoryPrice
             : (float) $bookingRoom->price_at_booking;
         $roomTotal = max(0, round($roomPrice * $newNightCount + (float) $bookingRoom->surcharge, 0));
-        $roomGuestCount = $booking->guests->where('booking_room_id', $bookingRoomId)->count();
-        if ($roomGuestCount <= 0) {
-            $roomGuestCount = max(1, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count);
-        }
+        // Không dùng số hồ sơ CCCD để repricing. Một phòng có thể có 4 khách
+        // nhưng chỉ cần 1 hồ sơ đại diện; occupancy thật nằm ở booking_rooms.
+        $roomGuestCount = max(1, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0));
 
         return array_merge($baseContext, [
             'subtotal_amount' => $roomTotal + $roomServiceTotal,

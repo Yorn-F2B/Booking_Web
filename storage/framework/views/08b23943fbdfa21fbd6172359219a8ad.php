@@ -1,4 +1,4 @@
-<?php if (! $__env->hasRenderedOnce('f828e13c-3a58-44fe-8c11-933a778d9cfb')): $__env->markAsRenderedOnce('f828e13c-3a58-44fe-8c11-933a778d9cfb'); ?>
+<?php if (! $__env->hasRenderedOnce('f07134ee-c03d-4a59-a382-aa4de1601097')): $__env->markAsRenderedOnce('f07134ee-c03d-4a59-a382-aa4de1601097'); ?>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 (function () {
@@ -69,13 +69,22 @@
         if (!submitButton || !cccdInput || !fullNameInput) return;
 
         const policyDisabled = submitButton.dataset.policyDisabled === '1';
+        const profileDisabled = submitButton.dataset.profileDisabled === '1';
         const currentCccd = compactIdentity(cccdInput.value);
         const expectedCccd = compactIdentity(cccdInput.dataset.bookingCccd || '');
         const hasValidData = isValidIdentity(currentCccd) && fullNameInput.value.trim().length >= 2;
 
-        submitButton.disabled = policyDisabled || !hasValidData;
+        submitButton.disabled = policyDisabled || profileDisabled || !hasValidData;
 
-        if (policyDisabled || !status) return;
+        if (!status) return;
+
+        if (profileDisabled) {
+            status.textContent = 'Chưa thể check-in: cần bổ sung ít nhất một hồ sơ người lớn cho mỗi phòng và đúng một người đại diện đoàn.';
+            status.className = 'small text-warning d-block mb-3';
+            return;
+        }
+
+        if (policyDisabled) return;
 
         if (!hasValidData) {
             status.textContent = 'Nhập họ tên và CCCD 12 số (hoặc hộ chiếu hợp lệ) để mở khóa check-in.';

@@ -1041,3 +1041,11 @@ body.admin-page { font-size: 13px !important; background: var(--ui-bg) !importan
         max-height: 360px;
     }
 }
+
+/* 2026-08-27: use the whole workspace. Several admin pages inherited a
+   centered max-width container, creating a large unused strip on wide screens. */
+.admin-page .admin-wrapper > .admin-content {
+    width: 100% !important;
+    max-width: none !important;
+    margin-inline: 0 !important;
+}

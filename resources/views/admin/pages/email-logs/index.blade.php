@@ -1,0 +1,9 @@
+@extends('layouts.admin')
+@section('title','Lịch sử email')
+@section('content')
+<div class="admin-wrapper"><div class="admin-content"><div class="container-fluid py-3">
+<h1 class="h3 fw-bold">Lịch sử gửi email</h1><p class="text-muted">“Đã gửi” nghĩa là ứng dụng đã gửi thành công tới máy chủ mail; hệ thống không thể khẳng định thư vào Inbox hay Spam của người nhận.</p>
+<form class="row g-2 mb-3"><div class="col-md-3"><select name="status" class="form-select"><option value="">Tất cả trạng thái</option>@foreach(['pending'=>'Chờ gửi','sent'=>'Đã gửi','failed'=>'Thất bại'] as $k=>$v)<option value="{{$k}}" @selected(request('status')===$k)>{{$v}}</option>@endforeach</select></div><div class="col-md-4"><input name="recipient" class="form-control" placeholder="Email người nhận" value="{{ request('recipient') }}"></div><div class="col"><button class="btn btn-primary">Lọc</button></div></form>
+<div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Thời gian</th><th>Booking</th><th>Người nhận</th><th>Loại email</th><th>Trạng thái</th><th>Lỗi</th></tr></thead><tbody>@forelse($logs as $log)<tr><td>{{ $log->created_at?->format('H:i d/m/Y') }}</td><td>@if($log->booking)<a href="{{ route('admin.bookings.show',$log->booking) }}">{{ $log->booking->booking_code }}</a>@else—@endif</td><td>{{ $log->recipient }}</td><td>{{ $log->mail_type }}</td><td><span class="badge {{ $log->status==='sent'?'bg-success':($log->status==='failed'?'bg-danger':'bg-warning text-dark') }}">{{ $log->status==='sent'?'Đã gửi':($log->status==='failed'?'Thất bại':'Chờ gửi') }}</span></td><td class="small text-danger">{{ $log->error_message }}</td></tr>@empty<tr><td colspan="6" class="text-center text-muted py-4">Chưa có lịch sử.</td></tr>@endforelse</tbody></table></div></div><div class="mt-3">{{ $logs->links() }}</div>
+</div></div></div>
+@endsection

@@ -17,6 +17,7 @@ use App\Http\Controllers\RoomIssueRequestController;
 use App\Http\Controllers\GuestBookingLookupController;
 use App\Http\Controllers\CitizenIdScanController;
 use App\Services\HotelPolicyService;
+use App\Http\Controllers\UserNotificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -45,15 +46,9 @@ Route::get('/', function () {
         ->addDay()
         ->toDateString();
 
-    $maxAdultCapacity = max(
-        1,
-        (int) RoomCategory::where('status', 'active')->max('adult_capacity')
-    );
-
-    $maxChildCapacity = max(
-        0,
-        (int) RoomCategory::where('status', 'active')->max('child_capacity')
-    );
+    $maxOnlineGuests = max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60));
+    $maxAdultCapacity = $maxOnlineGuests;
+    $maxChildCapacity = $maxOnlineGuests;
 
     $approvedHotelReviews = HotelReview::approved()
         ->with(['customer', 'booking.roomCategory', 'replier'])
@@ -133,6 +128,9 @@ Route::get('/about', function () {
 });
 
 Route::get('/rooms', [RoomController::class, 'index'])->name('rooms');
+Route::get('/rooms/{roomCategory}/availability', [RoomController::class, 'availability'])
+    ->middleware('throttle:60,1')
+    ->name('rooms.availability');
 Route::get('/rooms/{roomCategory}', [RoomController::class, 'show'])->name('rooms.show');
 
 Route::middleware(['auth', 'role:customer'])->get('/booking-history', [BookingController::class, 'history'])
@@ -251,6 +249,13 @@ Route::middleware(['auth', 'role:customer'])->group(function () {
     Route::get('/bookings/current', [BookingController::class, 'current'])
         ->name('bookings.current');
 
+    Route::get('/notifications', [UserNotificationController::class, 'index'])
+        ->name('notifications.index');
+    Route::get('/notifications/{notification}/open', [UserNotificationController::class, 'open'])
+        ->name('notifications.open');
+    Route::post('/notifications/read-all', [UserNotificationController::class, 'markAllRead'])
+        ->name('notifications.read-all');
+
 
     Route::get('/bookings/{booking}/customer-request', [CustomerRequestController::class, 'create'])
         ->name('bookings.customer-requests.create');
@@ -332,6 +337,8 @@ Route::get('/bookings/confirm', [BookingController::class, 'confirm'])
     ->name('bookings.confirm');
 
 Route::middleware(['auth', 'role:customer'])->group(function () {
+    Route::post('/bookings/eligible-promotions', [BookingController::class, 'eligiblePromotions'])
+        ->name('bookings.eligible-promotions');
     Route::post('/bookings', [BookingController::class, 'store'])
         ->name('bookings.store');
 });

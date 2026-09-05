@@ -751,14 +751,18 @@ class PromotionService
         }
 
         if ((int) $promotion->usage_limit > 0) {
-            $currentBookingUsageCount = $currentBookingId
-                ? BookingPromotion::where('booking_id', $currentBookingId)
-                    ->where('promotion_id', $promotion->id)
-                    ->count()
-                : 0;
-            $effectiveUsedCount = max(0, (int) $promotion->used_count - $currentBookingUsageCount);
+            // used_count là số đếm legacy và có thể vẫn chứa booking đã hủy.
+            // Giới hạn thực tế phải dựa vào usage đang gắn với booking còn hiệu lực;
+            // booking hủy không được giữ mất lượt mã của hệ thống/khách.
+            $effectiveUsageQuery = BookingPromotion::query()
+                ->where('promotion_id', $promotion->id)
+                ->whereHas('booking', fn (Builder $booking) => $booking->where('status', '!=', 'cancelled'));
 
-            if ($effectiveUsedCount >= (int) $promotion->usage_limit) {
+            if ($currentBookingId) {
+                $effectiveUsageQuery->where('booking_id', '!=', $currentBookingId);
+            }
+
+            if ($effectiveUsageQuery->count() >= (int) $promotion->usage_limit) {
                 return $this->fail('Mã ' . $promotion->code . ' đã hết lượt sử dụng.');
             }
         }
@@ -772,13 +776,14 @@ class PromotionService
             || (float) $promotion->min_total_spent > 0;
 
         if ($hasCustomerCondition && !$identity['has_identity']) {
-            return $this->fail('Mã ' . $promotion->code . ' cần nhập email, số điện thoại hoặc CCCD để kiểm tra điều kiện khách hàng.');
+            return $this->fail('Mã ' . $promotion->code . ' cần CCCD người đứng tên để kiểm tra điều kiện khách hàng.');
         }
 
         if ($identity['has_identity']) {
             if ((int) $promotion->per_customer_limit > 0) {
                 $usedByCustomerQuery = BookingPromotion::where('promotion_id', $promotion->id)
                     ->whereHas('booking', function (Builder $query) use ($identity) {
+                        $query->where('status', '!=', 'cancelled');
                         $this->applyBookingIdentityScope($query, $identity);
                     });
 
@@ -789,7 +794,7 @@ class PromotionService
                 $usedByCustomer = $usedByCustomerQuery->count();
 
                 if ($usedByCustomer >= (int) $promotion->per_customer_limit) {
-                    return $this->fail('Email/khách này đã dùng hết lượt cho mã ' . $promotion->code . '.');
+                    return $this->fail('CCCD/khách này đã dùng hết lượt cho mã ' . $promotion->code . '.');
                 }
             }
 
@@ -812,7 +817,8 @@ class PromotionService
                     ->where(function (Builder $query) use ($identity) {
                         $this->applyBookingIdentityScope($query, $identity);
                     })
-                    ->sum('estimated_total');
+                    ->selectRaw('COALESCE(SUM(COALESCE(final_total, estimated_total, 0)), 0) as total_spent')
+                    ->value('total_spent');
 
                 if ((float) $totalSpent < (float) $promotion->min_total_spent) {
                     return $this->fail('Mã ' . $promotion->code . ' yêu cầu khách đã chi tiêu tối thiểu ' . number_format((float) $promotion->min_total_spent, 0, ',', '.') . 'đ.');
@@ -832,80 +838,43 @@ class PromotionService
         $customerId = isset($context['customer_id']) ? (int) $context['customer_id'] : null;
         $email = strtolower(trim((string) ($context['customer_email'] ?? '')));
         $phone = preg_replace('/\s+/', '', trim((string) ($context['customer_phone'] ?? '')));
-        $cccd = trim((string) ($context['customer_cccd'] ?? ''));
+        $cccd = preg_replace('/\D+/', '', trim((string) ($context['customer_cccd'] ?? '')));
 
-        // Với khách vãng lai, email là khóa quyền lợi ưu đãi. Khi đã có email,
-        // không gộp thêm số điện thoại/CCCD vì các thông tin đó có thể được dùng để đặt hộ.
-        if ($email !== '') {
+        // Nếu caller chỉ truyền customer_id thì lấy CCCD từ hồ sơ. Quyền lợi mã
+        // giảm giá luôn gắn với CCCD, không fallback sang email/SĐT.
+        if ($cccd === '' && $customerId) {
+            $cccd = preg_replace('/\D+/', '', (string) Customer::query()->whereKey($customerId)->value('cccd'));
+        }
+
+        if ($cccd !== '') {
             return [
-                'mode' => 'email',
-                'customer_ids' => Customer::query()
-                    ->whereRaw('LOWER(email) = ?', [$email])
-                    ->pluck('id')
-                    ->map(fn ($id) => (int) $id)
-                    ->unique()
-                    ->values()
-                    ->all(),
+                'mode' => 'cccd',
+                'customer_ids' => Customer::query()->where('cccd', $cccd)->pluck('id')->map(fn ($id)=>(int)$id)->unique()->values()->all(),
                 'email' => $email,
-                'phone' => '',
-                'cccd' => '',
+                'phone' => $phone,
+                'cccd' => $cccd,
                 'has_identity' => true,
             ];
         }
 
-        // Chỉ dùng thông tin còn lại làm phương án dự phòng khi booking không có email.
-        $customerIds = collect($customerId ? [$customerId] : []);
-        if ($phone !== '') {
-            $customerIds = $customerIds->merge(Customer::query()->where('phone', $phone)->pluck('id'));
-        }
-        if ($cccd !== '') {
-            $customerIds = $customerIds->merge(Customer::query()->where('cccd', $cccd)->pluck('id'));
-        }
-
-        $customerIds = $customerIds->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
-
         return [
-            'mode' => 'fallback',
-            'customer_ids' => $customerIds,
-            'email' => '',
-            'phone' => $phone,
-            'cccd' => $cccd,
-            'has_identity' => !empty($customerIds) || $phone !== '' || $cccd !== '',
+            'mode' => 'none', 'customer_ids' => [],
+            'email' => $email, 'phone' => $phone, 'cccd' => '',
+            'has_identity' => false,
         ];
     }
 
     private function applyBookingIdentityScope(Builder $query, array $identity): void
     {
         $query->where(function (Builder $identityQuery) use ($identity) {
-            if (($identity['mode'] ?? null) === 'email') {
-                // Snapshot phản ánh đúng email được dùng tại thời điểm đặt phòng.
-                $identityQuery->whereRaw('LOWER(customer_email_snapshot) = ?', [$identity['email']]);
-
-                // Dữ liệu booking cũ có thể chưa có snapshot email, nên chỉ fallback
-                // về customer_id khi snapshot đang trống.
-                if (!empty($identity['customer_ids'])) {
-                    $identityQuery->orWhere(function (Builder $legacyQuery) use ($identity) {
-                        $legacyQuery->where(function (Builder $emptySnapshot) {
-                            $emptySnapshot->whereNull('customer_email_snapshot')
-                                ->orWhere('customer_email_snapshot', '');
-                        })->whereIn('customer_id', $identity['customer_ids']);
-                    });
-                }
-
+            if (($identity['mode'] ?? null) !== 'cccd' || empty($identity['cccd'])) {
+                $identityQuery->whereRaw('1 = 0');
                 return;
             }
 
+            $identityQuery->where('customer_cccd_snapshot', $identity['cccd']);
             if (!empty($identity['customer_ids'])) {
-                $identityQuery->whereIn('customer_id', $identity['customer_ids']);
-            } else {
-                $identityQuery->whereRaw('1 = 0');
-            }
-
-            if ($identity['phone'] !== '') {
-                $identityQuery->orWhere('customer_phone_snapshot', $identity['phone']);
-            }
-            if ($identity['cccd'] !== '') {
-                $identityQuery->orWhere('customer_cccd_snapshot', $identity['cccd']);
+                $identityQuery->orWhereIn('customer_id', $identity['customer_ids']);
             }
         });
     }

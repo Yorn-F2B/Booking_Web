@@ -38,6 +38,10 @@
         'shortMaxPercent' => (float) $policyService->get('stay.short_stay_max_percent', 80),
         'depositPercent' => $depositPercent,
         'depositRate' => $depositRate,
+        'depositPercent2Rooms' => (float) $policyService->get('payment.deposit_percent_2_rooms', 35),
+        'depositPercent3Rooms' => (float) $policyService->get('payment.deposit_percent_3_rooms', 40),
+        'depositPercent4Rooms' => (float) $policyService->get('payment.deposit_percent_4_rooms', 45),
+        'depositPercent5PlusRooms' => (float) $policyService->get('payment.deposit_percent_5plus_rooms', 50),
     ];
 @endphp
 
@@ -376,7 +380,7 @@
                                     <label class="form-label">Số điện thoại <span class="text-danger">*</span></label>
                                     <input type="text" name="customer_phone" id="customerPhone"
                                         class="form-control @error('customer_phone') is-invalid @enderror"
-                                        value="{{ old('customer_phone') }}" placeholder="Ví dụ: 0987654321" required>
+                                        value="{{ old('customer_phone') }}" placeholder="Ví dụ: 0987654321 (nếu có)">
 
                                     @error('customer_phone')
                                         <div class="invalid-feedback">{{ $message }}</div>
@@ -697,40 +701,51 @@
                                     </div>
                                 </div>
 
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <label class="form-label">Người lớn <span class="text-danger">*</span></label>
                                     <input type="number" name="adult_count" id="adultCount"
                                         class="form-control @error('adult_count') is-invalid @enderror"
-                                        value="{{ old('adult_count', 1) }}" min="1" required>
+                                        value="{{ old('adult_count', $bookingPrefill['adult_count'] ?? 1) }}" min="1" max="{{ (int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_guests', 60) }}" required>
 
                                     @error('adult_count')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
                                 </div>
 
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <label class="form-label">Trẻ em</label>
                                     <input type="number" name="child_count" id="childCount"
                                         class="form-control @error('child_count') is-invalid @enderror"
-                                        value="{{ old('child_count', 0) }}" min="0">
+                                        value="{{ old('child_count', $bookingPrefill['child_count'] ?? 0) }}" min="0">
 
                                     @error('child_count')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
                                 </div>
 
-                                <div class="col-md-3">
+                                <div class="col-md-2">
+                                    <label class="form-label">Em bé</label>
+                                    <input type="number" name="baby_count" id="babyCount"
+                                        class="form-control @error('baby_count') is-invalid @enderror"
+                                        value="{{ old('baby_count', $bookingPrefill['baby_count'] ?? 0) }}" min="0" max="{{ (int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_guests', 60) }}">
+
+                                    @error('baby_count')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+
+                                <div class="col-md-2">
                                     <label class="form-label">Số phòng <span class="text-danger">*</span></label>
                                     <input type="number" name="room_quantity" id="roomQuantity"
                                         class="form-control @error('room_quantity') is-invalid @enderror"
-                                        value="{{ old('room_quantity', 1) }}" min="1" required>
+                                        value="{{ old('room_quantity', $bookingPrefill['room_quantity'] ?? 1) }}" min="1" max="{{ (int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_rooms', 30) }}" required>
 
                                     @error('room_quantity')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
                                 </div>
 
-                                <div class="col-md-3 adjacent-room-box" id="adjacentRoomBox">
+                                <div class="col-md-4 adjacent-room-box" id="adjacentRoomBox">
                                     <label class="form-label d-block">Tùy chọn phòng</label>
 
                                     <div class="form-check mt-2">
@@ -758,25 +773,26 @@
                                             <label class="form-check mb-0">
                                                 <input class="form-check-input" type="radio" name="room_selection_mode" value="manual"
                                                     @checked(old('room_selection_mode') === 'manual')>
-                                                <span class="form-check-label">Theo yêu cầu của khách</span>
+                                                <span class="form-check-label">Lễ tân chọn phòng thủ công</span>
                                             </label>
                                         </div>
 
                                         <div id="manualRoomSelectionBox" class="mt-3 {{ old('room_selection_mode') === 'manual' ? '' : 'd-none' }}">
-                                            <label for="roomSelectionRequest" class="form-label">Yêu cầu phòng</label>
+                                            <label for="roomSelectionRequest" class="form-label">Yêu cầu cụ thể của khách <span class="text-muted">(nếu có)</span></label>
                                             <textarea id="roomSelectionRequest" name="room_selection_request" rows="3"
                                                 class="form-control @error('room_selection_request') is-invalid @enderror"
                                                 placeholder="Ví dụ: khách muốn tầng cao, yên tĩnh, xa thang máy; nếu còn thì ưu tiên phòng 605...">{{ old('room_selection_request') }}</textarea>
                                             @error('room_selection_request')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                                            <div class="booking-help-text mt-1">Phí đảm bảo yêu cầu: {{ number_format($manualRoomSelectionFee, 0, ',', '.') }}đ/phòng khi đáp ứng.</div>
+                                            <div class="booking-help-text mt-1">Chỉ thu phí đảm bảo {{ number_format($manualRoomSelectionFee, 0, ',', '.') }}đ/phòng khi khách có yêu cầu cụ thể và khách sạn đáp ứng; lễ tân tự chọn phòng để vận hành thì không thu phí.</div>
 
                                             <div class="mt-3">
                                                 <label for="manualRoomIds" class="form-label">Chọn phòng ngay (không bắt buộc)</label>
-                                                <select id="manualRoomIds" name="manual_room_ids[]" class="form-select" multiple size="5"
-                                                    data-old-values='@json(array_map("intval", (array) old("manual_room_ids", [])))'>
-                                                    <option value="" disabled>Chọn hạng phòng và thời gian để tải danh sách phòng trống...</option>
-                                                </select>
-                                                <div class="booking-help-text mt-1" id="manualRoomHelp">Nếu chọn ngay, chọn đúng số phòng của booking; để trống thì xử lý sau.</div>
+                                                <select id="manualRoomIds" name="manual_room_ids[]" class="d-none" multiple
+                                                    data-old-values='@json(array_map("intval", (array) old("manual_room_ids", [])))'></select>
+                                                <div id="manualRoomChecklist" class="border rounded-3 bg-white p-2" style="max-height:260px;overflow:auto">
+                                                    <div class="text-muted small p-2">Chọn hạng phòng và thời gian để tải các phòng thực sự còn trống.</div>
+                                                </div>
+                                                <div class="booking-help-text mt-1" id="manualRoomHelp">Có thể tick nhiều phòng; hệ thống chỉ cho hoàn tất khi đủ đúng số phòng của booking.</div>
                                             </div>
                                         </div>
                                     </div>
@@ -812,7 +828,8 @@
                                     @enderror
 
                                     <div class="booking-help-text mt-1">
-                                        Booking bắt buộc cọc {{ rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.') }}% khi tạo đơn.
+                                        @php($policy = app(\App\Services\HotelPolicyService::class))
+                                        Booking cọc theo số lượng phòng: 1 phòng {{ $policy->depositPercentForRooms(1) }}%, 2 phòng {{ $policy->depositPercentForRooms(2) }}%, 3 phòng {{ $policy->depositPercentForRooms(3) }}%, 4 phòng {{ $policy->depositPercentForRooms(4) }}%, từ 5 phòng {{ $policy->depositPercentForRooms(5) }}%.
                                     </div>
                                 </div>
 
@@ -821,7 +838,7 @@
                                     <select name="payment_type" id="paymentType"
                                         class="form-select @error('payment_type') is-invalid @enderror">
                                         <option value="deposit_30" {{ old('payment_type', 'deposit_30') == 'deposit_30' ? 'selected' : '' }}>
-                                            Thu cọc {{ rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.') }}%
+                                            Thu cọc theo mức của số phòng
                                         </option>
                                     </select>
 
@@ -854,7 +871,7 @@
                                             type="checkbox" name="confirm_counter_payment" value="1"
                                             id="confirmCounterPayment" {{ old('confirm_counter_payment') ? 'checked' : '' }}>
                                         <label class="form-check-label" for="confirmCounterPayment" id="confirmCounterPaymentLabel">
-                                            Tôi xác nhận đã nhận đủ tiền cọc {{ rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.') }}% của khách tại quầy.
+                                            Tôi xác nhận đã nhận đủ mức cọc bắt buộc theo số lượng phòng của khách tại quầy.
                                         </label>
                                         @error('confirm_counter_payment')
                                             <div class="invalid-feedback d-block">{{ $message }}</div>
@@ -976,37 +993,7 @@
                             </p>
 
                             @php
-                                $promotionTypeDisplayConfig = [
-                                    'normal_discount' => [
-                                        'label' => 'Mã thường',
-                                        'badge' => 'bg-primary',
-                                        'hint' => 'Mã phổ thông dùng cho giảm tiền hoặc tặng/giảm dịch vụ cơ bản.',
-                                        'limit' => 1,
-                                        'rule' => 'Chọn tối đa 1 mã thường.',
-                                    ],
-                                    'event_discount' => [
-                                        'label' => 'Mã sự kiện',
-                                        'badge' => 'bg-success',
-                                        'hint' => 'Mã theo chiến dịch, mùa lễ, combo hoặc chương trình bán hàng.',
-                                        'limit' => 1,
-                                        'rule' => 'Chọn tối đa 1 mã sự kiện.',
-                                    ],
-                                    'conditional_discount' => [
-                                        'label' => 'Mã điều kiện',
-                                        'badge' => 'bg-warning text-dark',
-                                        'hint' => 'Mã chỉ áp dụng khi booking đạt điều kiện về tổng tiền, số đêm, số phòng hoặc lịch sử khách.',
-                                        'limit' => 1,
-                                        'rule' => 'Chọn tối đa 1 mã điều kiện.',
-                                    ],
-                                    'support_discount' => [
-                                        'label' => 'Mã hỗ trợ khách',
-                                        'badge' => 'bg-danger',
-                                        'hint' => '',
-                                        'limit' => null,
-                                        'rule' => 'Có thể chọn nhiều mã hỗ trợ nếu từng mã cho phép dùng chung.',
-                                    ],
-                                ];
-
+                                $promotionTypeDisplayConfig = $promotionTypeDisplayConfig ?? [];
                                 $availablePromotionGroups = collect($availablePromotions ?? collect())->groupBy('promotion_type');
                             @endphp
 
@@ -1357,6 +1344,7 @@
             const manualRoomSelectionBox = document.getElementById('manualRoomSelectionBox');
             const roomSelectionRequest = document.getElementById('roomSelectionRequest');
             const manualRoomIds = document.getElementById('manualRoomIds');
+            const manualRoomChecklist = document.getElementById('manualRoomChecklist');
             const manualRoomHelp = document.getElementById('manualRoomHelp');
             let manualRoomOptionsTimer = null;
             let manualRoomOptionsRequestId = 0;
@@ -1371,7 +1359,8 @@
                     return 0;
                 }
                 const selectedCount = Array.from(manualRoomIds.selectedOptions || []).filter(option => option.value).length;
-                return selectedCount === getRoomQuantity()
+                const hasCustomerRequest = (roomSelectionRequest?.value || '').trim().length > 0;
+                return hasCustomerRequest && selectedCount === getRoomQuantity()
                     ? manualRoomSelectionFeePerRoom * getRoomQuantity()
                     : 0;
             }
@@ -1410,7 +1399,8 @@
                         manualRoomOptionsAbortController.abort();
                         manualRoomOptionsAbortController = null;
                     }
-                    manualRoomIds.innerHTML = '<option value="" disabled>Chọn hạng phòng và thời gian để tải danh sách phòng trống...</option>';
+                    manualRoomIds.innerHTML = '';
+                    if (manualRoomChecklist) manualRoomChecklist.innerHTML = '<div class="text-muted small p-2">Chọn hạng phòng và thời gian để tải các phòng thực sự còn trống.</div>';
                     if (manualRoomHelp) {
                         manualRoomHelp.textContent = 'Danh sách sẽ tự cập nhật khi chọn đủ hạng phòng và thời gian.';
                     }
@@ -1456,15 +1446,45 @@
                     }
 
                     manualRoomIds.innerHTML = '';
+                    if (manualRoomChecklist) manualRoomChecklist.innerHTML = '';
                     if (!Array.isArray(json.rooms) || json.rooms.length === 0) {
-                        manualRoomIds.innerHTML = '<option value="" disabled>Không còn phòng phù hợp trong khoảng thời gian này.</option>';
+                        if (manualRoomChecklist) manualRoomChecklist.innerHTML = '<div class="text-muted small p-2">Không còn phòng phù hợp trong khoảng thời gian này.</div>';
                     } else {
                         json.rooms.forEach((room) => {
                             const option = document.createElement('option');
                             option.value = String(room.id);
-                            option.textContent = `Phòng ${room.room_number} · Tầng ${room.floor_number ?? '---'} · ${room.status}`;
+                            option.textContent = `Phòng ${room.room_number}`;
                             option.selected = selectedValues.has(option.value) || oldValues.has(option.value);
                             manualRoomIds.appendChild(option);
+
+                            if (manualRoomChecklist) {
+                                const label = document.createElement('label');
+                                label.className = 'form-check d-flex align-items-center gap-2 px-2 py-2 mb-1 rounded border';
+                                const checkbox = document.createElement('input');
+                                checkbox.type = 'checkbox'; checkbox.className = 'form-check-input m-0';
+                                checkbox.value = option.value; checkbox.checked = option.selected;
+                                checkbox.addEventListener('change', () => {
+                                    option.selected = checkbox.checked;
+                                    const chosen = Array.from(manualRoomIds.selectedOptions).filter(o => o.value).length;
+                                    const required = getRoomQuantity();
+                                    if (chosen > required) {
+                                        checkbox.checked = false; option.selected = false;
+                                        if (manualRoomHelp) manualRoomHelp.textContent = `Chỉ được chọn đúng ${required} phòng cho booking này.`;
+                                    } else if (manualRoomHelp) {
+                                        manualRoomHelp.textContent = `Đã chọn ${chosen}/${required} phòng. Chỉ các phòng còn trống trong toàn bộ thời gian lưu trú mới xuất hiện.`;
+                                    }
+                                    updateEstimatedTotal();
+                                });
+                                const text = document.createElement('span');
+                                const strong = document.createElement('strong');
+                                strong.textContent = `Phòng ${room.room_number ?? ''}`;
+                                const meta = document.createElement('span');
+                                meta.className = 'text-muted small';
+                                meta.textContent = ` · Tầng ${room.floor_number ?? '—'} · ${room.category_name ?? ''}`;
+                                text.appendChild(strong);
+                                text.appendChild(meta);
+                                label.appendChild(checkbox); label.appendChild(text); manualRoomChecklist.appendChild(label);
+                            }
                         });
                     }
 
@@ -1584,10 +1604,12 @@
             function getCurrentGuestCount() {
                 const adultInput = document.getElementById('adultCount');
                 const childInput = document.getElementById('childCount');
+                const babyInput = document.getElementById('babyCount');
                 const adults = Math.max(1, parseInt(adultInput?.value || 1));
                 const children = Math.max(0, parseInt(childInput?.value || 0));
+                const babies = Math.max(0, parseInt(babyInput?.value || 0));
 
-                return Math.max(1, adults + children);
+                return Math.max(1, adults + children + babies);
             }
 
             function getCurrentServiceNightCount() {
@@ -2458,7 +2480,14 @@
                         Math.max(0, Number(moneyDiscount || 0))
                     )
                 );
-                const deposit30 = Math.round(depositBase * Number(policy.depositRate));
+                const roomQtyForDeposit = Math.max(1, getRoomQuantity());
+                const dynamicDepositPercent = roomQtyForDeposit >= 5 ? Number(policy.depositPercent5PlusRooms)
+                    : roomQtyForDeposit === 4 ? Number(policy.depositPercent4Rooms)
+                    : roomQtyForDeposit === 3 ? Number(policy.depositPercent3Rooms)
+                    : roomQtyForDeposit === 2 ? Number(policy.depositPercent2Rooms)
+                    : Number(policy.depositPercent);
+                const dynamicDepositRate = dynamicDepositPercent / 100;
+                const deposit30 = Math.round(depositBase * dynamicDepositRate);
                 const isCounterPayment = method === 'cash' || method === 'bank_transfer';
 
                 if (counterPaymentConfirmBox) {
@@ -2475,8 +2504,8 @@
 
                 if (confirmCounterPaymentLabel) {
                     confirmCounterPaymentLabel.innerText = method === 'bank_transfer'
-                        ? `Tôi xác nhận đã kiểm tra tài khoản và nhận đủ tiền cọc ${percentLabel(policy.depositPercent)}% bằng chuyển khoản tại quầy.`
-                        : `Tôi xác nhận đã nhận đủ tiền cọc ${percentLabel(policy.depositPercent)}% bằng tiền mặt tại quầy.`;
+                        ? `Tôi xác nhận đã kiểm tra tài khoản và nhận đủ tiền cọc ${percentLabel(dynamicDepositPercent)}% bằng chuyển khoản tại quầy.`
+                        : `Tôi xác nhận đã nhận đủ tiền cọc ${percentLabel(dynamicDepositPercent)}% bằng tiền mặt tại quầy.`;
                 }
 
                 if (counterPaymentConfirmHelp) {
@@ -2514,11 +2543,11 @@
 
                 if (paymentTypeHelp) {
                     if (method === 'vnpay') {
-                        paymentTypeHelp.innerText = `Sau khi tạo booking, hệ thống gửi email có đường dẫn VNPay để khách đặt cọc ${percentLabel(policy.depositPercent)}% khoảng ` + formatMoney(deposit30) + '.';
+                        paymentTypeHelp.innerText = `Sau khi tạo booking, hệ thống gửi email có đường dẫn VNPay để khách đặt cọc ${percentLabel(dynamicDepositPercent)}% khoảng ` + formatMoney(deposit30) + '.';
                     } else if (activeType === 'custom') {
                         paymentTypeHelp.innerText = 'Lễ tân nhập đúng số tiền khách thực trả tại quầy.';
                     } else {
-                        paymentTypeHelp.innerText = `Ghi nhận cọc ${percentLabel(policy.depositPercent)}% khoảng ` + formatMoney(deposit30) + '.';
+                        paymentTypeHelp.innerText = `Ghi nhận cọc ${percentLabel(dynamicDepositPercent)}% khoảng ` + formatMoney(deposit30) + '.';
                     }
                 }
 
@@ -2955,8 +2984,8 @@
                 if (promotionEligibilityAbortController) promotionEligibilityAbortController.abort();
                 promotionEligibilityAbortController = new AbortController();
 
-                // Lấy tổng ngay sau khi biểu mẫu vừa tính lại. Không dùng tên/CCCD/SĐT
-                // để xác định lượt ưu đãi khi khách đã nhập email.
+                // Lấy tổng ngay sau khi biểu mẫu vừa tính lại. CCCD là định danh chính để
+                // kiểm tra lượt/điều kiện ưu đãi; email và SĐT chỉ là kênh liên hệ.
                 const subtotalText = (promotionSubtotalText?.textContent || estimatedTotalText?.textContent || '0')
                     .replace(/[^0-9]/g, '');
                 const currentSubtotal = Number(subtotalText || 0);

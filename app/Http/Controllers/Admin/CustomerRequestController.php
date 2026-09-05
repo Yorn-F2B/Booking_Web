@@ -143,7 +143,7 @@ class CustomerRequestController extends Controller
             ['booking' => $booking->id]
         );
 
-        Mail::to($data['email'])->send(new CustomerRequestFormMail($booking, $url, $expires, 'late_arrival'));
+        app(\App\Services\EmailDeliveryService::class)->sendOrFail($data['email'], new CustomerRequestFormMail($booking, $url, $expires, 'late_arrival'), 'late_arrival_form', $booking);
 
         return back()->with('success', 'Đã gửi form báo đến sau giờ G cho khách. Form dùng được cho cả khách có tài khoản và khách vãng lai.');
     }

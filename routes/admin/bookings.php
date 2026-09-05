@@ -52,6 +52,8 @@ Route::patch('bookings/{booking}/manual-room-selection', [BookingRoomController:
     ->name('admin.bookings.manual-room-selection');
 Route::patch('bookings/{booking}/manual-room-selection/refund-completed', [BookingRoomController::class, 'markRoomSelectionRefundCompleted'])
     ->name('admin.bookings.manual-room-selection.refund-completed');
+Route::patch('bookings/{booking}/refund-completed', [BookingRoomController::class, 'markRoomSelectionRefundCompleted'])
+    ->name('admin.bookings.refund-completed');
 
 Route::post('bookings/{booking}/change-room', [BookingRoomController::class, 'changeRoom'])
     ->name('admin.bookings.change-room');

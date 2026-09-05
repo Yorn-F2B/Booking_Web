@@ -38,8 +38,11 @@
         $searchData['child_count'] ?? 0
     );
 
-    $currentRoomQuantity = old(
+    $currentBabyCount = old(
+        'baby_count',
+        $searchData['baby_count'] ?? 0
     );
+
 
     $hasCompleteBookingSearch = $hasCompleteBookingSearch ?? (
         !empty($searchData['check_in_date'])
@@ -47,6 +50,8 @@
         && !empty($searchData['adult_count'])
         && array_key_exists('child_count', $searchData ?? [])
         && $searchData['child_count'] !== null
+        && array_key_exists('baby_count', $searchData ?? [])
+        && $searchData['baby_count'] !== null
     );
 @endphp
 
@@ -122,39 +127,24 @@
        value="{{ $currentCheckOutDate && $currentCheckOutDate >= $minOnlineCheckOutDate ? $currentCheckOutDate : '' }}">
                             </div>
 
-                            <div class="col-md-2">
+                            <div class="col-md-1">
                                 <label class="form-label">
                                     Người lớn
                                 </label>
-<select name="adult_count" id="rooms_adult_count" class="form-select" required>
-    <option value="" disabled {{ empty($currentAdultCount) ? 'selected' : '' }}>
-        Số người lớn
-    </option>
-
-    @for ($i = 1; $i <= $maxAdultCapacity; $i++)
-        <option value="{{ $i }}" {{ (string) $currentAdultCount === (string) $i ? 'selected' : '' }}>
-            {{ $i }}
-        </option>
-    @endfor
-</select>
+<input type="number" name="adult_count" id="rooms_adult_count" class="form-control" min="1" max="{{ $maxAdultCapacity }}" value="{{ $currentAdultCount ?: 2 }}" required>
                             </div>
 
-                            <div class="col-md-2">
+                            <div class="col-md-1">
                                 <label class="form-label">
                                     Trẻ em
                                 </label>
 
-                <select name="child_count" id="rooms_child_count" class="form-select" required>
-    <option value="" disabled {{ $currentChildCount === '' || $currentChildCount === null ? 'selected' : '' }}>
-        Số trẻ em
-    </option>
+                <input type="number" name="child_count" id="rooms_child_count" class="form-control" min="0" max="{{ $maxChildCapacity }}" value="{{ $currentChildCount ?? 0 }}" required>
+                            </div>
 
-    @for ($i = 0; $i <= $maxChildCapacity; $i++)
-        <option value="{{ $i }}" {{ (string) $currentChildCount === (string) $i ? 'selected' : '' }}>
-            {{ $i }}
-        </option>
-    @endfor
-</select>
+                            <div class="col-md-1">
+                                <label class="form-label">Em bé</label>
+                                <input type="number" name="baby_count" id="rooms_baby_count" class="form-control" min="0" max="{{ $maxChildCapacity }}" value="{{ $currentBabyCount ?? 0 }}" required>
                             </div>
 
                             <div class="col-md-3">
@@ -201,6 +191,30 @@
                     <strong>{{ $searchData['check_out_time'] ?? $searchStandardCheckOut }}</strong>
                     ngày <strong>{{ date('d/m/Y', strtotime($searchData['check_out_date'])) }}</strong>.
                 </div>
+            @endif
+
+            @if(($roomRecommendations ?? collect())->isNotEmpty())
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-body p-4">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <div><h2 class="h5 fw-bold mb-1">Phương án phòng phù hợp</h2><div class="text-muted small">Chỉ hiển thị phương án đang còn đủ phòng thật trong thời gian đã chọn.</div></div>
+                            <span class="badge bg-primary-subtle text-primary">{{ (int)($searchData['adult_count'] ?? 0) + (int)($searchData['child_count'] ?? 0) + (int)($searchData['baby_count'] ?? 0) }} khách</span>
+                        </div>
+                        <div class="row g-3">
+                            @foreach($roomRecommendations as $option)
+                                <div class="col-lg-4"><div class="border rounded-3 p-3 h-100">
+                                    <div class="d-flex gap-1 flex-wrap mb-2">@foreach($option['labels'] as $label)<span class="badge bg-warning-subtle text-dark">{{ $label }}</span>@endforeach</div>
+                                    <div class="fw-bold fs-5">{{ $option['category_name'] }} × {{ $option['room_quantity'] }}</div>
+                                    <div class="small text-muted mt-1">Còn {{ $option['available_rooms'] }} phòng · sức chứa {{ $option['adult_capacity_total'] }} người lớn + {{ $option['child_capacity_total'] }} trẻ em/em bé</div>
+                                    <div class="fw-bold text-primary mt-2">{{ number_format($option['estimated_room_total'],0,',','.') }}đ</div>
+                                    <a class="btn btn-primary w-100 mt-3" href="{{ route('bookings.confirm', ['room_category_id'=>$option['room_category_id'],'check_in_date'=>$searchData['check_in_date'],'check_out_date'=>$searchData['check_out_date'],'adult_count'=>$searchData['adult_count'],'child_count'=>$searchData['child_count'],'baby_count'=>$searchData['baby_count'] ?? 0,'room_quantity'=>$option['room_quantity']]) }}">Chọn phương án này</a>
+                                </div></div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+            @elseif($hasCompleteBookingSearch)
+                <div class="alert alert-warning">Không có phương án nào đang còn đủ phòng cho số khách và thời gian đã chọn. Hãy đổi ngày hoặc giảm số khách.</div>
             @endif
 
             <div class="row g-4">
@@ -322,30 +336,40 @@
                                                 </span>
                                             </div>
 
+                                         @php
+                                             $categoryRecommendation = ($roomRecommendations ?? collect())
+                                                 ->firstWhere('room_category_id', (int) $category->id);
+                                         @endphp
                                          <div class="d-flex gap-2 flex-wrap">
     <a href="{{ route('rooms.show', $category->id) }}"
         class="btn btn-outline-primary btn-sm">
         Xem chi tiết
     </a>
 
-    @if ($hasCompleteBookingSearch && ($category->available_rooms_count ?? 0) > 0)
+    @if ($hasCompleteBookingSearch && $categoryRecommendation)
         <form method="GET" action="{{ route('bookings.confirm') }}" class="m-0">
             <input type="hidden" name="room_category_id" value="{{ $category->id }}">
             <input type="hidden" name="check_in_date" value="{{ $searchData['check_in_date'] }}">
             <input type="hidden" name="check_out_date" value="{{ $searchData['check_out_date'] }}">
             <input type="hidden" name="adult_count" value="{{ $searchData['adult_count'] }}">
             <input type="hidden" name="child_count" value="{{ $searchData['child_count'] ?? 0 }}">
+            <input type="hidden" name="baby_count" value="{{ $searchData['baby_count'] ?? 0 }}">
+            <input type="hidden" name="room_quantity" value="{{ (int) $categoryRecommendation['room_quantity'] }}">
 
             @auth
-    <button type="submit" class="btn btn-primary btn-sm">
-        Đặt phòng
-    </button>
-@else
-    <button type="submit" class="btn btn-primary btn-sm">
-        Đăng nhập để đặt phòng
-    </button>
-@endauth
+                <button type="submit" class="btn btn-primary btn-sm">
+                    Đặt {{ (int) $categoryRecommendation['room_quantity'] }} phòng
+                </button>
+            @else
+                <button type="submit" class="btn btn-primary btn-sm">
+                    Đăng nhập để đặt
+                </button>
+            @endauth
         </form>
+    @elseif($hasCompleteBookingSearch)
+        <button type="button" class="btn btn-outline-secondary btn-sm" disabled>
+            Không đủ phòng cho đoàn
+        </button>
     @else
         <a href="#rooms_check_in_date" class="btn btn-primary btn-sm">
             Chọn ngày để đặt
@@ -511,40 +535,7 @@
             }
         });
 
-         const categorySelect = document.getElementById('rooms_room_category_id');
-        const adultSelect = document.getElementById('rooms_adult_count');
-        const childSelect = document.getElementById('rooms_child_count');
-
-        if (!categorySelect || !adultSelect || !childSelect) {
-            return;
-        }
-
-        function applyCapacityFromSelectedCategory() {
-            const selectedOption = categorySelect.options[categorySelect.selectedIndex];
-
-            if (!selectedOption || !selectedOption.value) {
-                adultSelect.value = '';
-                childSelect.value = '';
-                adultSelect.disabled = false;
-                childSelect.disabled = false;
-                return;
-            }
-
-            const adultCapacity = selectedOption.dataset.adultCapacity || '';
-            const childCapacity = selectedOption.dataset.childCapacity || '0';
-
-            adultSelect.value = adultCapacity;
-            childSelect.value = childCapacity;
-
-            adultSelect.disabled = false;
-            childSelect.disabled = false;
-        }
-
-        categorySelect.addEventListener('change', applyCapacityFromSelectedCategory);
-
-        if (categorySelect.value) {
-            applyCapacityFromSelectedCategory();
-        }
+        // Chọn hạng phòng chỉ lọc kết quả; không được tự thay đổi số khách đã nhập.
     });
 </script>
 

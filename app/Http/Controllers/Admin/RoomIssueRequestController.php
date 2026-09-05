@@ -266,14 +266,17 @@ class RoomIssueRequestController extends Controller
                 && in_array($issue->booking->status, ['checked_in', 'inspection_requested'], true)
                 && $issue->booking->bookingRooms->contains('room_id', $oldRoom->id);
 
-            $nextStatus = $guestStillUsesOldRoom ? 'occupied' : 'available';
+            // Sửa xong không đồng nghĩa phòng đã sẵn sàng bán lại. Nếu khách đã
+            // chuyển khỏi phòng, phòng phải qua bước dọn/xác nhận của buồng phòng
+            // trước khi trở lại available; nếu khách vẫn ở thì giữ occupied.
+            $nextStatus = $guestStillUsesOldRoom ? 'occupied' : 'cleaning';
             $oldRoom->update([
                 'status' => $nextStatus,
-                'status_from' => null,
+                'status_from' => now('Asia/Ho_Chi_Minh'),
                 'status_until' => null,
                 'note' => $guestStillUsesOldRoom
                     ? 'Đã khắc phục sự cố; khách vẫn đang sử dụng phòng.'
-                    : null,
+                    : 'Đã sửa xong sự cố; cần dọn/xác nhận phòng trước khi mở bán lại.',
             ]);
 
             $issue->update([
@@ -289,7 +292,7 @@ class RoomIssueRequestController extends Controller
                 'action_type' => 'maintenance_support',
                 'action_time' => now(),
                 'note' => 'Đã khắc phục xong sự cố. ' . $data['repair_note']
-                    . '. Trạng thái phòng sau xử lý: ' . ($nextStatus === 'available' ? 'trống' : 'đang ở') . '.',
+                    . '. Trạng thái phòng sau xử lý: ' . ($nextStatus === 'cleaning' ? 'cần dọn' : 'đang ở') . '.',
             ]);
 
             if ($issue->booking) {

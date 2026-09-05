@@ -8,6 +8,7 @@ use App\Models\BookingLog;
 use App\Models\BookingPayment;
 use App\Models\BookingServiceItem;
 use App\Models\ChatConversation;
+use App\Models\EmailDeliveryLog;
 use App\Models\RoomIssueRequest;
 use App\Models\Service;
 use App\Models\Room;
@@ -24,6 +25,8 @@ use Illuminate\Support\Facades\DB;
 class DashboardController extends Controller
 {
     private array $activeBookingStatuses = ['pending', 'confirmed', 'checked_in', 'inspection_requested'];
+    private array $receivableBookingStatuses = ['confirmed', 'checked_in', 'inspection_requested', 'checked_out', 'completed'];
+    private array $occupancyBookingStatuses = ['confirmed', 'checked_in', 'inspection_requested', 'checked_out', 'completed'];
 
     public function index(Request $request)
     {
@@ -44,8 +47,12 @@ class DashboardController extends Controller
         $previousFrom = $previousTo->copy()->subDays($periodDays - 1)->startOfDay();
         $now = Carbon::now('Asia/Ho_Chi_Minh');
 
-        $revenue = $this->paidRevenueForPeriod($from, $to);
-        $previousRevenue = $this->paidRevenueForPeriod($previousFrom, $previousTo);
+        $grossRevenue = $this->grossCollectedForPeriod($from, $to);
+        $refundAmount = $this->refundsCompletedForPeriod($from, $to);
+        $revenue = $grossRevenue - $refundAmount;
+        $previousGrossRevenue = $this->grossCollectedForPeriod($previousFrom, $previousTo);
+        $previousRefundAmount = $this->refundsCompletedForPeriod($previousFrom, $previousTo);
+        $previousRevenue = $previousGrossRevenue - $previousRefundAmount;
         $revenueChangePercent = $this->percentChange($revenue, $previousRevenue);
 
         $successPayments = BookingPayment::query()
@@ -69,6 +76,7 @@ class DashboardController extends Controller
         $bookingPeriod = Booking::query()->whereBetween('created_at', [$from, $to]);
         $newBookings = (int) (clone $bookingPeriod)->count();
         $cancelledBookings = (int) (clone $bookingPeriod)->where('status', 'cancelled')->count();
+        $nonCancelledBookings = (int) (clone $bookingPeriod)->where('status', '!=', 'cancelled')->count();
         $completedBookings = (int) (clone $bookingPeriod)->whereIn('status', ['checked_out', 'completed'])->count();
         $bookingValue = (float) (clone $bookingPeriod)->where('status', '!=', 'cancelled')->sum('estimated_total');
         $discountAmount = (float) (clone $bookingPeriod)->where('status', '!=', 'cancelled')->sum('discount_amount');
@@ -126,11 +134,11 @@ class DashboardController extends Controller
             ->groupBy('booking_id');
         $receivableRow = Booking::query()
             ->leftJoinSub($paidByBooking, 'paid_ledger', fn ($join) => $join->on('paid_ledger.booking_id', '=', 'bookings.id'))
-            ->whereIn('bookings.status', $this->activeBookingStatuses)
+            ->whereIn('bookings.status', $this->receivableBookingStatuses)
             ->where('bookings.check_in_at', '<=', $to)
             ->where('bookings.check_out_at', '>=', $from)
-            ->selectRaw('COALESCE(SUM(GREATEST(COALESCE(bookings.estimated_total, 0) - COALESCE(paid_ledger.paid_total, 0), 0)), 0) as amount')
-            ->selectRaw('SUM(CASE WHEN GREATEST(COALESCE(bookings.estimated_total, 0) - COALESCE(paid_ledger.paid_total, 0), 0) > 0 THEN 1 ELSE 0 END) as booking_count')
+            ->selectRaw('COALESCE(SUM(GREATEST(COALESCE(bookings.final_total, bookings.estimated_total, 0) - COALESCE(paid_ledger.paid_total, 0), 0)), 0) as amount')
+            ->selectRaw('SUM(CASE WHEN GREATEST(COALESCE(bookings.final_total, bookings.estimated_total, 0) - COALESCE(paid_ledger.paid_total, 0), 0) > 0 THEN 1 ELSE 0 END) as booking_count')
             ->first();
         $receivableAmount = (float) ($receivableRow->amount ?? 0);
         $receivableBookings = (int) ($receivableRow->booking_count ?? 0);
@@ -143,6 +151,15 @@ class DashboardController extends Controller
             ->where('status', 'pending')
             ->whereBetween('created_at', [$from, $to])
             ->count();
+
+        $activeGuests = (int) Booking::query()->where('status', 'checked_in')
+            ->sum(DB::raw('COALESCE(adult_count,0) + COALESCE(child_count,0) + COALESCE(baby_count,0)'));
+        $activeStays = (int) Booking::query()->where('status', 'checked_in')->count();
+        $openRoomIssues = (int) RoomIssueRequest::query()
+            ->whereNotIn('workflow_status', ['completed', 'rejected'])
+            ->count();
+        $failedEmails = (int) EmailDeliveryLog::query()->where('status', 'failed')->whereBetween('created_at', [$from, $to])->count();
+        $averageBookingValue = $nonCancelledBookings > 0 ? round($bookingValue / $nonCancelledBookings, 0) : 0;
 
         // Cảnh báo điều hành là snapshot hiện tại, không phụ thuộc khoảng thời gian
         // đang xem báo cáo. Chỉ đưa lên những ngoại lệ thực sự cần Super Admin chú ý.
@@ -162,10 +179,13 @@ class DashboardController extends Controller
             'periodLabel',
             'previousPeriodLabel',
             'revenue',
+            'grossRevenue',
+            'refundAmount',
             'previousRevenue',
             'revenueChangePercent',
             'paymentProviderRows',
             'newBookings',
+            'nonCancelledBookings',
             'cancelledBookings',
             'completedBookings',
             'bookingValue',
@@ -186,10 +206,73 @@ class DashboardController extends Controller
             'receivableBookings',
             'failedPayments',
             'pendingPayments',
-            'operationAlerts'
+            'operationAlerts',
+            'activeGuests',
+            'activeStays',
+            'openRoomIssues',
+            'failedEmails',
+            'averageBookingValue'
         ));
     }
 
+
+    public function detail(Request $request, string $metric)
+    {
+        abort_unless(Auth::user()?->role === 'super_admin', 403);
+        [$from, $to] = $this->resolveDashboardRange($request);
+
+        $labels = [
+            'revenue' => ['Doanh thu thuần thực thu', 'Tiền thu vào từ payment thành công trong kỳ, trừ các khoản hoàn tiền đã xác nhận hoàn tất trong kỳ.'],
+            'refunds' => ['Tiền đã hoàn khách', 'Tổng refund_due_amount của booking có refund_status = completed và thời điểm hoàn tất nằm trong kỳ.'],
+            'booking_value' => ['Giá trị booking phát sinh', 'Tổng estimated_total của booking tạo trong kỳ, không tính booking đã hủy.'],
+            'new_bookings' => ['Booking mới', 'Tất cả booking được tạo trong kỳ.'],
+            'receivables' => ['Công nợ liên quan kỳ', 'Phần giá trị phải thu (ưu tiên final_total, nếu chưa chốt thì estimated_total) còn thiếu sau khi trừ tổng payment thành công của booking đã xác nhận/đang ở/đã trả và giao với kỳ; booking pending không được coi là công nợ.'],
+            'discounts' => ['Ưu đãi / giảm giá', 'Tổng discount_amount snapshot của booking tạo trong kỳ và chưa bị hủy.'],
+            'pending_payments' => ['Thanh toán chờ xử lý', 'Các payment tạo trong kỳ đang ở trạng thái pending.'],
+            'failed_payments' => ['Thanh toán thất bại', 'Các payment chuyển sang trạng thái failed trong kỳ.'],
+            'failed_emails' => ['Email gửi thất bại', 'Các lần gửi email được ứng dụng ghi nhận thất bại trong kỳ.'],
+        ];
+        abort_unless(isset($labels[$metric]), 404);
+
+        $rows = collect();
+        $total = 0.0;
+        if ($metric === 'revenue') {
+            $paymentRows = BookingPayment::query()->with('booking')->where('status', 'success')
+                ->where(fn($q) => $q->whereBetween('paid_at', [$from,$to])->orWhere(fn($x) => $x->whereNull('paid_at')->whereBetween('created_at',[$from,$to])))
+                ->latest('id')->get()->map(fn($p) => ['booking'=>$p->booking?->booking_code,'customer'=>$p->booking?->customer_name_snapshot,'kind'=>'Thu · '.$p->provider,'amount'=>(float)$p->amount,'time'=>$p->paid_at ?: $p->created_at,'url'=>$p->booking ? route('admin.bookings.show',$p->booking) : null]);
+            $refundRows = Booking::query()->where('refund_status','completed')->where('refund_due_amount','>',0)
+                ->whereBetween('refund_processed_at',[$from,$to])->latest('refund_processed_at')->get()
+                ->map(fn($b)=>['booking'=>$b->booking_code,'customer'=>$b->customer_name_snapshot,'kind'=>'Hoàn tiền','amount'=>-(float)$b->refund_due_amount,'time'=>$b->refund_processed_at,'url'=>route('admin.bookings.show',$b)]);
+            $rows=$paymentRows->concat($refundRows)->sortByDesc(fn($r)=>(string)($r['time']??''))->values();
+            $total=(float)$rows->sum('amount');
+        } elseif ($metric === 'refunds') {
+            $rows=Booking::query()->where('refund_status','completed')->where('refund_due_amount','>',0)
+                ->whereBetween('refund_processed_at',[$from,$to])->latest('refund_processed_at')->get()
+                ->map(fn($b)=>['booking'=>$b->booking_code,'customer'=>$b->customer_name_snapshot,'kind'=>'Đã hoàn khách','amount'=>(float)$b->refund_due_amount,'time'=>$b->refund_processed_at,'url'=>route('admin.bookings.show',$b)]);
+            $total=(float)$rows->sum('amount');
+        } elseif (in_array($metric, ['booking_value','new_bookings','discounts'], true)) {
+            $q=Booking::query()->whereBetween('created_at',[$from,$to]);
+            if ($metric !== 'new_bookings') $q->where('status','!=','cancelled');
+            $rows=$q->latest()->get()->map(fn($b)=>['booking'=>$b->booking_code,'customer'=>$b->customer_name_snapshot,'kind'=>$b->status,'amount'=>$metric==='discounts'?(float)$b->discount_amount:(float)$b->estimated_total,'time'=>$b->created_at,'url'=>route('admin.bookings.show',$b)]);
+            $total=$metric==='new_bookings'?(float)$rows->count():(float)$rows->sum('amount');
+        } elseif ($metric === 'receivables') {
+            $bookings=Booking::query()->whereIn('status',$this->receivableBookingStatuses)->where('check_in_at','<=',$to)->where('check_out_at','>=',$from)->latest()->get();
+            $paid=BookingPayment::query()->whereIn('booking_id',$bookings->pluck('id'))->where('status','success')->selectRaw('booking_id,SUM(amount) total')->groupBy('booking_id')->pluck('total','booking_id');
+            $rows=$bookings->map(function($b) use($paid){$amount=max(0,(float)($b->final_total ?? $b->estimated_total ?? 0)-(float)($paid[$b->id]??0));return ['booking'=>$b->booking_code,'customer'=>$b->customer_name_snapshot,'kind'=>$b->status,'amount'=>$amount,'time'=>$b->check_out_at,'url'=>route('admin.bookings.show',$b)];})->filter(fn($r)=>$r['amount']>0)->values();
+            $total=(float)$rows->sum('amount');
+        } elseif (in_array($metric,['pending_payments','failed_payments'],true)) {
+            $status=$metric==='pending_payments'?'pending':'failed';
+            $dateCol=$status==='failed'?'updated_at':'created_at';
+            $rows=BookingPayment::query()->with('booking')->where('status',$status)->whereBetween($dateCol,[$from,$to])->latest('id')->get()->map(fn($p)=>['booking'=>$p->booking?->booking_code,'customer'=>$p->booking?->customer_name_snapshot,'kind'=>$p->provider,'amount'=>(float)$p->amount,'time'=>$p->{$dateCol},'url'=>$p->booking?route('admin.bookings.show',$p->booking):null]);
+            $total=(float)$rows->sum('amount');
+        } else {
+            $rows=EmailDeliveryLog::query()->with('booking')->where('status','failed')->whereBetween('created_at',[$from,$to])->latest()->get()->map(fn($e)=>['booking'=>$e->booking?->booking_code,'customer'=>$e->recipient,'kind'=>$e->mail_type,'amount'=>null,'time'=>$e->created_at,'url'=>$e->booking?route('admin.bookings.show',$e->booking):route('admin.email-logs.index')]);
+            $total=(float)$rows->count();
+        }
+
+        [$title,$formula]=$labels[$metric];
+        return view('admin.pages.dashboard.detail', compact('metric','title','formula','rows','total','from','to'));
+    }
 
     private function resolveDashboardRange(Request $request): array
     {
@@ -244,7 +327,7 @@ class DashboardController extends Controller
         $occupiedRoomDays = (float) DB::table('booking_rooms')
             ->join('bookings', 'bookings.id', '=', 'booking_rooms.booking_id')
             ->whereNull('bookings.deleted_at')
-            ->where('bookings.status', '!=', 'cancelled')
+            ->whereIn('bookings.status', $this->occupancyBookingStatuses)
             ->where('bookings.check_in_at', '<', $periodEndExclusive)
             ->where('bookings.check_out_at', '>', $periodStart)
             ->selectRaw(
@@ -283,7 +366,7 @@ class DashboardController extends Controller
             ->join('rooms', 'rooms.id', '=', 'booking_rooms.room_id')
             ->whereNull('bookings.deleted_at')
             ->whereNull('rooms.deleted_at')
-            ->where('bookings.status', '!=', 'cancelled')
+            ->whereIn('bookings.status', $this->occupancyBookingStatuses)
             ->where('bookings.check_in_at', '<', $periodEndExclusive)
             ->where('bookings.check_out_at', '>', $periodStart)
             ->select('rooms.room_category_id')
@@ -435,8 +518,8 @@ class DashboardController extends Controller
             ->leftJoinSub($paidByBooking, 'paid_alert_ledger', fn ($join) => $join->on('paid_alert_ledger.booking_id', '=', 'bookings.id'))
             ->whereIn('bookings.status', ['checked_in', 'inspection_requested'])
             ->whereBetween('bookings.check_out_at', [$now->copy()->subHours(6), $now->copy()->addHours(24)])
-            ->selectRaw('COALESCE(SUM(GREATEST(COALESCE(bookings.estimated_total, 0) - COALESCE(paid_alert_ledger.paid_total, 0), 0)), 0) as amount')
-            ->selectRaw('SUM(CASE WHEN GREATEST(COALESCE(bookings.estimated_total, 0) - COALESCE(paid_alert_ledger.paid_total, 0), 0) > 0 THEN 1 ELSE 0 END) as booking_count')
+            ->selectRaw('COALESCE(SUM(GREATEST(COALESCE(bookings.final_total, bookings.estimated_total, 0) - COALESCE(paid_alert_ledger.paid_total, 0), 0)), 0) as amount')
+            ->selectRaw('SUM(CASE WHEN GREATEST(COALESCE(bookings.final_total, bookings.estimated_total, 0) - COALESCE(paid_alert_ledger.paid_total, 0), 0) > 0 THEN 1 ELSE 0 END) as booking_count')
             ->first();
 
         $dueSoonAmount = (float) ($dueSoon->amount ?? 0);
@@ -542,7 +625,7 @@ class DashboardController extends Controller
         return Booking::query();
     }
 
-    private function paidRevenueForPeriod(Carbon $from, Carbon $to): float
+    private function grossCollectedForPeriod(Carbon $from, Carbon $to): float
     {
         return (float) BookingPayment::query()
             ->where('status', 'success')
@@ -554,6 +637,15 @@ class DashboardController extends Controller
                     });
             })
             ->sum('amount');
+    }
+
+    private function refundsCompletedForPeriod(Carbon $from, Carbon $to): float
+    {
+        return (float) Booking::query()
+            ->where('refund_status', 'completed')
+            ->where('refund_due_amount', '>', 0)
+            ->whereBetween('refund_processed_at', [$from, $to])
+            ->sum('refund_due_amount');
     }
 
     private function buildUrgentAlerts(Carbon $now, Carbon $todayStart, Carbon $todayEnd, $user): array

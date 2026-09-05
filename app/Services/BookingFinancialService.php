@@ -110,6 +110,10 @@ class BookingFinancialService
 
     public function remainingTotal(Booking $booking): float
     {
+        if (in_array($booking->status, ['cancelled', 'canceled'], true)) {
+            return 0.0;
+        }
+
         return max(0, round($this->currentTotal($booking) - $this->paidTotal($booking), 0));
     }
 
@@ -134,8 +138,12 @@ class BookingFinancialService
         $allocatedDeposit = min($paid, $requiredDeposit);
         $prepaidAmount = max(0, $paid - $allocatedDeposit);
         $depositShortfall = max(0, $requiredDeposit - $paid);
-        $remaining = max(0, $total - $paid);
-        $overpayment = max(0, $paid - $total);
+        $isCancelled = in_array($booking->status, ['cancelled', 'canceled'], true);
+        $remaining = $isCancelled ? 0 : max(0, $total - $paid);
+        $overpayment = $isCancelled ? 0 : max(0, $paid - $total);
+        if ($isCancelled) {
+            $depositShortfall = 0;
+        }
 
         return [
             'total' => $total,

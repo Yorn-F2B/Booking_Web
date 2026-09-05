@@ -70,6 +70,19 @@ class BookingCreateController extends Controller
             'check_in_time' => $this->safePrefillTime($request->query('check_in_time'))
                 ?? now('Asia/Ho_Chi_Minh')->format('H:i'),
             'check_out_time' => $this->safePrefillTime($request->query('check_out_time')),
+            'adult_count' => max(1, (int) $request->query('adult_count', 1)),
+            'child_count' => max(0, (int) $request->query('child_count', 0)),
+            'baby_count' => max(0, (int) $request->query('baby_count', 0)),
+            'room_quantity' => max(1, min(max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)), (int) $request->query('room_quantity', 1))),
+        ];
+
+        // Cấu hình hiển thị promotion được truyền từ controller để Blade luôn
+        // có dữ liệu kể cả khi view cache còn bản compile cũ.
+        $promotionTypeDisplayConfig = [
+            'normal_discount' => ['label' => 'Mã thường', 'badge' => 'bg-primary', 'hint' => 'Mã phổ thông dùng cho giảm tiền hoặc tặng/giảm dịch vụ cơ bản.', 'limit' => 1, 'rule' => 'Chọn tối đa 1 mã thường.'],
+            'event_discount' => ['label' => 'Mã sự kiện', 'badge' => 'bg-success', 'hint' => 'Mã theo chiến dịch, mùa lễ, combo hoặc chương trình bán hàng.', 'limit' => 1, 'rule' => 'Chọn tối đa 1 mã sự kiện.'],
+            'conditional_discount' => ['label' => 'Mã điều kiện', 'badge' => 'bg-warning text-dark', 'hint' => 'Mã chỉ áp dụng khi booking đạt điều kiện về tổng tiền, số đêm, số phòng hoặc lịch sử khách.', 'limit' => 1, 'rule' => 'Chọn tối đa 1 mã điều kiện.'],
+            'support_discount' => ['label' => 'Mã hỗ trợ khách', 'badge' => 'bg-danger', 'hint' => '', 'limit' => null, 'rule' => 'Có thể chọn nhiều mã hỗ trợ nếu từng mã cho phép dùng chung.'],
         ];
 
         // The backend never supports an advance hourly booking. Keep a crafted
@@ -83,7 +96,8 @@ class BookingCreateController extends Controller
             'roomCategories',
             'services',
             'availablePromotions',
-            'bookingPrefill'
+            'bookingPrefill',
+            'promotionTypeDisplayConfig'
         ));
     }
 
@@ -154,7 +168,7 @@ class BookingCreateController extends Controller
     {
         $data = $request->validate([
             'customer_name' => 'required|string|max:150',
-            'customer_phone' => 'required|string|max:20',
+            'customer_phone' => 'nullable|string|max:20',
             'customer_cccd' => 'required|regex:/^[0-9]{12}$/',
             'customer_birthday' => 'required|date|before_or_equal:' . now('Asia/Ho_Chi_Minh')->subYears(max(0, (int) app(HotelPolicyService::class)->get('booking.min_age', 18)))->toDateString(),
             'customer_gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
@@ -172,12 +186,13 @@ class BookingCreateController extends Controller
             'confirm_low_stock' => 'nullable|boolean',
             'confirm_adjacent_fallback' => 'nullable|boolean',
 
-            'adult_count' => 'required|integer|min:1',
-            'child_count' => 'nullable|integer|min:0',
-            'room_quantity' => 'required|integer|min:1',
+            'adult_count' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
+            'child_count' => 'nullable|integer|min:0|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
+            'baby_count' => 'nullable|integer|min:0|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
+            'room_quantity' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)),
             'prefer_adjacent_rooms' => 'nullable|boolean',
             'room_selection_mode' => 'required|in:automatic,manual',
-            'room_selection_request' => 'nullable|required_if:room_selection_mode,manual|string|min:5|max:1000',
+            'room_selection_request' => 'nullable|string|max:1000',
             'manual_room_ids' => 'nullable|array',
             'manual_room_ids.*' => 'integer|distinct|exists:rooms,id',
 
@@ -197,7 +212,6 @@ class BookingCreateController extends Controller
             'promotion_note' => 'nullable|string|max:1000',
         ], [
             'customer_name.required' => 'Vui lòng nhập họ tên khách hàng.',
-            'customer_phone.required' => 'Vui lòng nhập số điện thoại khách hàng.',
             'customer_cccd.required' => 'Vui lòng nhập CCCD người đứng tên booking.',
             'customer_cccd.regex' => 'CCCD phải gồm đúng 12 chữ số.',
             'customer_birthday.required' => 'Vui lòng nhập ngày sinh người đứng tên booking.',
@@ -216,8 +230,6 @@ class BookingCreateController extends Controller
             'room_quantity.required' => 'Vui lòng nhập số phòng.',
             'room_selection_mode.required' => 'Vui lòng chọn cách phân phòng.',
             'room_selection_mode.in' => 'Cách phân phòng không hợp lệ.',
-            'room_selection_request.required_if' => 'Vui lòng ghi yêu cầu phòng khi chọn phân phòng theo yêu cầu.',
-            'room_selection_request.min' => 'Yêu cầu phòng cần có ít nhất 5 ký tự.',
             'manual_room_ids.*.distinct' => 'Danh sách phòng chọn thủ công bị trùng.',
             'payment_method.required' => 'Vui lòng chọn phương thức thanh toán.',
             'payment_method.in' => 'Phương thức thanh toán không hợp lệ.',
@@ -225,12 +237,20 @@ class BookingCreateController extends Controller
             'customer_email.required_if' => 'Thanh toán VNPay bắt buộc phải có email khách để gửi đường dẫn thanh toán.',
         ]);
 
+        $maxOnlineGuests = max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60));
+        if (((int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0)) > $maxOnlineGuests) {
+            return back()->withInput()->withErrors(['adult_count' => 'Tổng số người lớn, trẻ em và em bé không được vượt quá ' . $maxOnlineGuests . ' người trong một booking.']);
+        }
+        if ((int) $data['adult_count'] < (int) $data['room_quantity']) {
+            return back()->withInput()->withErrors(['adult_count' => 'Mỗi phòng cần ít nhất một người lớn đại diện. Với ' . (int) $data['room_quantity'] . ' phòng cần tối thiểu ' . (int) $data['room_quantity'] . ' người lớn.']);
+        }
+
         $roomCategory = RoomCategory::findOrFail($data['room_category_id']);
         $roomQuantity = (int) $data['room_quantity'];
 
         $this->assertGuestCapacity(
             (int) $data['adult_count'],
-            (int) ($data['child_count'] ?? 0),
+            (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0),
             max(0, (int) $roomCategory->adult_capacity) * max(1, $roomQuantity),
             max(0, (int) $roomCategory->child_capacity) * max(1, $roomQuantity)
         );
@@ -450,7 +470,7 @@ class BookingCreateController extends Controller
         }
 
         try {
-            $this->validateInitialPaymentChoice($paymentMethod, $paymentType, $customPaymentAmount, $subtotalAmount);
+            $this->validateInitialPaymentChoice($paymentMethod, $paymentType, $customPaymentAmount, $subtotalAmount, $roomQuantity);
         } catch (\Throwable $e) {
             return back()
                 ->withInput()
@@ -510,7 +530,8 @@ class BookingCreateController extends Controller
                 $promotionResult['auto_service_items'] ?? []
             );
 
-            $manualRoomSelectionFee = $manualRoomSelectionFulfilled
+            $hasCustomerRoomRequest = $roomSelectionMode === 'manual' && trim((string) ($data['room_selection_request'] ?? '')) !== '';
+            $manualRoomSelectionFee = $manualRoomSelectionFulfilled && $hasCustomerRoomRequest
                 ? round(max(0, (float) app(HotelPolicyService::class)->get('booking.manual_room_selection_fee', 50000)) * $roomQuantity, 0)
                 : 0;
 
@@ -521,7 +542,7 @@ class BookingCreateController extends Controller
             $discountAmount = (float) $promotionResult['discount_total'];
             $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
             $roomDiscountForDeposit = min($roomTotal, $moneyDiscountAmount + $roomUpgradeDiscountAmount);
-            $requiredDepositAmount = round(max(0, $roomTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(), 0);
+            $requiredDepositAmount = round(max(0, $roomTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(null, $roomQuantity), 0);
             $initialPaymentAmount = $this->resolveInitialPaymentAmount(
                 $paymentMethod,
                 $paymentType,
@@ -559,13 +580,14 @@ class BookingCreateController extends Controller
                 'policy_snapshot' => app(HotelPolicyService::class)->snapshot(),
                 'adult_count' => $data['adult_count'],
                 'child_count' => $data['child_count'] ?? 0,
+                'baby_count' => $data['baby_count'] ?? 0,
                 'room_quantity' => $roomQuantity,
                 'prefer_adjacent_rooms' => $preferAdjacentRooms,
                 'room_selection_mode' => $roomSelectionMode,
                 'room_selection_request' => $roomSelectionMode === 'manual'
                     ? trim((string) ($data['room_selection_request'] ?? ''))
                     : null,
-                'room_selection_status' => $roomSelectionMode === 'manual'
+                'room_selection_status' => $hasCustomerRoomRequest
                     ? ($manualRoomSelectionFulfilled ? 'fulfilled' : 'pending')
                     : 'not_required',
                 'room_selection_fee' => $manualRoomSelectionFee,
@@ -586,12 +608,22 @@ class BookingCreateController extends Controller
 
             $this->autoAssignCreatedBooking($booking);
 
-            foreach ($availableRooms as $room) {
+            $roomsForAllocation = $availableRooms->values();
+            $roomsForAllocation->loadMissing('category');
+            $occupancyAllocation = app(\App\Services\BookingRoomOccupancyAllocator::class)->allocate(
+                $roomsForAllocation,
+                (int) $data['adult_count'],
+                (int) ($data['child_count'] ?? 0),
+                (int) ($data['baby_count'] ?? 0)
+            );
+            foreach ($roomsForAllocation as $room) {
+                $roomOccupancy = $occupancyAllocation[(int) $room->id];
                 BookingRoom::create([
                     'booking_id' => $booking->id,
                     'room_id' => $room->id,
-                    'adult_count' => 0,
-                    'child_count' => 0,
+                    'adult_count' => $roomOccupancy['adult_count'],
+                    'child_count' => $roomOccupancy['child_count'],
+                    'baby_count' => $roomOccupancy['baby_count'],
                     'price_at_booking' => $room->category->price ?? $roomCategory->price,
                     'surcharge' => 0,
                     'surcharge_reason' => null,
@@ -758,7 +790,7 @@ class BookingCreateController extends Controller
         }
 
         try {
-            Mail::to($email)->send(new BookingCreatedMail($booking, $source));
+            app(\App\Services\EmailDeliveryService::class)->sendOrFail($email, new BookingCreatedMail($booking, $source), 'booking_confirmation', $booking);
 
             $this->addBookingLog(
                 $booking,
@@ -794,14 +826,16 @@ class BookingCreateController extends Controller
         string $paymentMethod,
         ?string $paymentType,
         float $customPaymentAmount,
-        float $temporaryTotal
+        float $temporaryTotal,
+        int $roomQuantity = 1
     ): void {
+        $depositLabel = $this->depositPercentForRoomQuantityLabel($roomQuantity);
         if (!in_array($paymentMethod, ['cash', 'bank_transfer', 'vnpay'], true)) {
-            throw new \Exception('Booking bắt buộc thanh toán cọc ' . $this->currentDepositPercentLabel() . '.');
+            throw new \Exception('Booking bắt buộc thanh toán cọc ' . $depositLabel . '.');
         }
 
         if ($paymentType !== 'deposit_30') {
-            throw new \Exception('Khi tạo booking, hệ thống thu mức cọc theo chính sách hiện tại (' . $this->currentDepositPercentLabel() . ').');
+            throw new \Exception('Khi tạo booking, hệ thống thu mức cọc theo chính sách số lượng phòng (' . $depositLabel . ').');
         }
 
         if ($temporaryTotal <= 0) {
@@ -826,7 +860,7 @@ class BookingCreateController extends Controller
         if ($paymentType === 'deposit_30') {
             $depositTarget = $requiredDepositTarget !== null
                 ? max(0, round($requiredDepositTarget, 0))
-                : round($estimatedTotal * app(HotelPolicyService::class)->depositRate(), 0);
+                : round($estimatedTotal * app(HotelPolicyService::class)->depositRate(null, $roomQuantity), 0);
 
             return max(0, min($depositTarget - $currentPaid, $remaining));
         }
@@ -922,7 +956,7 @@ class BookingCreateController extends Controller
         $booking->update(['payment_expires_at' => $expiresAt]);
 
         try {
-            Mail::to($email)->send(new AdminVnpayPaymentRequestMail($booking, $payment, $paymentUrl, $expiresAt));
+            app(\App\Services\EmailDeliveryService::class)->sendOrFail($email, new AdminVnpayPaymentRequestMail($booking, $payment, $paymentUrl, $expiresAt), 'vnpay_payment_request', $booking);
 
             $rawResponse['email_sent_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
             $payment->update(['raw_response' => $rawResponse]);
@@ -1421,7 +1455,7 @@ class BookingCreateController extends Controller
         $attributes = [
             'first_name' => $firstName ?: $fullName,
             'last_name' => $lastName,
-            'phone' => $phone,
+            'phone' => $phone !== '' ? $phone : null,
             'cccd' => $cccd ?: null,
             'birthday' => $data['customer_birthday'] ?? null,
         ];
@@ -1921,7 +1955,7 @@ class BookingCreateController extends Controller
             'selected_room_ids.*' => 'required|integer|distinct|exists:rooms,id',
 
             'customer_name' => 'required|string|max:150',
-            'customer_phone' => 'required|string|max:20',
+            'customer_phone' => 'nullable|string|max:20',
             'customer_cccd' => 'required|regex:/^[0-9]{12}$/',
             'customer_birthday' => 'required|date|before_or_equal:' . now('Asia/Ho_Chi_Minh')->subYears(max(0, (int) app(HotelPolicyService::class)->get('booking.min_age', 18)))->toDateString(),
             'customer_gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
@@ -1939,9 +1973,10 @@ class BookingCreateController extends Controller
             'confirm_low_stock' => 'nullable|boolean',
             'confirm_adjacent_fallback' => 'nullable|boolean',
 
-            'adult_count' => 'required|integer|min:1',
-            'child_count' => 'nullable|integer|min:0',
-            'room_quantity' => 'required|integer|min:1',
+            'adult_count' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
+            'child_count' => 'nullable|integer|min:0|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
+            'baby_count' => 'nullable|integer|min:0|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
+            'room_quantity' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)),
             'prefer_adjacent_rooms' => 'nullable|boolean',
 
             'deposit_amount' => 'nullable|numeric|min:0',
@@ -1962,7 +1997,6 @@ class BookingCreateController extends Controller
             'selected_room_ids.required' => 'Không tìm thấy phương án phòng đã chọn.',
             'selected_room_ids.*.distinct' => 'Phương án phòng bị trùng phòng, vui lòng chọn lại.',
             'customer_name.required' => 'Vui lòng nhập họ tên khách hàng.',
-            'customer_phone.required' => 'Vui lòng nhập số điện thoại khách hàng.',
             'customer_cccd.required' => 'Vui lòng nhập CCCD người đứng tên booking.',
             'customer_cccd.regex' => 'CCCD phải gồm đúng 12 chữ số.',
             'customer_birthday.required' => 'Vui lòng nhập ngày sinh người đứng tên booking.',
@@ -1973,9 +2007,17 @@ class BookingCreateController extends Controller
             'check_in_date.required' => 'Vui lòng chọn ngày nhận phòng.',
             'check_in_date.after_or_equal' => 'Ngày nhận phòng không được nhỏ hơn hôm nay.',
             'payment_method.required' => 'Booking bắt buộc phải chọn phương thức thanh toán.',
-            'payment_type.required' => 'Booking bắt buộc chọn cọc theo chính sách hiện tại (' . $this->currentDepositPercentLabel() . ').',
+            'payment_type.required' => 'Booking bắt buộc chọn mức cọc theo chính sách số lượng phòng.',
             'customer_email.required_if' => 'Thanh toán VNPay bắt buộc phải có email khách để gửi đường dẫn thanh toán.',
         ]);
+
+        $maxOnlineGuests = max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60));
+        if (((int) $validated['adult_count'] + (int) ($validated['child_count'] ?? 0) + (int) ($validated['baby_count'] ?? 0)) > $maxOnlineGuests) {
+            return back()->withInput()->withErrors(['adult_count' => 'Tổng số người lớn, trẻ em và em bé không được vượt quá ' . $maxOnlineGuests . ' người trong một booking.']);
+        }
+        if ((int) $validated['adult_count'] < (int) $validated['room_quantity']) {
+            return back()->withInput()->withErrors(['adult_count' => 'Mỗi phòng cần ít nhất một người lớn đại diện. Với ' . (int) $validated['room_quantity'] . ' phòng cần tối thiểu ' . (int) $validated['room_quantity'] . ' người lớn.']);
+        }
 
         $selectedRoomIds = collect($validated['selected_room_ids'])
             ->map(fn ($id) => (int) $id)
@@ -1987,6 +2029,12 @@ class BookingCreateController extends Controller
             return redirect()
                 ->route('admin.bookings.create')
                 ->with('error', 'Không tìm thấy phòng được chọn.');
+        }
+
+        if (count($selectedRoomIds) !== (int) $validated['room_quantity']) {
+            return back()->withInput()->withErrors([
+                'selected_room_ids' => 'Bạn phải chọn đúng ' . (int) $validated['room_quantity'] . ' phòng cho booking này.',
+            ]);
         }
 
         $roomCategory = RoomCategory::findOrFail($request->room_category_id);
@@ -2001,9 +2049,15 @@ class BookingCreateController extends Controller
                 ->with('error', 'Một số phòng không tồn tại.');
         }
 
+        if ($rooms->contains(fn ($room) => (int) $room->room_category_id !== (int) $roomCategory->id)) {
+            return back()->withInput()->withErrors([
+                'selected_room_ids' => 'Tất cả phòng chọn cho một booking phải thuộc đúng hạng phòng đã chọn.',
+            ]);
+        }
+
         $this->assertGuestCapacity(
             (int) $validated['adult_count'],
-            (int) ($validated['child_count'] ?? 0),
+            (int) ($validated['child_count'] ?? 0) + (int) ($validated['baby_count'] ?? 0),
             (int) $rooms->sum(fn ($room) => max(0, (int) ($room->category?->adult_capacity ?? 0))),
             (int) $rooms->sum(fn ($room) => max(0, (int) ($room->category?->child_capacity ?? 0)))
         );
@@ -2087,7 +2141,7 @@ class BookingCreateController extends Controller
         }
 
         try {
-            $this->validateInitialPaymentChoice($paymentMethod, $paymentType, $customPaymentAmount, $subtotalAmount);
+            $this->validateInitialPaymentChoice($paymentMethod, $paymentType, $customPaymentAmount, $subtotalAmount, $roomQuantity);
         } catch (\Throwable $e) {
             return redirect()
                 ->route('admin.bookings.create')
@@ -2158,7 +2212,7 @@ class BookingCreateController extends Controller
             $discountAmount = (float) $promotionResult['discount_total'];
             $estimatedTotal = max(0, $subtotalAmount - $discountAmount);
             $roomDiscountForDeposit = min($roomTotal, $moneyDiscountAmount + $roomUpgradeDiscountAmount);
-            $requiredDepositAmount = round(max(0, $roomTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(), 0);
+            $requiredDepositAmount = round(max(0, $roomTotal - $roomDiscountForDeposit) * app(HotelPolicyService::class)->depositRate(null, $roomQuantity), 0);
             $initialPaymentAmount = $this->resolveInitialPaymentAmount(
                 $paymentMethod,
                 $paymentType,
@@ -2194,6 +2248,7 @@ class BookingCreateController extends Controller
                 'check_out_at' => $checkOutAt,
                 'adult_count' => $request->adult_count,
                 'child_count' => $request->child_count ?? 0,
+                'baby_count' => $request->baby_count ?? 0,
                 'room_quantity' => $roomQuantity,
                 'prefer_adjacent_rooms' => $request->boolean('prefer_adjacent_rooms'),
                 'subtotal_amount' => $subtotalAmount,
@@ -2208,12 +2263,22 @@ class BookingCreateController extends Controller
 
             $this->autoAssignCreatedBooking($booking);
 
-            foreach ($rooms as $room) {
+            $roomsForAllocation = $rooms->values();
+            $roomsForAllocation->loadMissing('category');
+            $occupancyAllocation = app(\App\Services\BookingRoomOccupancyAllocator::class)->allocate(
+                $roomsForAllocation,
+                (int) $request->adult_count,
+                (int) ($request->child_count ?? 0),
+                (int) ($request->baby_count ?? 0)
+            );
+            foreach ($roomsForAllocation as $room) {
+                $roomOccupancy = $occupancyAllocation[(int) $room->id];
                 BookingRoom::create([
                     'booking_id' => $booking->id,
                     'room_id' => $room->id,
-                    'adult_count' => 0,
-                    'child_count' => 0,
+                    'adult_count' => $roomOccupancy['adult_count'],
+                    'child_count' => $roomOccupancy['child_count'],
+                    'baby_count' => $roomOccupancy['baby_count'],
                     'price_at_booking' => $room->category->price ?? $roomCategory->price,
                     'surcharge' => 0,
                     'surcharge_reason' => null,
@@ -2540,7 +2605,7 @@ class BookingCreateController extends Controller
             'booking_mode' => 'required|in:advance,walk_in',
             'booking_type' => 'required|in:overnight,hourly',
             'room_category_id' => 'required|exists:room_categories,id',
-            'room_quantity' => 'required|integer|min:1|max:20',
+            'room_quantity' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)),
             'check_in_date' => 'required|date|after_or_equal:today',
             'check_out_date' => 'nullable|date',
             'check_in_time' => 'nullable|date_format:H:i',
@@ -2587,7 +2652,7 @@ class BookingCreateController extends Controller
             'check_in_time' => 'required|date_format:H:i',
             'check_out_date' => 'required|date',
             'check_out_time' => 'required|date_format:H:i',
-            'room_quantity' => 'required|integer|min:1',
+            'room_quantity' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)),
         ]);
 
         $roomCategory = RoomCategory::findOrFail($data['room_category_id']);
@@ -2738,6 +2803,13 @@ class BookingCreateController extends Controller
     }
 
 
+
+    private function depositPercentForRoomQuantityLabel(int $roomQuantity): string
+    {
+        $percent = (float) app(HotelPolicyService::class)->depositPercentForRooms(max(1, $roomQuantity));
+        return rtrim(rtrim(number_format($percent, 2, '.', ''), '0'), '.') . '%';
+    }
+
     private function currentDepositPercentLabel(): string
     {
         $percent = (float) app(HotelPolicyService::class)->get('payment.deposit_percent', 30);
@@ -2746,7 +2818,7 @@ class BookingCreateController extends Controller
 
     private function depositPercentLabel(Booking $booking): string
     {
-        $percent = (float) app(HotelPolicyService::class)->forBooking($booking, 'payment.deposit_percent', 30);
+        $percent = (float) app(HotelPolicyService::class)->depositRate($booking) * 100;
         return rtrim(rtrim(number_format($percent, 2, '.', ''), '0'), '.') . '%';
     }
 

@@ -7,6 +7,7 @@ use App\Models\BookingLog;
 use App\Models\BookingPayment;
 use App\Models\Room;
 use App\Services\BookingFinancialService;
+use App\Services\BookingCancellationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -15,7 +16,7 @@ class ExpireUnpaidBookings extends Command
     protected $signature = 'bookings:expire-unpaid';
     protected $description = 'Xử lý booking đang chờ cọc khi hết thời hạn giữ thanh toán';
 
-    public function handle(BookingFinancialService $financials): int
+    public function handle(BookingFinancialService $financials, BookingCancellationService $cancellations): int
     {
         $ids = Booking::query()
             ->where('status', 'pending')
@@ -28,7 +29,7 @@ class ExpireUnpaidBookings extends Command
         $manualCount = 0;
 
         foreach ($ids as $id) {
-            DB::transaction(function () use ($id, $financials, &$cancelledCount, &$confirmedCount, &$manualCount) {
+            DB::transaction(function () use ($id, $financials, $cancellations, &$cancelledCount, &$confirmedCount, &$manualCount) {
                 $booking = Booking::query()
                     ->with('bookingRooms.room')
                     ->whereKey($id)
@@ -65,7 +66,7 @@ class ExpireUnpaidBookings extends Command
                     if ($allAssignedRoomsStillUsable) {
                         $usableCount = Room::query()
                             ->whereIn('id', $roomIds->all())
-                            ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
+                            ->bookableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id, $booking->cleaning_buffer_minutes)
                             ->count();
                         $allAssignedRoomsStillUsable = $usableCount === $roomIds->count();
                     }
@@ -108,24 +109,10 @@ class ExpireUnpaidBookings extends Command
                     return;
                 }
 
-                $booking->update([
-                    'status' => 'cancelled',
-                    'payment_expires_at' => null,
-                ]);
-
-                // Hủy booking chưa check-in chỉ giải phóng lịch trong booking_rooms bằng
-                // trạng thái booking; không thay đổi room.status vận hành hiện tại.
-
-                $paid = $financials->paidTotal($booking);
-                $requiredDeposit = $financials->requiredDeposit($booking);
-                BookingLog::create([
-                    'booking_id' => $booking->id,
-                    'user_id' => null,
-                    'action' => 'payment_hold_expired',
-                    'description' => 'Booking tự hủy vì hết thời hạn giữ cọc và tổng đã thanh toán '
-                        . number_format($paid, 0, ',', '.') . 'đ chưa đạt mức cọc '
-                        . number_format($requiredDeposit, 0, ',', '.') . 'đ. Lịch giữ phòng đã được giải phóng.',
-                ]);
+                // Chưa đủ cọc: đây là booking hết hạn thanh toán, không phải khách
+                // chủ động hủy/no-show. Nếu đã thu một phần thì phải tạo refund toàn bộ,
+                // đồng thời trả lượt promotion và hủy dịch vụ pending.
+                $cancellations->cancelForExpiredPaymentHold($booking);
                 $cancelledCount++;
             });
         }

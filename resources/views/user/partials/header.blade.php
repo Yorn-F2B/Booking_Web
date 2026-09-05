@@ -111,6 +111,20 @@
                                 </li>
                             @endif
 
+                            @php
+                                $customerUnreadNotifications = \App\Models\OperationalNotification::query()
+                                    ->where('user_id', Auth::id())->whereNull('read_at')->count();
+                            @endphp
+                            <li class="nav-item position-relative">
+                                <a class="nav-link {{ request()->routeIs('notifications.*') ? 'active' : '' }}"
+                                    href="{{ route('notifications.index') }}" title="Thông báo" aria-label="Thông báo">
+                                    <i class="bx bx-bell" style="font-size:1.25rem;vertical-align:middle"></i>
+                                    @if($customerUnreadNotifications > 0)
+                                        <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle" style="margin-left:-10px;margin-top:8px"><span class="visually-hidden">Có thông báo chưa đọc</span></span>
+                                    @endif
+                                </a>
+                            </li>
+
                             <li class="nav-item">
                                 <a class="nav-link {{ request()->is('user-settings') ? 'active' : '' }}"
                                     href="{{ url('user-settings') }}" title="Tài khoản">

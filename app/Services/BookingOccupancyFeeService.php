@@ -15,13 +15,14 @@ class BookingOccupancyFeeService
      */
     public function reconcile(Booking $booking): array
     {
-        $booking->loadMissing(['bookingRooms.room.category', 'guests', 'serviceItems']);
+        $booking->loadMissing(['bookingRooms.room.category', 'serviceItems']);
 
         $capacityMap = [];
         foreach ($booking->bookingRooms as $bookingRoom) {
-            $roomGuests = $booking->guests->where('booking_room_id', $bookingRoom->id);
-            $adultCount = $roomGuests->where('guest_type', 'adult')->count();
-            $minorCount = $roomGuests->whereIn('guest_type', ['child', 'infant'])->count();
+            // booking_rooms mới là nguồn số người thực tế. booking_guests chỉ lưu
+            // hồ sơ đại diện/giấy tờ nên không được dùng để tính vượt sức chứa.
+            $adultCount = max(0, (int) $bookingRoom->adult_count);
+            $minorCount = max(0, (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0));
 
             $capacityMap[(int) $bookingRoom->id] = [
                 'adult' => max(0, $adultCount - (int) ($bookingRoom->room?->category?->adult_capacity ?? 0)),

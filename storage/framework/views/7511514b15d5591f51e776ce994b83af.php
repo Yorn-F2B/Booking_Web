@@ -3,7 +3,7 @@
 <?php $__env->startSection('content'); ?>
     <?php
         $detailPolicy = app(\App\Services\HotelPolicyService::class);
-        $detailDepositPercent = (float) $detailPolicy->forBooking($booking, 'payment.deposit_percent', 30);
+        $detailDepositPercent = (float) $detailPolicy->depositRate($booking) * 100;
         $detailDepositLabel = rtrim(rtrim(number_format($detailDepositPercent, 2, '.', ''), '0'), '.') . '%';
         $detailCheckIn = substr((string) $detailPolicy->forBooking($booking, 'stay.standard_check_in_time', '14:00'), 0, 5);
         $detailCheckOut = substr((string) $detailPolicy->forBooking($booking, 'stay.standard_check_out_time', '12:00'), 0, 5);
@@ -201,6 +201,11 @@
                                     </tr>
 
                                     <tr>
+                                        <th>Số em bé</th>
+                                        <td><?php echo e($booking->baby_count ?? 0); ?></td>
+                                    </tr>
+
+                                    <tr>
                                         <th>Số phòng đặt</th>
                                         <td><?php echo e($booking->room_quantity); ?></td>
                                     </tr>
@@ -329,8 +334,8 @@
                     <?php endif; ?>
 
                     <?php
-                        $canCustomerAddService = in_array($booking->status, ['confirmed', 'checked_in'])
-                            && $booking->payment_status !== 'paid';
+                        $canCustomerAddService = in_array($booking->status, ['confirmed', 'checked_in'], true)
+                            && in_array($booking->payment_status, ['partial', 'paid'], true);
                     ?>
 
                     <div class="settings-section mb-4">
@@ -1067,7 +1072,7 @@
         });
     </script>
 
-<?php if (! $__env->hasRenderedOnce('c7308548-7914-43d4-bf2c-7e0fcd0fb65d')): $__env->markAsRenderedOnce('c7308548-7914-43d4-bf2c-7e0fcd0fb65d'); ?>
+<?php if (! $__env->hasRenderedOnce('2e1c6bfe-c535-47e5-94a7-6f86f2c49725')): $__env->markAsRenderedOnce('2e1c6bfe-c535-47e5-94a7-6f86f2c49725'); ?>
 <div class="modal fade" id="cancelBookingPolicyModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow">
     <div class="modal-header">

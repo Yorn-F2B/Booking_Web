@@ -5,7 +5,7 @@
 @section('content')
     @php
         $detailPolicy = app(\App\Services\HotelPolicyService::class);
-        $detailDepositPercent = (float) $detailPolicy->forBooking($booking, 'payment.deposit_percent', 30);
+        $detailDepositPercent = (float) $detailPolicy->depositRate($booking) * 100;
         $detailDepositLabel = rtrim(rtrim(number_format($detailDepositPercent, 2, '.', ''), '0'), '.') . '%';
         $detailCheckIn = substr((string) $detailPolicy->forBooking($booking, 'stay.standard_check_in_time', '14:00'), 0, 5);
         $detailCheckOut = substr((string) $detailPolicy->forBooking($booking, 'stay.standard_check_out_time', '12:00'), 0, 5);
@@ -197,6 +197,11 @@
                                     </tr>
 
                                     <tr>
+                                        <th>Số em bé</th>
+                                        <td>{{ $booking->baby_count ?? 0 }}</td>
+                                    </tr>
+
+                                    <tr>
                                         <th>Số phòng đặt</th>
                                         <td>{{ $booking->room_quantity }}</td>
                                     </tr>
@@ -324,8 +329,8 @@
                     @endif
 
                     @php
-                        $canCustomerAddService = in_array($booking->status, ['confirmed', 'checked_in'])
-                            && $booking->payment_status !== 'paid';
+                        $canCustomerAddService = in_array($booking->status, ['confirmed', 'checked_in'], true)
+                            && in_array($booking->payment_status, ['partial', 'paid'], true);
                     @endphp
 
                     <div class="settings-section mb-4">

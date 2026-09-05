@@ -7,6 +7,7 @@ use App\Models\Booking;
 use App\Http\Controllers\Controller;
 use App\Models\RoomCategory;
 use App\Services\HotelPolicyService;
+use App\Services\BookingRecommendationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -28,10 +29,7 @@ class RoomAvailabilityController extends Controller
         $roomCategories = collect();
 
         $hasSearch = $request->hasAny([
-            'check_in_date',
-            'check_in_time',
-            'check_out_date',
-            'check_out_time',
+            'check_in_date','check_in_time','check_out_date','check_out_time','adult_count','child_count','baby_count'
         ]);
 
         $searchData = [
@@ -46,6 +44,10 @@ class RoomAvailabilityController extends Controller
             'quick_booking_type' => 'hourly',
             'quick_booking_mode' => 'walk_in',
             'quick_booking_available' => true,
+            'adult_count' => max(1, (int) $request->input('adult_count', 2)),
+            'child_count' => max(0, (int) $request->input('child_count', 0)),
+            'baby_count' => max(0, (int) $request->input('baby_count', 0)),
+            'recommendations' => collect(),
         ];
 
         $uiData = [
@@ -55,6 +57,7 @@ class RoomAvailabilityController extends Controller
             'default_checkout_date' => $defaultCheckOutAt->toDateString(),
             'default_checkout_time' => $defaultCheckOutAt->format('H:i'),
             'cleaning_buffer_minutes' => $cleaningBufferMinutes,
+            'max_online_guests' => max(1, (int) $policies->get('booking.max_online_guests', 60)),
         ];
 
         if (!$hasSearch) {
@@ -66,6 +69,9 @@ class RoomAvailabilityController extends Controller
             'check_in_time' => 'required|date_format:H:i',
             'check_out_date' => 'required|date|after_or_equal:check_in_date',
             'check_out_time' => 'required|date_format:H:i',
+            'adult_count' => 'required|integer|min:1|max:' . max(1, (int) $policies->get('booking.max_online_guests', 60)),
+            'child_count' => 'required|integer|min:0|max:' . max(1, (int) $policies->get('booking.max_online_guests', 60)),
+            'baby_count' => 'required|integer|min:0|max:' . max(1, (int) $policies->get('booking.max_online_guests', 60)),
         ], [
             'check_in_date.required' => 'Vui lòng chọn ngày nhận phòng.',
             'check_in_date.date' => 'Ngày nhận phòng không hợp lệ.',
@@ -119,6 +125,14 @@ class RoomAvailabilityController extends Controller
             }
         });
 
+        $maxOnlineGuests = max(1, (int) $policies->get('booking.max_online_guests', 60));
+        $validator->after(function ($validator) use ($request, $maxOnlineGuests) {
+            $totalGuests = max(0, (int) $request->input('adult_count', 0)) + max(0, (int) $request->input('child_count', 0)) + max(0, (int) $request->input('baby_count', 0));
+            if ($totalGuests > $maxOnlineGuests) {
+                $validator->errors()->add('adult_count', 'Tổng số người lớn, trẻ em và em bé không được vượt quá ' . $maxOnlineGuests . ' người trong một lần tra cứu/đặt phòng.');
+            }
+        });
+
         if ($validator->fails()) {
             return back()
                 ->withInput()
@@ -146,6 +160,11 @@ class RoomAvailabilityController extends Controller
             ->orderBy('price')
             ->get();
 
+        $recommendations = app(BookingRecommendationService::class)->recommend(
+            $checkInAt->toDateTimeString(), $checkOutAt->toDateTimeString(),
+            (int) $data['adult_count'], (int) $data['child_count'], (int) ($data['baby_count'] ?? 0)
+        );
+
         $quickBookingType = $this->guessQuickBookingType($checkInAt, $checkOutAt, $policies);
         $quickBookingMode = $quickBookingType === 'overnight' ? 'advance' : 'walk_in';
         $quickBookingAvailable = $quickBookingMode !== 'walk_in' || $checkInAt->isSameDay($now);
@@ -162,6 +181,10 @@ class RoomAvailabilityController extends Controller
             'quick_booking_type' => $quickBookingType,
             'quick_booking_mode' => $quickBookingMode,
             'quick_booking_available' => $quickBookingAvailable,
+            'adult_count' => (int) $data['adult_count'],
+            'child_count' => (int) $data['child_count'],
+            'baby_count' => (int) ($data['baby_count'] ?? 0),
+            'recommendations' => $recommendations,
         ];
 
         return view('admin.pages.room-availability.index', compact('roomCategories', 'searchData', 'uiData'));

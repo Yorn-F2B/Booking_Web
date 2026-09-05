@@ -54,6 +54,7 @@ class Booking extends Model
         'refund_reason',
         'refund_processed_at',
         'refund_processed_by',
+        'refund_processed_note',
         'subtotal_amount',
         'discount_amount',
         'estimated_total',

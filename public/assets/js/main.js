@@ -197,7 +197,6 @@ function showToast(message, type) {
         })
             .then((res) => res.json())
             .then((data) => {
-                console.log("Uploaded avatar:", data);
             })
             .catch((err) => console.error(err));
     });

@@ -61,7 +61,7 @@ class GuestBookingLookupController extends Controller
         ], now()->addMinutes(self::OTP_TTL_MINUTES));
 
         try {
-            Mail::to($email)->send(new GuestBookingOtpMail($booking, $otp, self::OTP_TTL_MINUTES));
+            app(\App\Services\EmailDeliveryService::class)->sendOrFail($email, new GuestBookingOtpMail($booking, $otp, self::OTP_TTL_MINUTES), 'guest_booking_lookup_otp', $booking);
 
             BookingLog::create([
                 'booking_id' => $booking->id,
@@ -285,7 +285,7 @@ class GuestBookingLookupController extends Controller
             Realtime::booking($booking->fresh(), 'cancelled');
 
             try {
-                Mail::to($email)->send(new GuestBookingCancelledMail($booking->fresh(), $paidAmount, $reason));
+                app(\App\Services\EmailDeliveryService::class)->sendOrFail($email, new GuestBookingCancelledMail($booking->fresh(), $paidAmount, $reason), 'booking_cancelled', $booking);
             } catch (\Throwable $mailError) {
                 Log::warning('Không gửi được email xác nhận hủy booking.', [
                     'booking_id' => $booking->id,

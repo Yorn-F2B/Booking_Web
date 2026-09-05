@@ -713,7 +713,7 @@
                                 href="<?php echo e(route('admin.rooms.index', array_merge(request()->except(['start_date', 'end_date']), ['start_date' => $startDate->toDateString(), 'end_date' => $startDate->copy()->addDays($days - 1)->toDateString()]))); ?>"><?php echo e($label); ?></a>
                         <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
                         <a class="rm-btn"
-                            href="<?php echo e(route('admin.rooms.index', array_merge(request()->except(['start_date', 'end_date']), ['start_date' => $defaultStart->toDateString(), 'end_date' => $defaultEnd->toDateString()]))); ?>">Toàn bộ</a>
+                            href="<?php echo e(route('admin.rooms.index', array_merge(request()->except(['start_date', 'end_date']), ['start_date' => $fullRangeStart->toDateString(), 'end_date' => $fullRangeEnd->toDateString()]))); ?>">Toàn bộ</a>
                     </div>
                 </div>
 
@@ -768,7 +768,7 @@
                                                     : $timelineLateMinutes . ' phút';
                                             ?>
                                             <td class="rm-cell <?php echo e($date->isSameDay($today) ? 'today' : ''); ?>">
-                                                <?php if($booking): ?>
+                                                <?php if($booking && $booking->timeline_can_view_details): ?>
                                                     <a class="rm-booking s-<?php echo e($cell['status']); ?>"
                                                         href="<?php echo e(route('admin.bookings.show', $booking)); ?>"
                                                         title="Xem booking <?php echo e($booking->booking_code); ?>">
@@ -784,6 +784,18 @@
                                                             →
                                                             <?php echo e(optional($timelineCheckOutAt)->format('H:i d/m') ?? $booking->check_out_date); ?></small>
                                                     </a>
+                                                <?php elseif($booking): ?>
+                                                    <div class="rm-booking s-<?php echo e($cell['status']); ?>" title="Booking ngoài phạm vi được phân công">
+                                                        <strong>Phòng đã có booking</strong>
+                                                        <?php if($cell['status'] === 'late_checkout'): ?>
+                                                            <small><strong>Trả muộn · quá <?php echo e($timelineLateText); ?></strong></small>
+                                                        <?php else: ?>
+                                                            <small><?php echo e($bookingLabels[$booking->status] ?? $booking->status); ?></small>
+                                                        <?php endif; ?>
+                                                        <small><?php echo e(optional($timelineCheckInAt)->format('H:i d/m') ?? $booking->check_in_date); ?>
+
+                                                            → <?php echo e(optional($timelineCheckOutAt)->format('H:i d/m') ?? $booking->check_out_date); ?></small>
+                                                    </div>
                                                 <?php elseif($cell['status'] !== 'available'): ?>
                                                     <div class="rm-empty operational s-<?php echo e($cell['status']); ?>">
                                                         <?php echo e($statusLabels[$cell['status']]); ?></div>
@@ -858,7 +870,7 @@
                                         <?php if($lateBooking): ?>
                                             <span class="status-pill s-late_checkout"><i class="rm-dot"></i><span>Trả muộn</span></span>
                                             <div class="small mt-1" style="color:#7e22ce;font-weight:700">
-                                                <?php echo e($lateBooking->booking_code); ?> · quá <?php echo e($catalogLateText); ?>
+                                                <?php echo e($lateBooking->timeline_can_view_details ? $lateBooking->booking_code : 'Booking ngoài phạm vi'); ?> · quá <?php echo e($catalogLateText); ?>
 
                                             </div>
                                         <?php else: ?>
@@ -908,7 +920,6 @@
                             <div class="rm-modal-field"><label>Trạng thái ban đầu</label><select name="status">
                                     <option value="available">Sẵn sàng</option>
                                     <option value="cleaning">Đang dọn</option>
-                                    <option value="inspection">Chờ kiểm tra</option>
                                     <option value="maintenance">Bảo trì</option>
                                 </select></div>
                         </div>
@@ -934,10 +945,7 @@
                                     value="<?php echo e($category->id); ?>"><?php echo e($category->name); ?></option><?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?></select></div>
                             <div class="rm-modal-field"><label>Trạng thái vật lý</label><select id="edit_status" name="status">
                                     <option value="available">Sẵn sàng</option>
-                                    <option value="reserved">Đã giữ (hệ thống)</option>
-                                    <option value="occupied">Đang ở (hệ thống)</option>
                                     <option value="cleaning">Đang dọn</option>
-                                    <option value="inspection">Chờ kiểm tra</option>
                                     <option value="maintenance">Bảo trì</option>
                                 </select><small id="edit_status_hint" class="text-muted d-block mt-1"></small></div>
                         </div>

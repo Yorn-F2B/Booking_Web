@@ -95,9 +95,12 @@
                                         @endif
                                     </td>
                                     <td>
-                                        {{ $booking->actual_adult_count ?? $booking->adult_count }} NL 
-                                        @if(($booking->actual_child_count ?? $booking->child_count) > 0)
-                                            / {{ $booking->actual_child_count ?? $booking->child_count }} TE
+                                        {{ (int) $booking->adult_count }} NL
+                                        @if((int) $booking->child_count > 0)
+                                            / {{ (int) $booking->child_count }} TE
+                                        @endif
+                                        @if((int) ($booking->baby_count ?? 0) > 0)
+                                            / {{ (int) ($booking->baby_count ?? 0) }} EB
                                         @endif
                                     </td>
                                     <td>

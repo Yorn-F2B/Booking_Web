@@ -40,7 +40,7 @@
                     <form method="GET" action="{{ route('admin.room-availability.index') }}">
                         <div class="row g-3 align-items-end">
 
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 <label class="form-label">Ngày nhận phòng</label>
                                 <input type="text"
                                     name="check_in_date"
@@ -62,7 +62,7 @@
                                     required>
                             </div>
 
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 <label class="form-label">Ngày trả phòng</label>
                                 <input type="text"
                                     name="check_out_date"
@@ -84,10 +84,20 @@
                                     required>
                             </div>
 
-                            <div class="col-md-2">
-                                <button class="btn btn-primary w-100">
-                                    Kiểm tra
-                                </button>
+                            <div class="col-md-1">
+                                <label class="form-label">Người lớn</label>
+                                <input type="number" name="adult_count" class="form-control" min="1" max="{{ (int) ($uiData['max_online_guests'] ?? 60) }}" value="{{ old('adult_count', $searchData['adult_count'] ?? 2) }}" required>
+                            </div>
+                            <div class="col-md-1">
+                                <label class="form-label">Trẻ em</label>
+                                <input type="number" name="child_count" class="form-control" min="0" max="{{ (int) ($uiData['max_online_guests'] ?? 60) }}" value="{{ old('child_count', $searchData['child_count'] ?? 0) }}" required>
+                            </div>
+                            <div class="col-md-1">
+                                <label class="form-label">Em bé</label>
+                                <input type="number" name="baby_count" class="form-control" min="0" max="{{ (int) ($uiData['max_online_guests'] ?? 60) }}" value="{{ old('baby_count', $searchData['baby_count'] ?? 0) }}" required>
+                            </div>
+                            <div class="col-md-1">
+                                <button class="btn btn-primary w-100">Kiểm tra</button>
                             </div>
                         </div>
                     </form>
@@ -137,11 +147,41 @@
                     </div>
                 </div>
 
+                @if(($searchData['recommendations'] ?? collect())->isNotEmpty())
+                    <div class="card shadow-sm border-0 mb-4"><div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <div><h4 class="mb-1">Phương án cho {{ $searchData['adult_count'] + $searchData['child_count'] + ($searchData['baby_count'] ?? 0) }} khách</h4><div class="small text-muted">Chỉ gợi ý phương án còn đủ phòng thật trong toàn bộ khoảng đã tra cứu.</div></div>
+                        </div>
+                        <div class="row g-3">
+                            @foreach($searchData['recommendations'] as $option)
+                                @php
+                                    $recommendedCreateParams = [
+                                        'room_category_id'=>$option['room_category_id'], 'room_quantity'=>$option['room_quantity'],
+                                        'adult_count'=>$searchData['adult_count'], 'child_count'=>$searchData['child_count'], 'baby_count'=>$searchData['baby_count'] ?? 0,
+                                        'booking_type'=>$searchData['quick_booking_type'] ?? 'overnight', 'booking_mode'=>$searchData['quick_booking_mode'] ?? 'advance',
+                                        'check_in_date'=>$searchData['check_in_date'], 'check_in_time'=>$searchData['check_in_time'],
+                                        'check_out_date'=>$searchData['check_out_date'], 'check_out_time'=>$searchData['check_out_time'],
+                                    ];
+                                @endphp
+                                <div class="col-lg-4"><div class="border rounded-3 p-3 h-100">
+                                    <div class="d-flex gap-1 flex-wrap mb-2">@foreach($option['labels'] as $label)<span class="badge bg-warning-subtle text-dark">{{ $label }}</span>@endforeach</div>
+                                    <div class="fw-bold fs-5">{{ $option['category_name'] }} × {{ $option['room_quantity'] }}</div>
+                                    <div class="small text-muted">Còn {{ $option['available_rooms'] }} phòng phù hợp · dự kiến dùng {{ implode(', ', $option['room_numbers']) }}</div>
+                                    <div class="fw-bold text-primary mt-2">{{ number_format($option['estimated_room_total'],0,',','.') }}đ tiền phòng dự kiến</div>
+                                    @if($searchData['quick_booking_available'] ?? true)<a href="{{ route('admin.bookings.create',$recommendedCreateParams) }}" class="btn btn-primary w-100 mt-3">Tạo booking theo phương án</a>@endif
+                                </div></div>
+                            @endforeach
+                        </div>
+                    </div></div>
+                @endif
+
                 @if ($roomCategories->count())
                     <div class="row g-3">
                         @foreach ($roomCategories as $category)
                             @php
                                 $hasAvailableRoom = $category->available_rooms_count > 0;
+                                $matchingRecommendation = collect($searchData['recommendations'] ?? [])->firstWhere('room_category_id', (int) $category->id);
+                                $canFitRequestedGuests = !empty($matchingRecommendation);
 
                                 $createParams = [
                                     'room_category_id' => $category->id,
@@ -151,6 +191,10 @@
                                     'check_in_time' => $searchData['check_in_time'],
                                     'check_out_date' => $searchData['check_out_date'],
                                     'check_out_time' => $searchData['check_out_time'],
+                                    'adult_count' => $searchData['adult_count'],
+                                    'child_count' => $searchData['child_count'],
+                                    'baby_count' => $searchData['baby_count'] ?? 0,
+                                    'room_quantity' => $matchingRecommendation['room_quantity'] ?? 1,
                                 ];
                             @endphp
 
@@ -179,13 +223,17 @@
                                             </div>
                                         </div>
 
-                                        @if ($hasAvailableRoom && ($searchData['quick_booking_available'] ?? true))
+                                        @if ($hasAvailableRoom && $canFitRequestedGuests && ($searchData['quick_booking_available'] ?? true))
                                             <a href="{{ route('admin.bookings.create', $createParams) }}" class="btn btn-success mt-auto">
                                                 Tạo booking hạng này
                                             </a>
-                                        @elseif ($hasAvailableRoom)
+                                        @elseif ($hasAvailableRoom && $canFitRequestedGuests)
                                             <button type="button" class="btn btn-outline-secondary mt-auto" disabled>
                                                 Ở ngay chỉ áp dụng hôm nay
+                                            </button>
+                                        @elseif ($hasAvailableRoom)
+                                            <button type="button" class="btn btn-outline-warning mt-auto" disabled>
+                                                Không đủ phòng/sức chứa cho số khách
                                             </button>
                                         @else
                                             <button type="button" class="btn btn-outline-secondary mt-auto" disabled>

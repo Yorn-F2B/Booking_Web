@@ -6,7 +6,21 @@ Route::middleware('role:super_admin,manager,receptionist_lead,receptionist,house
     ->get('/', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])
     ->name('admin.dashboard');
 
+Route::middleware('role:super_admin')
+    ->get('dashboard/detail/{metric}', [\App\Http\Controllers\Admin\DashboardController::class, 'detail'])
+    ->name('admin.dashboard.detail');
+
 require __DIR__ . '/admin/rooms.php';
+
+Route::middleware('role:super_admin,manager,receptionist_lead,receptionist,housekeeping_supervisor,housekeeping')->group(function () {
+    Route::get('operation-center', [\App\Http\Controllers\Admin\OperationCenterController::class, 'index'])->name('admin.operation-center.index');
+    Route::get('notifications/{notification}/open', [\App\Http\Controllers\Admin\OperationCenterController::class, 'open'])->name('admin.notifications.open');
+    Route::patch('notifications/read-all', [\App\Http\Controllers\Admin\OperationCenterController::class, 'markAllRead'])->name('admin.notifications.read-all');
+});
+Route::middleware('role:super_admin,manager')->group(function () {
+    Route::get('email-logs', [\App\Http\Controllers\Admin\EmailDeliveryLogController::class, 'index'])->name('admin.email-logs.index');
+});
+
 
 Route::middleware('role:super_admin')->group(function () {
     require __DIR__ . '/admin/staffs.php';

@@ -74,54 +74,71 @@ class BookingLifecycleController extends Controller
             'customer',
         ]);
 
-        if ($booking->bookingRooms->count() == 0) {
-            return back()->with('error', 'Booking này chưa được gán phòng nên không thể check-in.');
+        $requiredRoomCount = max(1, (int) ($booking->room_quantity ?? 1));
+        $assignedRoomIds = $booking->bookingRooms->pluck('room_id')->filter()->map(fn ($id) => (int) $id);
+
+        if ($booking->bookingRooms->count() !== $requiredRoomCount
+            || $assignedRoomIds->unique()->count() !== $requiredRoomCount) {
+            return back()->with('error', 'Chưa thể check-in: booking phải được gán đủ đúng '
+                . $requiredRoomCount . ' phòng khác nhau trước khi nhận phòng.');
+        }
+
+        if ($booking->room_selection_mode === 'manual'
+            && !in_array($booking->room_selection_status, ['fulfilled', 'fallback_accepted'], true)) {
+            if ($booking->room_selection_status === 'awaiting_guest') {
+                return back()->with('error', 'Khách đang được yêu cầu xác nhận phòng dự phòng. Chưa thể check-in cho tới khi khách đồng ý phương án.');
+            }
+
+            return back()->with('error', 'Booking có yêu cầu chọn phòng cụ thể nhưng yêu cầu chưa được xử lý hoàn tất. Hãy xử lý yêu cầu phòng trước khi check-in.');
         }
 
         $booking->load(['guests.bookingRoom.room.category', 'guests.guardian']);
 
-        $declaredAdults = $booking->guests->where('guest_type', 'adult')->count();
-        $declaredChildren = $booking->guests->where('guest_type', 'child')->count();
-        $declaredInfants = $booking->guests->where('guest_type', 'infant')->count();
-        $declaredTotal = $booking->guests->count();
+        // Tự sửa dữ liệu legacy: một số booking cũ có tổng adult/child ở booking
+        // nhưng booking_rooms vẫn là 0/0. Nếu tổng phân bổ lệch, phân lại theo
+        // chính các phòng đã gán trước khi kiểm tra check-in.
+        app(\App\Services\BookingRoomOccupancyAllocator::class)->synchronizeBooking($booking);
+        $booking->load(['bookingRooms.room.category', 'guests.bookingRoom.room.category', 'guests.guardian']);
 
-        // Danh sách khách lưu trú là nguồn dữ liệu duy nhất cho số khách thực tế.
-        // Nhờ vậy thêm/xóa/sửa khách ở panel bên dưới sẽ tự phản ánh lên check-in,
-        // không còn tình trạng lễ tân phải nhập lại ba ô số lượng bằng tay.
-        $actualAdultCount = $declaredAdults;
-        $actualChildCount = $declaredChildren;
-        $actualBabyCount = $declaredInfants;
-        $actualTotal = $declaredTotal;
+        // Số người thực tế lấy từ phân bổ booking_rooms; booking_guests chỉ là hồ sơ
+        // đại diện/khách cần khai báo giấy tờ. Như vậy 30 người không phải nhập 30 CCCD.
+        $actualAdultCount = (int) $booking->bookingRooms->sum('adult_count');
+        $actualChildCount = (int) $booking->bookingRooms->sum('child_count');
+        $actualBabyCount = (int) $booking->bookingRooms->sum('baby_count');
+        $actualTotal = $actualAdultCount + $actualChildCount + $actualBabyCount;
 
         if ($actualAdultCount < 1) {
-            return back()->withInput()->with('error', 'Chưa thể check-in: phải có ít nhất một khách người lớn trong danh sách lưu trú.');
+            return back()->withInput()->with('error', 'Chưa thể check-in: booking phải có ít nhất một khách người lớn.');
         }
 
-        if ($booking->guests->contains(fn ($guest) => empty($guest->booking_room_id))) {
-            return back()->withInput()->with('error', 'Chưa thể check-in: tất cả khách phải được gán đúng phòng lưu trú.');
-        }
-
-        if ($booking->guests->where('is_booking_representative', true)->count() !== 1) {
-            return back()->withInput()->with('error', 'Chưa thể check-in: cần chọn đúng một người đại diện đoàn trong danh sách khách lưu trú.');
-        }
-
-        foreach ($booking->guests->whereIn('guest_type', ['child', 'infant']) as $minorGuest) {
-            if (!$minorGuest->guardian || $minorGuest->guardian->guest_type !== 'adult') {
-                return back()->withInput()->with('error', 'Chưa thể check-in: trẻ em/em bé ' . $minorGuest->full_name . ' chưa có người giám hộ hợp lệ.');
+        // Mỗi phòng cần tối thiểu một người lớn đại diện có hồ sơ và được gán đúng phòng.
+        foreach ($booking->bookingRooms as $bookingRoom) {
+            $roomRepresentative = $booking->guests
+                ->where('booking_room_id', $bookingRoom->id)
+                ->first(fn ($guest) => $guest->guest_type === 'adult');
+            if (!$roomRepresentative) {
+                return back()->withInput()->with('error', 'Chưa thể check-in: phòng '
+                    . ($bookingRoom->room?->room_number ?? '---')
+                    . ' cần ít nhất một người lớn đại diện có hồ sơ/CCCD.');
             }
+        }
+
+        // Booking vẫn có một đại diện đoàn để làm đầu mối liên hệ chung.
+        if ($booking->guests->where('is_booking_representative', true)->count() !== 1) {
+            return back()->withInput()->with('error', 'Chưa thể check-in: cần chọn đúng một người đại diện đoàn trong các hồ sơ đã khai.');
         }
 
         $perRoomOverCapacity = false;
         $perRoomCapacityIssues = [];
 
         foreach ($booking->bookingRooms as $bookingRoom) {
-            $roomGuests = $booking->guests->where('booking_room_id', $bookingRoom->id);
-            $roomAdultCount = $roomGuests->where('guest_type', 'adult')->count();
-            $roomChildCount = $roomGuests->whereIn('guest_type', ['child', 'infant'])->count();
+            $roomAdultCount = max(0, (int) $bookingRoom->adult_count);
+            $roomChildCount = max(0, (int) $bookingRoom->child_count);
+            $roomBabyCount = max(0, (int) ($bookingRoom->baby_count ?? 0));
             $adultCapacity = (int) ($bookingRoom->room?->category?->adult_capacity ?? 0);
             $childCapacity = (int) ($bookingRoom->room?->category?->child_capacity ?? 0);
             $adultOver = max(0, $roomAdultCount - $adultCapacity);
-            $childOver = max(0, $roomChildCount - $childCapacity);
+            $childOver = max(0, ($roomChildCount + $roomBabyCount) - $childCapacity);
 
             if ($adultOver > 0 || $childOver > 0) {
                 $perRoomOverCapacity = true;
@@ -188,6 +205,45 @@ class BookingLifecycleController extends Controller
                 throw new \Exception('Chỉ có thể nhận phòng với booking đã xác nhận.');
             }
 
+            // Khóa cả dòng phân phòng và phòng vật lý để thao tác đổi phòng/checkout
+            // đồng thời không thể thay đổi trạng thái ngay giữa lúc check-in.
+            $lockedBookingRooms = BookingRoom::query()
+                ->where('booking_id', $booking->id)
+                ->lockForUpdate()
+                ->get();
+            $requiredRoomCount = max(1, (int) ($booking->room_quantity ?? 1));
+            $lockedRoomIds = $lockedBookingRooms->pluck('room_id')->filter()->map(fn ($id) => (int) $id)->unique()->values();
+
+            if ($lockedBookingRooms->count() !== $requiredRoomCount || $lockedRoomIds->count() !== $requiredRoomCount) {
+                throw new \Exception('Booking không còn được gán đủ đúng ' . $requiredRoomCount . ' phòng khác nhau. Vui lòng kiểm tra lại phân phòng.');
+            }
+
+            $lockedRooms = Room::query()
+                ->whereIn('id', $lockedRoomIds->all())
+                ->lockForUpdate()
+                ->get();
+
+            if ($lockedRooms->count() !== $requiredRoomCount) {
+                throw new \Exception('Có phòng đã gán không còn tồn tại. Vui lòng kiểm tra lại dữ liệu phân phòng.');
+            }
+
+            $bookableAssignedCount = Room::query()
+                ->whereIn('id', $lockedRoomIds->all())
+                ->bookableForPeriod(
+                    $booking->check_in_at,
+                    $booking->check_out_at,
+                    $booking->id,
+                    $booking->cleaning_buffer_minutes
+                )
+                ->count();
+
+            if ($bookableAssignedCount !== $requiredRoomCount) {
+                throw new \Exception('Ít nhất một phòng đã gán vừa phát sinh xung đột lịch/giữ phòng. Không được check-in cho tới khi phân phòng lại an toàn.');
+            }
+
+            $booking->unsetRelation('bookingRooms');
+            $booking->load(['bookingRooms.room.category', 'roomCategory']);
+
             $financialService = app(BookingFinancialService::class);
             $currentTotal = $financialService->currentTotal($booking);
             $paidTotal = $financialService->paidTotal($booking);
@@ -231,9 +287,6 @@ class BookingLifecycleController extends Controller
                 'roomCategory',
             ]);
 
-            $booking->adult_count = $actualAdultCount;
-            $booking->child_count = $actualChildCount;
-            $booking->baby_count = $actualBabyCount;
             $booking->status = 'checked_in';
             $booking->actual_check_in = $actualCheckInAt;
 
@@ -260,19 +313,11 @@ class BookingLifecycleController extends Controller
                 'updated_by' => Auth::id(),
             ]);
 
-            foreach ($booking->bookingRooms as $bookingRoom) {
-                $roomGuests = $booking->guests->where('booking_room_id', $bookingRoom->id);
-                $bookingRoom->update([
-                    'adult_count' => $roomGuests->where('guest_type', 'adult')->count(),
-                    'child_count' => $roomGuests->whereIn('guest_type', ['child', 'infant'])->count(),
-                ]);
-            }
-
             $booking->load('bookingRooms.room');
 
             foreach ($booking->bookingRooms as $bookingRoom) {
                 if ($bookingRoom->room) {
-                    $roomGuestCount = $booking->guests->where('booking_room_id', $bookingRoom->id)->count();
+                    $roomGuestCount = max(0, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0));
                     $bookingRoom->room->update([
                         'status' => $roomGuestCount > 0 ? 'occupied' : 'reserved',
                     ]);
@@ -480,8 +525,11 @@ class BookingLifecycleController extends Controller
                     ),
                 ]);
 
+                // Đây là chuyển phòng trong khi khách vẫn tiếp tục lưu trú, không phải
+                // quy trình check-out. Phòng cũ vừa có khách rời đi phải qua Cleaning
+                // trước khi có thể phục vụ booking kế tiếp; không được nhảy sang Inspection.
                 $oldRoom->update([
-                    'status' => 'inspection',
+                    'status' => 'cleaning',
                     'status_from' => now('Asia/Ho_Chi_Minh'),
                     'status_until' => null,
                 ]);
@@ -891,7 +939,7 @@ class BookingLifecycleController extends Controller
             ->when(count($excludeRoomIds) > 0, function ($query) use ($excludeRoomIds) {
                 $query->whereNotIn('id', $excludeRoomIds);
             })
-            ->availableForPeriod($from, $to, $currentBookingId)
+            ->bookableForPeriod($from, $to, $currentBookingId)
             ->with('category')
             ->orderBy('floor_number')
             ->orderBy('room_number')
@@ -1241,9 +1289,8 @@ class BookingLifecycleController extends Controller
 
         $capacityMap = [];
         foreach ($booking->bookingRooms as $bookingRoom) {
-            $roomGuests = $booking->guests->where('booking_room_id', $bookingRoom->id);
-            $adultCount = $roomGuests->where('guest_type', 'adult')->count();
-            $minorCount = $roomGuests->whereIn('guest_type', ['child', 'infant'])->count();
+            $adultCount = max(0, (int) $bookingRoom->adult_count);
+            $minorCount = max(0, (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0));
             $capacityMap[(int) $bookingRoom->id] = [
                 'booking_room' => $bookingRoom,
                 'adult' => max(0, $adultCount - (int) ($bookingRoom->room?->category?->adult_capacity ?? 0)),
@@ -1358,13 +1405,20 @@ class BookingLifecycleController extends Controller
         Booking $booking,
         array &$data,
         ?int $actualAdultCount = null,
-        ?int $actualChildCount = null
+        ?int $actualChildCount = null,
+        ?int $actualBabyCount = null
     ) {
         if (empty($data['additional_room_category_id'])) {
             throw new \Exception('Vui lòng chọn hạng phòng cần thêm.');
         }
 
         $quantity = (int) ($data['additional_room_quantity'] ?? 1);
+        $futureRoomCount = $booking->bookingRooms->count() + $quantity;
+        if ((int) $booking->adult_count < $futureRoomCount) {
+            throw new \Exception('Mỗi phòng cần ít nhất một người lớn đại diện. Booking hiện có '
+                . (int) $booking->adult_count . ' người lớn nên chỉ có thể bố trí tối đa '
+                . (int) $booking->adult_count . ' phòng.');
+        }
 
         $category = RoomCategory::where('status', 'active')
             ->find($data['additional_room_category_id']);
@@ -1387,7 +1441,7 @@ class BookingLifecycleController extends Controller
         if (
             $actualAdultCount !== null
             && $actualChildCount !== null
-            && ($actualAdultCount > $newAdultCapacity || $actualChildCount > $newChildCapacity)
+            && ($actualAdultCount > $newAdultCapacity || ($actualChildCount + (int) ($actualBabyCount ?? 0)) > $newChildCapacity)
         ) {
             throw new \Exception('Số phòng thêm vẫn chưa đủ sức chứa cho số khách thực tế.');
         }
@@ -1466,6 +1520,7 @@ class BookingLifecycleController extends Controller
                 'room_id' => $room->id,
                 'adult_count' => 0,
                 'child_count' => 0,
+                'baby_count' => 0,
                 'price_at_booking' => $newRoomPrice,
                 'surcharge' => $historyAdjustment,
                 'surcharge_reason' => substr(trim($reason . ($historyNote ? ' | ' . $historyNote : '')), 0, 255),
@@ -1495,6 +1550,8 @@ class BookingLifecycleController extends Controller
 
         $booking->room_quantity += $quantity;
         $booking->save();
+        app(\App\Services\BookingRoomOccupancyAllocator::class)
+            ->rebalanceBooking($booking->fresh(['bookingRooms.room.category']));
         $this->repriceCurrentBooking($booking);
 
         return 'Đã thêm '
@@ -1521,13 +1578,25 @@ class BookingLifecycleController extends Controller
         }
 
         $booking->loadMissing('bookingRooms.room.category');
+        app(\App\Services\BookingRoomOccupancyAllocator::class)->synchronizeBooking($booking);
+        $booking->load('bookingRooms.room.category');
         $roomQuantity = max(1, $booking->bookingRooms->count());
-        $newAdultCapacity = $newCategory->adult_capacity * $roomQuantity;
-        $newChildCapacity = $newCategory->child_capacity * $roomQuantity;
+        $newAdultCapacity = (int) $newCategory->adult_capacity * $roomQuantity;
+        $newChildCapacity = (int) $newCategory->child_capacity * $roomQuantity;
+        $bookingAdults = max(0, (int) $booking->adult_count);
+        $bookingChildren = max(0, (int) $booking->child_count);
+        $bookingBabies = max(0, (int) ($booking->baby_count ?? 0));
 
-        if ($actualAdultCount !== null && $actualChildCount !== null
-            && ($actualAdultCount > $newAdultCapacity || $actualChildCount > $newChildCapacity)) {
-            throw new \Exception('Hạng phòng mới vẫn không đủ sức chứa. Vui lòng chọn hạng khác hoặc thêm phòng.');
+        if ($bookingAdults > $newAdultCapacity || ($bookingChildren + $bookingBabies) > $newChildCapacity) {
+            throw new \Exception('Hạng phòng mới không đủ sức chứa cho số khách hiện tại. Vui lòng chọn hạng khác hoặc thêm phòng.');
+        }
+        foreach ($booking->bookingRooms as $existingRoom) {
+            if ((int) $existingRoom->adult_count > (int) $newCategory->adult_capacity
+                || ((int) $existingRoom->child_count + (int) ($existingRoom->baby_count ?? 0)) > (int) $newCategory->child_capacity) {
+                throw new \Exception('Phân bổ khách hiện tại của phòng '
+                    . ($existingRoom->room?->room_number ?? ('#' . $existingRoom->id))
+                    . ' vượt sức chứa của hạng mới. Hãy phân lại khách hoặc chọn hạng phù hợp hơn.');
+            }
         }
 
         $newRooms = $this->resolveCategoryChangeRooms(
@@ -1653,6 +1722,14 @@ class BookingLifecycleController extends Controller
         $newCategory = RoomCategory::where('status', 'active')->find($data['new_room_category_id']);
         if (!$newCategory) {
             throw new \Exception('Hạng phòng mới không hợp lệ.');
+        }
+
+        app(\App\Services\BookingRoomOccupancyAllocator::class)->synchronizeBooking($booking);
+        $bookingRoom->refresh();
+        if ((int) $bookingRoom->adult_count > (int) $newCategory->adult_capacity
+            || ((int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0)) > (int) $newCategory->child_capacity) {
+            throw new \Exception('Hạng phòng mới không đủ sức chứa cho số khách đang được phân ở phòng '
+                . $oldRoom->room_number . '. Hãy phân lại khách hoặc chọn hạng khác.');
         }
 
         $newRoom = $this->resolveCategoryChangeRooms(
@@ -2350,7 +2427,7 @@ class BookingLifecycleController extends Controller
             $selectedChildCapacity = (int) $selectedCategory->child_capacity * $roomQuantity;
             if (
                 $selectedAdultCapacity < (int) ($booking->adult_count ?? 0)
-                || $selectedChildCapacity < (int) ($booking->child_count ?? 0)
+                || $selectedChildCapacity < ((int) ($booking->child_count ?? 0) + (int) ($booking->baby_count ?? 0))
             ) {
                 return $this->redirectWithStayDateCategoryOptions(
                     $request,
@@ -2525,7 +2602,7 @@ class BookingLifecycleController extends Controller
             }
 
             $stillAvailableRoomIds = Room::whereIn('id', $targetRoomIds->all())
-                ->availableForPeriod(
+                ->bookableForPeriod(
                     $newCheckInAt,
                     $newCheckOutAt,
                     $booking->id,
@@ -2747,7 +2824,7 @@ class BookingLifecycleController extends Controller
         array $excludeRoomIds = []
     ) {
         $query = Room::where('room_category_id', $roomCategoryId)
-            ->availableForPeriod(
+            ->bookableForPeriod(
                 $newCheckInAt,
                 $newCheckOutAt,
                 $booking->id,
@@ -2808,7 +2885,7 @@ class BookingLifecycleController extends Controller
 
             if (
                 $totalAdultCapacity < (int) ($booking->adult_count ?? 0)
-                || $totalChildCapacity < (int) ($booking->child_count ?? 0)
+                || $totalChildCapacity < ((int) ($booking->child_count ?? 0) + (int) ($booking->baby_count ?? 0))
             ) {
                 continue;
             }
@@ -3740,8 +3817,16 @@ class BookingLifecycleController extends Controller
             );
         }
 
-        // Walk-in, ở ngay qua đêm, booking theo giờ và đơn vừa đổi ngày không thuộc
-        // chính sách giờ G/no-show. Các đơn này chỉ bị chặn khi đã quá giờ trả phòng.
+        if ($booking->booking_type === 'hourly' && $actualCheckInAt->lessThan($plannedCheckInAt)) {
+            throw new \Exception(
+                'Booking theo giờ bắt đầu lúc ' . $plannedCheckInAt->format('d/m/Y H:i')
+                . ', hiện tại là ' . $actualCheckInAt->format('d/m/Y H:i')
+                . '. Không được check-in sớm vì sẽ làm thời gian ở thực tế dài hơn gói đã tính tiền. Hãy đổi thời gian lưu trú và tính lại giá/tồn phòng nếu khách muốn vào sớm.'
+            );
+        }
+
+        // Walk-in, ở ngay qua đêm và đơn vừa đổi ngày không thuộc chính sách giờ G/no-show.
+        // Booking theo giờ đã được chặn nhận sớm ở trên và vẫn bị chặn nếu quá giờ trả.
         if (!$booking->usesLateArrivalNoShowPolicy()) {
             return;
         }
@@ -4034,13 +4119,7 @@ class BookingLifecycleController extends Controller
 
     private function prepareRoomsForCheckIn(Booking $booking, \Carbon\Carbon $actualCheckInAt): string
     {
-        $messages = [];
-
-        $excludeRoomIds = $booking->bookingRooms
-            ->pluck('room_id')
-            ->filter()
-            ->values()
-            ->toArray();
+        $booking->loadMissing('bookingRooms.room');
 
         foreach ($booking->bookingRooms as $bookingRoom) {
             $room = $bookingRoom->room;
@@ -4050,64 +4129,16 @@ class BookingLifecycleController extends Controller
             }
 
             $status = $room->status ?? null;
-
-            if (in_array($status, ['available', 'reserved'])) {
-                continue;
-            }
-
-            $statusText = mb_strtolower($this->getRoomStatusLabel($status));
-
-            $replacementRoom = Room::where('room_category_id', $room->room_category_id)
-                ->where('status', 'available')
-                ->whereNotIn('id', $excludeRoomIds)
-                ->availableForPeriod(
-                    $actualCheckInAt,
-                    $booking->check_out_at,
-                    $booking->id,
-                    $booking->cleaning_buffer_minutes ?? 0
-                )
-                ->orderBy('floor_number')
-                ->orderBy('room_number')
-                ->first();
-
-            if (!$replacementRoom) {
+            if (!in_array($status, ['available', 'reserved'], true)) {
                 throw new \Exception(
-                    'Chưa thể check-in vì phòng '
-                    . ($room->room_number ?? '---')
-                    . ' đang '
-                    . $statusText
-                    . ', và hiện không còn phòng trống sạch cùng hạng để đổi. '
-                    . 'Khách cần đợi buồng phòng dọn/kiểm tra xong rồi mới xác nhận check-in.'
+                    'Chưa thể check-in vì phòng ' . ($room->room_number ?? '---')
+                    . ' đang ' . mb_strtolower($this->getRoomStatusLabel($status)) . '. '
+                    . 'Không tự đổi phòng âm thầm khi check-in. Hãy hoàn tất dọn/kiểm tra/sửa phòng hoặc dùng chức năng quản lý phòng để đổi phòng rõ ràng trước khi nhận khách.'
                 );
             }
-
-            $oldRoomNumber = $room->room_number;
-            $newRoomNumber = $replacementRoom->room_number;
-
-            $bookingRoom->update([
-                'room_id' => $replacementRoom->id,
-                'surcharge_reason' => trim(
-                    ($bookingRoom->surcharge_reason ? $bookingRoom->surcharge_reason . ' | ' : '')
-                    . 'Đổi từ phòng '
-                    . $oldRoomNumber
-                    . ' sang phòng '
-                    . $newRoomNumber
-                    . ' khi check-in sớm vì phòng cũ chưa sẵn sàng.'
-                ),
-            ]);
-
-            $messages[] = 'Phòng '
-                . $oldRoomNumber
-                . ' đang '
-                . $statusText
-                . ', hệ thống đã đổi sang phòng '
-                . $newRoomNumber
-                . ' cùng hạng để check-in.';
-
-            $excludeRoomIds[] = $replacementRoom->id;
         }
 
-        return count($messages) > 0 ? implode(' ', $messages) : '';
+        return '';
     }
     private function handleEarlyCheckInFee(
         Booking $booking,

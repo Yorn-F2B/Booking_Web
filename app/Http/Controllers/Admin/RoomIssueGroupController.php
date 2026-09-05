@@ -863,12 +863,12 @@ class RoomIssueGroupController extends Controller
 
     private function historicalPromotionCodesForCustomer(Booking $booking)
     {
-        $customerId = $booking->customer_id ? (int) $booking->customer_id : null;
-        $cccd = strtoupper(trim((string) ($booking->customer_cccd_snapshot ?: $booking->customer?->cccd)));
-        $email = mb_strtolower(trim((string) ($booking->customer_email_snapshot ?: $booking->customer?->email)));
-        $phone = preg_replace('/\D+/', '', (string) ($booking->customer_phone_snapshot ?: $booking->customer?->phone));
+        // Toàn bộ quyền lợi/giới hạn mã được nhận diện bằng CCCD. Email và SĐT
+        // chỉ là kênh liên hệ, không được dùng để gộp hai khách khác nhau thành
+        // cùng một người hoặc để lách/reset lịch sử ưu đãi.
+        $cccd = preg_replace('/\D+/', '', (string) ($booking->customer_cccd_snapshot ?: $booking->customer?->cccd));
 
-        if (!$customerId && $cccd === '' && $email === '' && $phone === '') {
+        if ($cccd === '') {
             return collect();
         }
 
@@ -877,35 +877,11 @@ class RoomIssueGroupController extends Controller
             ->join('bookings', 'bookings.id', '=', 'booking_promotions.booking_id')
             ->whereNull('bookings.deleted_at')
             // Booking đã hủy không được xem là khách đã hưởng ưu đãi.
-            ->where('bookings.status', '!=', 'cancelled')
-            ->where(function ($query) use ($customerId, $cccd, $email, $phone) {
-                $first = true;
-
-                if ($customerId) {
-                    $query->where('bookings.customer_id', $customerId);
-                    $first = false;
-                }
-
-                if ($cccd !== '') {
-                    $method = $first ? 'whereRaw' : 'orWhereRaw';
-                    $query->{$method}("UPPER(TRIM(COALESCE(bookings.customer_cccd_snapshot, ''))) = ?", [$cccd]);
-                    $first = false;
-                }
-
-                if ($email !== '') {
-                    $method = $first ? 'whereRaw' : 'orWhereRaw';
-                    $query->{$method}("LOWER(TRIM(COALESCE(bookings.customer_email_snapshot, ''))) = ?", [$email]);
-                    $first = false;
-                }
-
-                if ($phone !== '') {
-                    $method = $first ? 'whereRaw' : 'orWhereRaw';
-                    $query->{$method}(
-                        "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(bookings.customer_phone_snapshot, ''), ' ', ''), '-', ''), '.', ''), '(', ''), ')', '') = ?",
-                        [$phone]
-                    );
-                }
-            })
+            ->whereNotIn('bookings.status', ['cancelled', 'canceled'])
+            ->whereRaw(
+                "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(bookings.customer_cccd_snapshot, ''), ' ', ''), '-', ''), '.', ''), '(', ''), ')', '') = ?",
+                [$cccd]
+            )
             ->pluck('booking_promotions.code_snapshot');
     }
 

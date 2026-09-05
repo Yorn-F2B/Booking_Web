@@ -25,6 +25,8 @@ use App\Support\Realtime;
 
 class VnpayController extends Controller
 {
+    private const PAYMENT_CALLBACK_GRACE_MINUTES = 5;
+
     public function create(Request $request, Booking $booking, VnpayService $vnpayService)
     {
         $this->ensureCustomerCanPay($booking);
@@ -74,7 +76,11 @@ class VnpayController extends Controller
             }
 
             $requestExpiresAt = now('Asia/Ho_Chi_Minh')->addMinutes($vnpayService->expireMinutes());
-            $lockedBooking->update(['payment_expires_at' => $requestExpiresAt]);
+            // Khách chỉ được thanh toán tới requestExpiresAt; booking giữ thêm vài phút
+            // để IPN/return đã thanh toán kịp về server trước khi scheduler nhả phòng.
+            $lockedBooking->update([
+                'payment_expires_at' => $requestExpiresAt->copy()->addMinutes(self::PAYMENT_CALLBACK_GRACE_MINUTES),
+            ]);
 
             return BookingPayment::create([
                 'booking_id' => $lockedBooking->id,
@@ -104,6 +110,12 @@ class VnpayController extends Controller
 
     public function adminCreate(Request $request, Booking $booking, VnpayService $vnpayService)
     {
+        abort_unless(
+            $booking->canBeHandledBy(Auth::user()),
+            403,
+            'Bạn không được phân công xử lý booking này.'
+        );
+
         $data = $request->validate([
             'payment_type' => 'required|in:deposit_30,custom',
             'customer_email' => 'required|email|max:150',
@@ -133,6 +145,12 @@ class VnpayController extends Controller
                 if (!in_array($lockedBooking->status, ['pending', 'confirmed', 'checked_in', 'inspection_requested'], true)) {
                     throw ValidationException::withMessages([
                         'payment_type' => 'Booking đã kết thúc hoặc không còn ở trạng thái có thể tạo thanh toán VNPay.',
+                    ]);
+                }
+
+                if (!$this->hasAvailableRoomForBooking($lockedBooking)) {
+                    throw ValidationException::withMessages([
+                        'payment_type' => 'Phòng đã gán không còn đủ/an toàn cho khoảng lưu trú. Hãy xử lý phân phòng trước khi gửi link thanh toán mới.',
                     ]);
                 }
 
@@ -175,6 +193,10 @@ class VnpayController extends Controller
                 $rawResponse['request_expire_minutes'] = $vnpayService->adminRequestExpireMinutes();
                 $payment->update(['raw_response' => $rawResponse]);
 
+                if ($lockedBooking->status === 'pending') {
+                    $lockedBooking->update(['payment_expires_at' => $requestExpiresAt]);
+                }
+
                 return [
                     'booking' => $lockedBooking,
                     'payment' => $payment,
@@ -200,9 +222,7 @@ class VnpayController extends Controller
         $paymentPurpose = $result['payment_purpose'];
 
         try {
-            Mail::to($data['customer_email'])->send(
-                new AdminVnpayPaymentRequestMail($booking, $payment, $paymentRequestUrl, $requestExpiresAt)
-            );
+            app(\App\Services\EmailDeliveryService::class)->sendOrFail($data['customer_email'], new AdminVnpayPaymentRequestMail($booking, $payment, $paymentRequestUrl, $requestExpiresAt), 'vnpay_payment_request', $booking);
 
             $rawResponse = $payment->fresh()->raw_response ?? [];
             $rawResponse['email_sent_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
@@ -301,6 +321,14 @@ class VnpayController extends Controller
                 ->with('success', 'Booking này đã được thanh toán đủ. Cảm ơn quý khách.');
         }
 
+        if (!$this->hasAvailableRoomForBooking($booking)) {
+            $this->markPaymentRequestFailed($payment, 'ROOM_UNAVAILABLE', 'Phòng đã gán không còn đủ/an toàn trước khi mở cổng VNPay.');
+
+            return redirect()
+                ->route('home')
+                ->with('error', 'Phòng của booking cần được khách sạn kiểm tra lại trước khi thanh toán. Vui lòng liên hệ lễ tân để được hỗ trợ.');
+        }
+
         $expectedAmount = $this->calculatePaymentAmount($booking, $payment->payment_type, true);
 
         if ($expectedAmount <= 0 || abs(round($expectedAmount, 0) - round((float) $payment->amount, 0)) >= 1) {
@@ -312,15 +340,23 @@ class VnpayController extends Controller
         }
 
         $gatewayExpireMinutes = $vnpayService->expireMinutes();
+        $gatewayOpenedAt = now('Asia/Ho_Chi_Minh');
+        $gatewayExpiresAt = $gatewayOpenedAt->copy()->addMinutes($gatewayExpireMinutes);
         $paymentUrl = $vnpayService->createPaymentUrl($booking, $payment, $request, $gatewayExpireMinutes);
 
         $rawResponse = $payment->raw_response ?? [];
-        $rawResponse['last_opened_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
-        $rawResponse['last_gateway_expires_at'] = now('Asia/Ho_Chi_Minh')->addMinutes($gatewayExpireMinutes)->toDateTimeString();
+        $rawResponse['last_opened_at'] = $gatewayOpenedAt->toDateTimeString();
+        $rawResponse['last_gateway_expires_at'] = $gatewayExpiresAt->toDateTimeString();
         $rawResponse['last_customer_ip'] = $request->ip();
         $payment->update([
             'raw_response' => $rawResponse,
         ]);
+
+        if ($booking->status === 'pending') {
+            $booking->update([
+                'payment_expires_at' => $gatewayExpiresAt->copy()->addMinutes(self::PAYMENT_CALLBACK_GRACE_MINUTES),
+            ]);
+        }
 
         return redirect()->away($paymentUrl);
     }
@@ -453,7 +489,7 @@ class VnpayController extends Controller
         }
 
         try {
-            Mail::to($email)->send(new BookingCreatedMail($booking, 'payment_success'));
+            app(\App\Services\EmailDeliveryService::class)->sendOrFail($email, new BookingCreatedMail($booking, 'payment_success'), 'payment_success_booking_confirmation', $booking);
 
             $rawResponse['booking_confirm_email_sent_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
             $rawResponse['booking_confirm_email_to'] = $email;
@@ -493,7 +529,7 @@ class VnpayController extends Controller
     private function redirectAfterPaymentReturn(BookingPayment $payment, Booking $booking, string $flashKey, string $message)
     {
         if ($this->isAdminPayment($payment)) {
-            if ($this->currentUserCanOpenAdminBooking()) {
+            if ($this->currentUserCanOpenAdminBooking($booking)) {
                 return redirect()
                     ->route('admin.bookings.show', $booking)
                     ->with($flashKey, $message);
@@ -515,26 +551,45 @@ class VnpayController extends Controller
             ->with($flashKey, $message);
     }
 
-    private function currentUserCanOpenAdminBooking(): bool
+    private function currentUserCanOpenAdminBooking(Booking $booking): bool
     {
         $user = Auth::user();
 
-        return $user && in_array($user->role ?? null, ['super_admin', 'manager', 'receptionist', 'receptionist_lead'], true);
+        return $user
+            && in_array($user->role ?? null, ['super_admin', 'manager', 'receptionist', 'receptionist_lead'], true)
+            && $booking->canBeHandledBy($user);
     }
 
     private function processPaymentResult(BookingPayment $payment, array $params): string
     {
         return DB::transaction(function () use ($payment, $params) {
-            $payment = BookingPayment::where('id', $payment->id)
+            // Giữ thứ tự khóa nhất quán với scheduler: booking -> payment.
+            // Nếu callback khóa payment trước còn tác vụ hết hạn khóa booking trước,
+            // hai transaction có thể chờ chéo nhau đúng lúc IPN về sát hạn.
+            $bookingId = (int) $payment->booking_id;
+            $paymentId = (int) $payment->id;
+
+            $booking = Booking::where('id', $bookingId)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $booking = Booking::where('id', $payment->booking_id)
+            $payment = BookingPayment::where('id', $paymentId)
+                ->where('booking_id', $booking->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             if ($payment->status === 'success') {
-                return $booking->bookingRooms()->exists() ? 'success' : 'paid_no_room';
+                // Callback/IPN có thể đến lặp lại. Không chỉ kiểm tra "có ít nhất
+                // một booking_room": booking nhiều phòng phải bảo đảm đủ đúng
+                // room_quantity trước khi coi là xác nhận phòng thành công.
+                $roomAssigned = $this->assignRoomAfterSuccessfulPayment($booking);
+                if ($roomAssigned && $booking->status === 'pending') {
+                    $booking->status = 'confirmed';
+                    $booking->payment_expires_at = null;
+                    $booking->save();
+                }
+
+                return $roomAssigned ? 'success' : 'paid_no_room';
             }
 
             // Link/giao dịch đã bị thay thế, hết hạn hoặc đóng do khách chuyển
@@ -556,16 +611,42 @@ class VnpayController extends Controller
             );
 
             $rawResponse = $payment->raw_response ?? [];
-            $requestExpiresAt = !empty($rawResponse['request_expires_at'] ?? null)
-                ? \Carbon\Carbon::parse($rawResponse['request_expires_at'], 'Asia/Ho_Chi_Minh')
-                : $booking->payment_expires_at;
-            $notExpired = !$requestExpiresAt || now('Asia/Ho_Chi_Minh')->lte($requestExpiresAt);
+            $gatewayExpiresAt = null;
+            $gatewayExpiryValue = $rawResponse['last_gateway_expires_at']
+                ?? $rawResponse['request_expires_at']
+                ?? null;
+
+            if ($gatewayExpiryValue) {
+                try {
+                    $gatewayExpiresAt = \Carbon\Carbon::parse($gatewayExpiryValue, 'Asia/Ho_Chi_Minh');
+                } catch (\Throwable $e) {
+                    Log::warning('Không parse được hạn VNPay đã lưu.', [
+                        'payment_id' => $payment->id,
+                        'value' => $gatewayExpiryValue,
+                    ]);
+                }
+            }
+
+            $paymentOccurredAt = $this->parseVnpayPayDate($params['vnp_PayDate'] ?? null);
+            $paymentWithinExpiry = !$gatewayExpiresAt
+                || ($paymentOccurredAt
+                    ? $paymentOccurredAt->lte($gatewayExpiresAt)
+                    : now('Asia/Ho_Chi_Minh')->lte($gatewayExpiresAt->copy()->addMinutes(self::PAYMENT_CALLBACK_GRACE_MINUTES)));
 
             $isSuccess = $responseCode === '00'
                 && $transactionStatus === '00'
                 && $amountMatches
                 && $bookingCanReceivePayment
-                && $notExpired;
+                && $paymentWithinExpiry;
+
+            $rawResponse['gateway_response'] = $params;
+            $rawResponse['callback_processed_at'] = now('Asia/Ho_Chi_Minh')->toDateTimeString();
+            if ($paymentOccurredAt) {
+                $rawResponse['gateway_paid_at'] = $paymentOccurredAt->toDateTimeString();
+            }
+            if (!$paymentWithinExpiry) {
+                $rawResponse['closed_reason'] = 'GATEWAY_PAYMENT_EXPIRED';
+            }
 
             $payment->update([
                 'status' => $isSuccess ? 'success' : 'failed',
@@ -573,8 +654,8 @@ class VnpayController extends Controller
                 'transaction_no' => $params['vnp_TransactionNo'] ?? null,
                 'response_code' => $responseCode,
                 'transaction_status' => $transactionStatus,
-                'paid_at' => $isSuccess ? now('Asia/Ho_Chi_Minh') : null,
-                'raw_response' => $params,
+                'paid_at' => $isSuccess ? ($paymentOccurredAt ?: now('Asia/Ho_Chi_Minh')) : null,
+                'raw_response' => $rawResponse,
             ]);
 
             if (!$isSuccess) {
@@ -611,7 +692,8 @@ class VnpayController extends Controller
             $roomAssigned = $this->assignRoomAfterSuccessfulPayment($booking);
 
             if (!$roomAssigned) {
-                $booking->status = 'pending';
+                // Không được hạ booking đã confirmed/đang ở về pending chỉ vì một
+                // giao dịch thanh toán bổ sung phát hiện dữ liệu phân phòng bất thường.
                 $booking->note = trim(
                     ($booking->note ? $booking->note . "\n" : '')
                     . 'Đã ghi nhận thanh toán VNPay nhưng hệ thống không còn phòng trống để tự động gán. Cần lễ tân xử lý thủ công.'
@@ -704,68 +786,200 @@ class VnpayController extends Controller
 
     private function hasAvailableRoomForBooking(Booking $booking): bool
     {
-        if ($booking->bookingRooms()->exists()) {
-            return true;
+        $requiredRoomCount = max(1, (int) ($booking->room_quantity ?? 1));
+        $existingBookingRooms = BookingRoom::query()
+            ->where('booking_id', $booking->id)
+            ->get();
+
+        if ($existingBookingRooms->isNotEmpty()) {
+            $roomIds = $existingBookingRooms->pluck('room_id')
+                ->filter()
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values();
+
+            if ($existingBookingRooms->count() !== $requiredRoomCount || $roomIds->count() !== $requiredRoomCount) {
+                return false;
+            }
+
+            return Room::query()
+                ->whereIn('id', $roomIds->all())
+                ->bookableForPeriod(
+                    $booking->check_in_at,
+                    $booking->check_out_at,
+                    $booking->id,
+                    $booking->cleaning_buffer_minutes
+                )
+                ->count() === $requiredRoomCount;
         }
 
-        return Room::where('room_category_id', $booking->room_category_id)
-            ->bookableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
-            ->exists();
+        return Room::query()
+            ->where('room_category_id', $booking->room_category_id)
+            ->bookableForPeriod(
+                $booking->check_in_at,
+                $booking->check_out_at,
+                $booking->id,
+                $booking->cleaning_buffer_minutes
+            )
+            ->count() >= $requiredRoomCount;
     }
 
     private function assignRoomAfterSuccessfulPayment(Booking $booking): bool
     {
-        if ($booking->bookingRooms()->exists()) {
-            $booking->load('bookingRooms.room');
+        $requiredRoomCount = max(1, (int) ($booking->room_quantity ?? 1));
+        $booking->loadMissing('roomCategory');
 
-            foreach ($booking->bookingRooms as $bookingRoom) {
-                $room = $bookingRoom->room;
-                if (!$room) {
-                    continue;
-                }
-
-                app(\App\Services\RoomPreparationService::class)
-                    ->flagPriorityIfNeeded($booking, $room, 'xác nhận sau thanh toán VNPay');
-
-                // Thanh toán chỉ xác nhận lịch giữ phòng trong booking_rooms; không đổi
-                // room.status trước check-in vì phòng có thể đang phục vụ khách khác.
-            }
-
-            return true;
-        }
-
-        $room = Room::where('room_category_id', $booking->room_category_id)
-            ->bookableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
+        // Khóa các dòng phân phòng hiện có để return/IPN chạy đồng thời không thể
+        // cùng bổ sung một phòng và tạo dư booking_rooms.
+        $existingBookingRooms = BookingRoom::query()
+            ->where('booking_id', $booking->id)
             ->lockForUpdate()
-            ->first();
+            ->get();
 
-        if (!$room) {
+        if ($existingBookingRooms->count() > $requiredRoomCount) {
+            // Dữ liệu đã dư phòng là lỗi cần lễ tân kiểm tra, không tự xóa âm thầm.
             return false;
         }
 
-        $booking->loadMissing('roomCategory');
+        $existingRoomIds = $existingBookingRooms->pluck('room_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
 
-        BookingRoom::create([
-            'booking_id' => $booking->id,
-            'room_id' => $room->id,
-            'adult_count' => $booking->adult_count,
-            'child_count' => $booking->child_count ?? 0,
-            'price_at_booking' => (float) ($booking->roomCategory->price ?? 0),
-            'surcharge' => 0,
-            'surcharge_reason' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $existingRooms = $existingRoomIds->isEmpty()
+            ? collect()
+            : Room::query()
+                ->whereIn('id', $existingRoomIds->all())
+                ->lockForUpdate()
+                ->with('category')
+                ->get();
 
-        app(\App\Services\RoomPreparationService::class)
-            ->flagPriorityIfNeeded($booking, $room, 'gán phòng sau thanh toán VNPAY');
+        // booking_room trỏ tới phòng đã mất/xóa thì không được coi là đã gán đủ.
+        if ($existingRooms->count() !== $existingBookingRooms->count()) {
+            return false;
+        }
 
-        // Không đổi room.status khi mới gán phòng cho booking chưa check-in.
-        // Xung đột lịch được kiểm soát bởi booking_rooms + bookableForPeriod().
+        if ($existingRoomIds->isNotEmpty()) {
+            $bookableExistingCount = Room::query()
+                ->whereIn('id', $existingRoomIds->all())
+                ->bookableForPeriod(
+                    $booking->check_in_at,
+                    $booking->check_out_at,
+                    $booking->id,
+                    $booking->cleaning_buffer_minutes
+                )
+                ->lockForUpdate()
+                ->count();
 
-        return true;
+            if ($bookableExistingCount !== $existingRoomIds->count()) {
+                return false;
+            }
+        }
+
+        $missingCount = $requiredRoomCount - $existingBookingRooms->count();
+        $candidateRooms = collect();
+
+        if ($missingCount > 0) {
+            $candidateRooms = Room::query()
+                ->where('room_category_id', $booking->room_category_id)
+                ->when($existingRoomIds->isNotEmpty(), fn ($query) => $query->whereNotIn('id', $existingRoomIds->all()))
+                ->bookableForPeriod(
+                    $booking->check_in_at,
+                    $booking->check_out_at,
+                    $booking->id,
+                    $booking->cleaning_buffer_minutes
+                )
+                ->limit($missingCount)
+                ->lockForUpdate()
+                ->with('category')
+                ->get();
+
+            if ($candidateRooms->count() < $missingCount) {
+                return false;
+            }
+        }
+
+        $allRooms = $existingRooms->concat($candidateRooms)->values();
+        if ($allRooms->count() !== $requiredRoomCount) {
+            return false;
+        }
+
+        // Tính allocation trước khi ghi DB để không tạo một nửa số phòng rồi mới
+        // phát hiện sức chứa không hợp lệ. Nếu lỗi, transaction ngoài sẽ vẫn giữ
+        // giao dịch thanh toán nhưng booking được đưa về nhánh paid_no_room để xử lý.
+        try {
+            $allocation = app(\App\Services\BookingRoomOccupancyAllocator::class)->allocate(
+                $allRooms,
+                max(0, (int) $booking->adult_count),
+                max(0, (int) $booking->child_count),
+                max(0, (int) ($booking->baby_count ?? 0))
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Không thể tự phân occupancy sau thanh toán VNPay.', [
+                'booking_id' => $booking->id,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
+
+        foreach ($existingBookingRooms as $bookingRoom) {
+            $counts = $allocation[(int) $bookingRoom->room_id] ?? null;
+            if (!$counts) {
+                return false;
+            }
+
+            $bookingRoom->update([
+                'adult_count' => $counts['adult_count'],
+                'child_count' => $counts['child_count'],
+                'baby_count' => $counts['baby_count'],
+            ]);
+        }
+
+        $roomPrice = (float) ($booking->roomCategory?->price ?? 0);
+        foreach ($candidateRooms as $room) {
+            $counts = $allocation[(int) $room->id] ?? null;
+            if (!$counts) {
+                return false;
+            }
+
+            BookingRoom::create([
+                'booking_id' => $booking->id,
+                'room_id' => $room->id,
+                'adult_count' => $counts['adult_count'],
+                'child_count' => $counts['child_count'],
+                'baby_count' => $counts['baby_count'],
+                'price_at_booking' => $roomPrice,
+                'surcharge' => 0,
+                'surcharge_reason' => null,
+                'created_at' => now(),
+            ]);
+        }
+
+        foreach ($allRooms as $room) {
+            app(\App\Services\RoomPreparationService::class)
+                ->flagPriorityIfNeeded($booking, $room, 'xác nhận sau thanh toán VNPay');
+        }
+
+        return BookingRoom::query()
+            ->where('booking_id', $booking->id)
+            ->count() === $requiredRoomCount;
     }
 
+    private function parseVnpayPayDate(?string $value): ?\Carbon\Carbon
+    {
+        $value = trim((string) $value);
+        if ($value === '' || !preg_match('/^\d{14}$/', $value)) {
+            return null;
+        }
+
+        try {
+            $date = \Carbon\Carbon::createFromFormat('YmdHis', $value, 'Asia/Ho_Chi_Minh');
+            return $date && $date->format('YmdHis') === $value ? $date : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
 
     private function markPaymentRequestFailed(BookingPayment $payment, string $responseCode, string $description): void
     {
@@ -813,7 +1027,7 @@ class VnpayController extends Controller
 
     private function depositPercentLabel(Booking $booking): string
     {
-        $percent = (float) app(HotelPolicyService::class)->forBooking($booking, 'payment.deposit_percent', 30);
+        $percent = (float) app(HotelPolicyService::class)->depositRate($booking) * 100;
         return rtrim(rtrim(number_format($percent, 2, '.', ''), '0'), '.') . '%';
     }
 

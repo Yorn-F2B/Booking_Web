@@ -36,6 +36,10 @@
         'shortMaxPercent' => (float) $policyService->get('stay.short_stay_max_percent', 80),
         'depositPercent' => $depositPercent,
         'depositRate' => $depositRate,
+        'depositPercent2Rooms' => (float) $policyService->get('payment.deposit_percent_2_rooms', 35),
+        'depositPercent3Rooms' => (float) $policyService->get('payment.deposit_percent_3_rooms', 40),
+        'depositPercent4Rooms' => (float) $policyService->get('payment.deposit_percent_4_rooms', 45),
+        'depositPercent5PlusRooms' => (float) $policyService->get('payment.deposit_percent_5plus_rooms', 50),
     ];
 ?>
 
@@ -395,7 +399,7 @@ $message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
 if (isset($__messageOriginal)) { $message = $__messageOriginal; }
 endif;
 unset($__errorArgs, $__bag); ?>"
-                                        value="<?php echo e(old('customer_phone')); ?>" placeholder="Ví dụ: 0987654321" required>
+                                        value="<?php echo e(old('customer_phone')); ?>" placeholder="Ví dụ: 0987654321 (nếu có)">
 
                                     <?php $__errorArgs = ['customer_phone'];
 $__bag = $errors->getBag($__errorArgs[1] ?? 'default');
@@ -889,7 +893,7 @@ $message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
 if (isset($__messageOriginal)) { $message = $__messageOriginal; }
 endif;
 unset($__errorArgs, $__bag); ?>"
-                                        value="<?php echo e(old('adult_count', 1)); ?>" min="1" required>
+                                        value="<?php echo e(old('adult_count', $bookingPrefill['adult_count'] ?? 1)); ?>" min="1" max="60" required>
 
                                     <?php $__errorArgs = ['adult_count'];
 $__bag = $errors->getBag($__errorArgs[1] ?? 'default');
@@ -914,7 +918,7 @@ $message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
 if (isset($__messageOriginal)) { $message = $__messageOriginal; }
 endif;
 unset($__errorArgs, $__bag); ?>"
-                                        value="<?php echo e(old('child_count', 0)); ?>" min="0">
+                                        value="<?php echo e(old('child_count', $bookingPrefill['child_count'] ?? 0)); ?>" min="0">
 
                                     <?php $__errorArgs = ['child_count'];
 $__bag = $errors->getBag($__errorArgs[1] ?? 'default');
@@ -939,7 +943,7 @@ $message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
 if (isset($__messageOriginal)) { $message = $__messageOriginal; }
 endif;
 unset($__errorArgs, $__bag); ?>"
-                                        value="<?php echo e(old('room_quantity', 1)); ?>" min="1" required>
+                                        value="<?php echo e(old('room_quantity', $bookingPrefill['room_quantity'] ?? 1)); ?>" min="1" max="<?php echo e((int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_rooms', 30)); ?>" required>
 
                                     <?php $__errorArgs = ['room_quantity'];
 $__bag = $errors->getBag($__errorArgs[1] ?? 'default');
@@ -981,12 +985,12 @@ unset($__errorArgs, $__bag); ?>
                                             <label class="form-check mb-0">
                                                 <input class="form-check-input" type="radio" name="room_selection_mode" value="manual"
                                                     <?php if(old('room_selection_mode') === 'manual'): echo 'checked'; endif; ?>>
-                                                <span class="form-check-label">Theo yêu cầu của khách</span>
+                                                <span class="form-check-label">Lễ tân chọn phòng thủ công</span>
                                             </label>
                                         </div>
 
                                         <div id="manualRoomSelectionBox" class="mt-3 <?php echo e(old('room_selection_mode') === 'manual' ? '' : 'd-none'); ?>">
-                                            <label for="roomSelectionRequest" class="form-label">Yêu cầu phòng</label>
+                                            <label for="roomSelectionRequest" class="form-label">Yêu cầu cụ thể của khách <span class="text-muted">(nếu có)</span></label>
                                             <textarea id="roomSelectionRequest" name="room_selection_request" rows="3"
                                                 class="form-control <?php $__errorArgs = ['room_selection_request'];
 $__bag = $errors->getBag($__errorArgs[1] ?? 'default');
@@ -1005,15 +1009,16 @@ $message = $__bag->first($__errorArgs[0]); ?><div class="invalid-feedback"><?php
 if (isset($__messageOriginal)) { $message = $__messageOriginal; }
 endif;
 unset($__errorArgs, $__bag); ?>
-                                            <div class="booking-help-text mt-1">Phí đảm bảo yêu cầu: <?php echo e(number_format($manualRoomSelectionFee, 0, ',', '.')); ?>đ/phòng khi đáp ứng.</div>
+                                            <div class="booking-help-text mt-1">Chỉ thu phí đảm bảo <?php echo e(number_format($manualRoomSelectionFee, 0, ',', '.')); ?>đ/phòng khi khách có yêu cầu cụ thể và khách sạn đáp ứng; lễ tân tự chọn phòng để vận hành thì không thu phí.</div>
 
                                             <div class="mt-3">
                                                 <label for="manualRoomIds" class="form-label">Chọn phòng ngay (không bắt buộc)</label>
-                                                <select id="manualRoomIds" name="manual_room_ids[]" class="form-select" multiple size="5"
-                                                    data-old-values='<?php echo json_encode(array_map("intval", (array) old("manual_room_ids", []))) ?>'>
-                                                    <option value="" disabled>Chọn hạng phòng và thời gian để tải danh sách phòng trống...</option>
-                                                </select>
-                                                <div class="booking-help-text mt-1" id="manualRoomHelp">Nếu chọn ngay, chọn đúng số phòng của booking; để trống thì xử lý sau.</div>
+                                                <select id="manualRoomIds" name="manual_room_ids[]" class="d-none" multiple
+                                                    data-old-values='<?php echo json_encode(array_map("intval", (array) old("manual_room_ids", []))) ?>'></select>
+                                                <div id="manualRoomChecklist" class="border rounded-3 bg-white p-2" style="max-height:260px;overflow:auto">
+                                                    <div class="text-muted small p-2">Chọn hạng phòng và thời gian để tải các phòng thực sự còn trống.</div>
+                                                </div>
+                                                <div class="booking-help-text mt-1" id="manualRoomHelp">Có thể tick nhiều phòng; hệ thống chỉ cho hoàn tất khi đủ đúng số phòng của booking.</div>
                                             </div>
                                         </div>
                                     </div>
@@ -1063,36 +1068,23 @@ endif;
 unset($__errorArgs, $__bag); ?>
 
                                     <div class="booking-help-text mt-1">
-                                        Booking bắt buộc cọc <?php echo e(rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.')); ?>% khi tạo đơn.
+                                        <?php($policy = app(\App\Services\HotelPolicyService::class))
+                                        Booking cọc theo số lượng phòng: 1 phòng {{ $policy->depositPercentForRooms(1) }}%, 2 phòng {{ $policy->depositPercentForRooms(2) }}%, 3 phòng {{ $policy->depositPercentForRooms(3) }}%, 4 phòng {{ $policy->depositPercentForRooms(4) }}%, từ 5 phòng {{ $policy->depositPercentForRooms(5) }}%.
                                     </div>
                                 </div>
 
                                 <div class="col-md-4">
                                     <label class="form-label">Kiểu thanh toán</label>
                                     <select name="payment_type" id="paymentType"
-                                        class="form-select <?php $__errorArgs = ['payment_type'];
-$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
-if ($__bag->has($__errorArgs[0])) :
-if (isset($message)) { $__messageOriginal = $message; }
-$message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
-if (isset($__messageOriginal)) { $message = $__messageOriginal; }
-endif;
-unset($__errorArgs, $__bag); ?>">
-                                        <option value="deposit_30" <?php echo e(old('payment_type', 'deposit_30') == 'deposit_30' ? 'selected' : ''); ?>>
-                                            Thu cọc <?php echo e(rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.')); ?>%
+                                        class="form-select @error('payment_type') is-invalid @enderror">
+                                        <option value="deposit_30" {{ old('payment_type', 'deposit_30') == 'deposit_30' ? 'selected' : '' }}>
+                                            Thu cọc theo mức của số phòng
                                         </option>
                                     </select>
 
-                                    <?php $__errorArgs = ['payment_type'];
-$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
-if ($__bag->has($__errorArgs[0])) :
-if (isset($message)) { $__messageOriginal = $message; }
-$message = $__bag->first($__errorArgs[0]); ?>
-                                        <div class="invalid-feedback"><?php echo e($message); ?></div>
-                                    <?php unset($message);
-if (isset($__messageOriginal)) { $message = $__messageOriginal; }
-endif;
-unset($__errorArgs, $__bag); ?>
+                                    @error('payment_type')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
 
                                     <div class="booking-help-text mt-1" id="paymentTypeHelp">
                                     </div>
@@ -1101,26 +1093,12 @@ unset($__errorArgs, $__bag); ?>
                                 <div class="col-md-4 d-none" id="customPaymentAmountBox">
                                     <label class="form-label">Số tiền thu thực tế</label>
                                     <input type="number" name="deposit_amount" id="depositAmount"
-                                        class="form-control <?php $__errorArgs = ['deposit_amount'];
-$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
-if ($__bag->has($__errorArgs[0])) :
-if (isset($message)) { $__messageOriginal = $message; }
-$message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
-if (isset($__messageOriginal)) { $message = $__messageOriginal; }
-endif;
-unset($__errorArgs, $__bag); ?>"
-                                        value="<?php echo e(old('deposit_amount', 0)); ?>" min="0" step="1000">
+                                        class="form-control @error('deposit_amount') is-invalid @enderror"
+                                        value="{{ old('deposit_amount', 0) }}" min="0" step="1000">
 
-                                    <?php $__errorArgs = ['deposit_amount'];
-$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
-if ($__bag->has($__errorArgs[0])) :
-if (isset($message)) { $__messageOriginal = $message; }
-$message = $__bag->first($__errorArgs[0]); ?>
-                                        <div class="invalid-feedback"><?php echo e($message); ?></div>
-                                    <?php unset($message);
-if (isset($__messageOriginal)) { $message = $__messageOriginal; }
-endif;
-unset($__errorArgs, $__bag); ?>
+                                    @error('deposit_amount')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
 
                                     <div class="booking-help-text mt-1" id="paymentAmountHelp">
                                         Chỉ nhập khi chọn kiểu "Nhập số tiền thực thu".
@@ -1129,29 +1107,15 @@ unset($__errorArgs, $__bag); ?>
 
                                 <div class="col-md-12" id="counterPaymentConfirmBox">
                                     <div class="form-check booking-payment-confirm">
-                                        <input class="form-check-input <?php $__errorArgs = ['confirm_counter_payment'];
-$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
-if ($__bag->has($__errorArgs[0])) :
-if (isset($message)) { $__messageOriginal = $message; }
-$message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
-if (isset($__messageOriginal)) { $message = $__messageOriginal; }
-endif;
-unset($__errorArgs, $__bag); ?>"
+                                        <input class="form-check-input @error('confirm_counter_payment') is-invalid @enderror"
                                             type="checkbox" name="confirm_counter_payment" value="1"
-                                            id="confirmCounterPayment" <?php echo e(old('confirm_counter_payment') ? 'checked' : ''); ?>>
+                                            id="confirmCounterPayment" {{ old('confirm_counter_payment') ? 'checked' : '' }}>
                                         <label class="form-check-label" for="confirmCounterPayment" id="confirmCounterPaymentLabel">
-                                            Tôi xác nhận đã nhận đủ tiền cọc <?php echo e(rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.')); ?>% của khách tại quầy.
+                                            Tôi xác nhận đã nhận đủ mức cọc bắt buộc theo số lượng phòng của khách tại quầy.
                                         </label>
-                                        <?php $__errorArgs = ['confirm_counter_payment'];
-$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
-if ($__bag->has($__errorArgs[0])) :
-if (isset($message)) { $__messageOriginal = $message; }
-$message = $__bag->first($__errorArgs[0]); ?>
-                                            <div class="invalid-feedback d-block"><?php echo e($message); ?></div>
-                                        <?php unset($message);
-if (isset($__messageOriginal)) { $message = $__messageOriginal; }
-endif;
-unset($__errorArgs, $__bag); ?>
+                                        @error('confirm_counter_payment')
+                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                        @enderror
                                         <div class="booking-help-text mt-1" id="counterPaymentConfirmHelp">
                                             Chỉ được tạo booking sau khi lễ tân đã kiểm tra và nhận đúng số tiền cần thu.
                                         </div>
@@ -1170,26 +1134,12 @@ unset($__errorArgs, $__bag); ?>
 
                                 <div class="col-md-12">
                                     <label class="form-label">Ghi chú</label>
-                                    <textarea name="note" rows="4" class="form-control <?php $__errorArgs = ['note'];
-$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
-if ($__bag->has($__errorArgs[0])) :
-if (isset($message)) { $__messageOriginal = $message; }
-$message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
-if (isset($__messageOriginal)) { $message = $__messageOriginal; }
-endif;
-unset($__errorArgs, $__bag); ?>"
-                                        placeholder="Ví dụ: khách muốn tầng thấp, đến muộn, cần hỗ trợ hành lý..."><?php echo e(old('note')); ?></textarea>
+                                    <textarea name="note" rows="4" class="form-control @error('note') is-invalid @enderror"
+                                        placeholder="Ví dụ: khách muốn tầng thấp, đến muộn, cần hỗ trợ hành lý...">{{ old('note') }}</textarea>
 
-                                    <?php $__errorArgs = ['note'];
-$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
-if ($__bag->has($__errorArgs[0])) :
-if (isset($message)) { $__messageOriginal = $message; }
-$message = $__bag->first($__errorArgs[0]); ?>
-                                        <div class="invalid-feedback"><?php echo e($message); ?></div>
-                                    <?php unset($message);
-if (isset($__messageOriginal)) { $message = $__messageOriginal; }
-endif;
-unset($__errorArgs, $__bag); ?>
+                                    @error('note')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
                                 </div>
 
                             </div>
@@ -1210,14 +1160,14 @@ unset($__errorArgs, $__bag); ?>
                                 Tạo booking
                             </button>
 
-                            <a href="<?php echo e(route('admin.bookings.index')); ?>" class="btn btn-outline-secondary w-100 mt-2">
+                            <a href="{{ route('admin.bookings.index') }}" class="btn btn-outline-secondary w-100 mt-2">
                                 Hủy
                             </a>
                         </div>
 
                         <div class="booking-form-card">
 
-                            <details class="booking-options-details" <?php echo e(old('services') ? 'open' : ''); ?>>
+                            <details class="booking-options-details" {{ old('services') ? 'open' : '' }}>
                                 <summary>
                                     <span>
                                         Dịch vụ đặt trước
@@ -1226,45 +1176,43 @@ unset($__errorArgs, $__bag); ?>
                                 </summary>
 
                                 <div class="booking-options-body">
-                                    <?php $__currentLoopData = $services; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $index => $service): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                        <div class="border rounded p-2 mb-2 service-row" data-price="<?php echo e($service->price); ?>"
-                                            data-billing-rule="<?php echo e($service->billing_rule ?: \App\Models\Service::BILLING_ONCE); ?>">
+                                    @foreach ($services as $index => $service)
+                                        <div class="border rounded p-2 mb-2 service-row" data-price="{{ $service->price }}"
+                                            data-billing-rule="{{ $service->billing_rule ?: \App\Models\Service::BILLING_ONCE }}">
 
                                             <div class="form-check mb-2">
-                                                <input type="checkbox" name="services[<?php echo e($index); ?>][service_id]"
-                                                    value="<?php echo e($service->id); ?>" class="form-check-input service-check"
-                                                    id="service<?php echo e($service->id); ?>"
-                                                    <?php if((int) old("services.$index.service_id", 0) === (int) $service->id): echo 'checked'; endif; ?>>
+                                                <input type="checkbox" name="services[{{ $index }}][service_id]"
+                                                    value="{{ $service->id }}" class="form-check-input service-check"
+                                                    id="service{{ $service->id }}"
+                                                    @checked((int) old("services.$index.service_id", 0) === (int) $service->id)>
 
-                                                <label for="service<?php echo e($service->id); ?>" class="form-check-label">
-                                                    <strong><?php echo e($service->name); ?></strong>
+                                                <label for="service{{ $service->id }}" class="form-check-label">
+                                                    <strong>{{ $service->name }}</strong>
                                                     -
-                                                    <?php echo e(number_format($service->price, 0, ',', '.')); ?>đ / <?php echo e($service->unit); ?>
-
+                                                    {{ number_format($service->price, 0, ',', '.') }}đ / {{ $service->unit }}
                                                     <span
-                                                        class="badge bg-<?php echo e(($service->service_group ?? '') == 'vehicle' ? 'dark' : (($service->type == 'minibar_order') ? 'warning text-dark' : 'primary')); ?>">
-                                                        <?php echo e($service->type === 'minibar_order' ? 'Minibar gọi thêm' : ($service->group_label ?? 'Dịch vụ')); ?>
-
+                                                        class="badge bg-{{ ($service->service_group ?? '') == 'vehicle' ? 'dark' : (($service->type == 'minibar_order') ? 'warning text-dark' : 'primary') }}">
+                                                        {{ $service->type === 'minibar_order' ? 'Minibar gọi thêm' : ($service->group_label ?? 'Dịch vụ') }}
                                                     </span>
                                                 </label>
                                             </div>
 
                                             <div class="row g-2">
                                                 <div class="col-4">
-                                                    <input type="number" name="services[<?php echo e($index); ?>][quantity]"
+                                                    <input type="number" name="services[{{ $index }}][quantity]"
                                                         class="form-control form-control-sm service-quantity"
-                                                        value="<?php echo e(old("services.$index.quantity", 1)); ?>" min="1">
+                                                        value="{{ old("services.$index.quantity", 1) }}" min="1">
                                                 </div>
 
                                                 <div class="col-8">
-                                                    <input type="text" name="services[<?php echo e($index); ?>][note]"
+                                                    <input type="text" name="services[{{ $index }}][note]"
                                                         class="form-control form-control-sm" placeholder="Ghi chú nếu có"
-                                                        value="<?php echo e(old("services.$index.note")); ?>">
+                                                        value="{{ old("services.$index.note") }}">
                                                 </div>
                                             </div>
 
                                         </div>
-                                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                    @endforeach
                                 </div>
 
                                 <div class="booking-total-box mt-3">
@@ -1284,7 +1232,7 @@ unset($__errorArgs, $__bag); ?>
                                 thì chọn mã thuộc loại <strong>mã hỗ trợ khách</strong>, không tạo thêm loại riêng.
                             </p>
 
-                            <?php
+                            @php
                                 $promotionTypeDisplayConfig = [
                                     'normal_discount' => [
                                         'label' => 'Mã thường',
@@ -1676,6 +1624,7 @@ unset($__errorArgs, $__bag); ?>
             const manualRoomSelectionBox = document.getElementById('manualRoomSelectionBox');
             const roomSelectionRequest = document.getElementById('roomSelectionRequest');
             const manualRoomIds = document.getElementById('manualRoomIds');
+            const manualRoomChecklist = document.getElementById('manualRoomChecklist');
             const manualRoomHelp = document.getElementById('manualRoomHelp');
             let manualRoomOptionsTimer = null;
             let manualRoomOptionsRequestId = 0;
@@ -1690,7 +1639,8 @@ unset($__errorArgs, $__bag); ?>
                     return 0;
                 }
                 const selectedCount = Array.from(manualRoomIds.selectedOptions || []).filter(option => option.value).length;
-                return selectedCount === getRoomQuantity()
+                const hasCustomerRequest = (roomSelectionRequest?.value || '').trim().length > 0;
+                return hasCustomerRequest && selectedCount === getRoomQuantity()
                     ? manualRoomSelectionFeePerRoom * getRoomQuantity()
                     : 0;
             }
@@ -1729,7 +1679,8 @@ unset($__errorArgs, $__bag); ?>
                         manualRoomOptionsAbortController.abort();
                         manualRoomOptionsAbortController = null;
                     }
-                    manualRoomIds.innerHTML = '<option value="" disabled>Chọn hạng phòng và thời gian để tải danh sách phòng trống...</option>';
+                    manualRoomIds.innerHTML = '';
+                    if (manualRoomChecklist) manualRoomChecklist.innerHTML = '<div class="text-muted small p-2">Chọn hạng phòng và thời gian để tải các phòng thực sự còn trống.</div>';
                     if (manualRoomHelp) {
                         manualRoomHelp.textContent = 'Danh sách sẽ tự cập nhật khi chọn đủ hạng phòng và thời gian.';
                     }
@@ -1775,15 +1726,39 @@ unset($__errorArgs, $__bag); ?>
                     }
 
                     manualRoomIds.innerHTML = '';
+                    if (manualRoomChecklist) manualRoomChecklist.innerHTML = '';
                     if (!Array.isArray(json.rooms) || json.rooms.length === 0) {
-                        manualRoomIds.innerHTML = '<option value="" disabled>Không còn phòng phù hợp trong khoảng thời gian này.</option>';
+                        if (manualRoomChecklist) manualRoomChecklist.innerHTML = '<div class="text-muted small p-2">Không còn phòng phù hợp trong khoảng thời gian này.</div>';
                     } else {
                         json.rooms.forEach((room) => {
                             const option = document.createElement('option');
                             option.value = String(room.id);
-                            option.textContent = `Phòng ${room.room_number} · Tầng ${room.floor_number ?? '---'} · ${room.status}`;
+                            option.textContent = `Phòng ${room.room_number}`;
                             option.selected = selectedValues.has(option.value) || oldValues.has(option.value);
                             manualRoomIds.appendChild(option);
+
+                            if (manualRoomChecklist) {
+                                const label = document.createElement('label');
+                                label.className = 'form-check d-flex align-items-center gap-2 px-2 py-2 mb-1 rounded border';
+                                const checkbox = document.createElement('input');
+                                checkbox.type = 'checkbox'; checkbox.className = 'form-check-input m-0';
+                                checkbox.value = option.value; checkbox.checked = option.selected;
+                                checkbox.addEventListener('change', () => {
+                                    option.selected = checkbox.checked;
+                                    const chosen = Array.from(manualRoomIds.selectedOptions).filter(o => o.value).length;
+                                    const required = getRoomQuantity();
+                                    if (chosen > required) {
+                                        checkbox.checked = false; option.selected = false;
+                                        if (manualRoomHelp) manualRoomHelp.textContent = `Chỉ được chọn đúng ${required} phòng cho booking này.`;
+                                    } else if (manualRoomHelp) {
+                                        manualRoomHelp.textContent = `Đã chọn ${chosen}/${required} phòng. Chỉ các phòng còn trống trong toàn bộ thời gian lưu trú mới xuất hiện.`;
+                                    }
+                                    updateEstimatedTotal();
+                                });
+                                const text = document.createElement('span');
+                                text.innerHTML = `<strong>Phòng ${room.room_number}</strong> <span class="text-muted small">· Tầng ${room.floor_number ?? '—'} · ${room.category_name ?? ''}</span>`;
+                                label.appendChild(checkbox); label.appendChild(text); manualRoomChecklist.appendChild(label);
+                            }
                         });
                     }
 
@@ -2777,7 +2752,14 @@ unset($__errorArgs, $__bag); ?>
                         Math.max(0, Number(moneyDiscount || 0))
                     )
                 );
-                const deposit30 = Math.round(depositBase * Number(policy.depositRate));
+                const roomQtyForDeposit = Math.max(1, getRoomQuantity());
+                const dynamicDepositPercent = roomQtyForDeposit >= 5 ? Number(policy.depositPercent5PlusRooms)
+                    : roomQtyForDeposit === 4 ? Number(policy.depositPercent4Rooms)
+                    : roomQtyForDeposit === 3 ? Number(policy.depositPercent3Rooms)
+                    : roomQtyForDeposit === 2 ? Number(policy.depositPercent2Rooms)
+                    : Number(policy.depositPercent);
+                const dynamicDepositRate = dynamicDepositPercent / 100;
+                const deposit30 = Math.round(depositBase * dynamicDepositRate);
                 const isCounterPayment = method === 'cash' || method === 'bank_transfer';
 
                 if (counterPaymentConfirmBox) {
@@ -2794,8 +2776,8 @@ unset($__errorArgs, $__bag); ?>
 
                 if (confirmCounterPaymentLabel) {
                     confirmCounterPaymentLabel.innerText = method === 'bank_transfer'
-                        ? `Tôi xác nhận đã kiểm tra tài khoản và nhận đủ tiền cọc ${percentLabel(policy.depositPercent)}% bằng chuyển khoản tại quầy.`
-                        : `Tôi xác nhận đã nhận đủ tiền cọc ${percentLabel(policy.depositPercent)}% bằng tiền mặt tại quầy.`;
+                        ? `Tôi xác nhận đã kiểm tra tài khoản và nhận đủ tiền cọc ${percentLabel(dynamicDepositPercent)}% bằng chuyển khoản tại quầy.`
+                        : `Tôi xác nhận đã nhận đủ tiền cọc ${percentLabel(dynamicDepositPercent)}% bằng tiền mặt tại quầy.`;
                 }
 
                 if (counterPaymentConfirmHelp) {
@@ -2833,11 +2815,11 @@ unset($__errorArgs, $__bag); ?>
 
                 if (paymentTypeHelp) {
                     if (method === 'vnpay') {
-                        paymentTypeHelp.innerText = `Sau khi tạo booking, hệ thống gửi email có đường dẫn VNPay để khách đặt cọc ${percentLabel(policy.depositPercent)}% khoảng ` + formatMoney(deposit30) + '.';
+                        paymentTypeHelp.innerText = `Sau khi tạo booking, hệ thống gửi email có đường dẫn VNPay để khách đặt cọc ${percentLabel(dynamicDepositPercent)}% khoảng ` + formatMoney(deposit30) + '.';
                     } else if (activeType === 'custom') {
                         paymentTypeHelp.innerText = 'Lễ tân nhập đúng số tiền khách thực trả tại quầy.';
                     } else {
-                        paymentTypeHelp.innerText = `Ghi nhận cọc ${percentLabel(policy.depositPercent)}% khoảng ` + formatMoney(deposit30) + '.';
+                        paymentTypeHelp.innerText = `Ghi nhận cọc ${percentLabel(dynamicDepositPercent)}% khoảng ` + formatMoney(deposit30) + '.';
                     }
                 }
 
@@ -3274,8 +3256,8 @@ unset($__errorArgs, $__bag); ?>
                 if (promotionEligibilityAbortController) promotionEligibilityAbortController.abort();
                 promotionEligibilityAbortController = new AbortController();
 
-                // Lấy tổng ngay sau khi biểu mẫu vừa tính lại. Không dùng tên/CCCD/SĐT
-                // để xác định lượt ưu đãi khi khách đã nhập email.
+                // Lấy tổng ngay sau khi biểu mẫu vừa tính lại. CCCD là định danh chính để
+                // kiểm tra lượt/điều kiện ưu đãi; email và SĐT chỉ là kênh liên hệ.
                 const subtotalText = (promotionSubtotalText?.textContent || estimatedTotalText?.textContent || '0')
                     .replace(/[^0-9]/g, '');
                 const currentSubtotal = Number(subtotalText || 0);

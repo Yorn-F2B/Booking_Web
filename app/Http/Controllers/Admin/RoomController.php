@@ -22,10 +22,10 @@ class RoomController extends Controller
     public function index(Request $request)
     {
         $now = now(self::TIMEZONE);
-        Room::whereIn('status', ['cleaning', 'inspection', 'maintenance'])
-            ->whereNotNull('status_until')
-            ->where('status_until', '<=', $now)
-            ->update(['status' => 'available', 'status_from' => null, 'status_until' => null]);
+
+        // status_until chỉ là thời điểm dự kiến hoàn tất. Không tự động biến phòng
+        // đang dọn/chờ kiểm tra/bảo trì thành Sẵn sàng chỉ vì đã quá giờ; trạng thái
+        // vật lý phải được kết thúc bằng đúng nghiệp vụ buồng phòng/sửa chữa.
 
         // Tự-heal trạng thái Đã đặt/Trống từ lịch booking đang còn hiệu lực.
         // Chỉ đụng available/reserved, tuyệt đối không ghi đè occupied/cleaning/inspection/maintenance.
@@ -33,28 +33,30 @@ class RoomController extends Controller
 
         $today = $now->copy()->startOfDay();
 
-        // Mặc định hiển thị xuyên suốt toàn bộ lịch sử sử dụng phòng:
-        // từ booking sớm nhất đến booking xa nhất trong tương lai.
+        // Mặc định chỉ tải một tuần để trang quản lý phòng không phình theo toàn
+        // bộ lịch sử. Khoảng toàn bộ vẫn được giữ riêng cho nút "Toàn bộ".
         $earliestBookingAt = Booking::query()->min('check_in_at');
         $latestPlannedBookingAt = Booking::query()->max('check_out_at');
         $latestActualBookingAt = Booking::query()->whereNotNull('actual_check_out')->max('actual_check_out');
         $latestBookingAt = collect([$latestPlannedBookingAt, $latestActualBookingAt])
             ->filter()
             ->max();
-        $defaultStart = $earliestBookingAt
+
+        $fullRangeStart = $earliestBookingAt
             ? Carbon::parse($earliestBookingAt, self::TIMEZONE)->startOfDay()
             : $today->copy();
-        $defaultEnd = $latestBookingAt
+        $fullRangeEnd = $latestBookingAt
             ? Carbon::parse($latestBookingAt, self::TIMEZONE)->startOfDay()
             : $today->copy()->addDays(6);
-
-        if ($defaultStart->gt($today)) {
-            $defaultStart = $today->copy();
+        if ($fullRangeStart->gt($today)) {
+            $fullRangeStart = $today->copy();
         }
-        if ($defaultEnd->lt($today)) {
-            $defaultEnd = $today->copy();
+        if ($fullRangeEnd->lt($today)) {
+            $fullRangeEnd = $today->copy();
         }
 
+        $defaultStart = $today->copy();
+        $defaultEnd = $today->copy()->addDays(6);
         $startDate = $this->safeDate($request->input('start_date'), $defaultStart);
         $endDate = $this->safeDate($request->input('end_date'), $defaultEnd);
 
@@ -82,7 +84,7 @@ class RoomController extends Controller
         $dates = collect(CarbonPeriod::create($startDate, $endDate))
             ->map(fn (Carbon $date) => $date->copy());
 
-        $bookings = Booking::with(['customer', 'bookingRooms'])
+        $bookings = Booking::with(['customer', 'bookingRooms', 'staffAssignments'])
             ->whereIn('status', [
                 'pending', 'confirmed', 'checked_in', 'inspection_requested',
                 'checked_out', 'completed',
@@ -108,12 +110,21 @@ class RoomController extends Controller
             })
             ->get();
 
+        $bookings->each(fn (Booking $booking) => $booking->setAttribute(
+            'timeline_can_view_details',
+            $this->canViewBookingDetails($booking)
+        ));
+
         $lateCheckoutBookingMap = [];
-        $activeLateBookings = Booking::with(['customer', 'bookingRooms'])
+        $activeLateBookings = Booking::with(['customer', 'bookingRooms', 'staffAssignments'])
             ->whereIn('status', ['checked_in', 'inspection_requested'])
             ->whereNotNull('check_out_at')
             ->where('check_out_at', '<', $now)
             ->get();
+        $activeLateBookings->each(fn (Booking $booking) => $booking->setAttribute(
+            'timeline_can_view_details',
+            $this->canViewBookingDetails($booking)
+        ));
         foreach ($activeLateBookings as $lateBooking) {
             foreach ($lateBooking->bookingRooms as $bookingRoom) {
                 $lateCheckoutBookingMap[(int) $bookingRoom->room_id] = $lateBooking;
@@ -174,7 +185,7 @@ class RoomController extends Controller
 
         return view('admin.pages.rooms.index', compact(
             'rooms', 'dates', 'timeline', 'summary', 'summaryDate',
-            'startDate', 'endDate', 'today', 'now', 'defaultStart', 'defaultEnd',
+            'startDate', 'endDate', 'today', 'now', 'defaultStart', 'defaultEnd', 'fullRangeStart', 'fullRangeEnd',
             'roomCategories', 'activeCategories', 'floors', 'lateCheckoutBookingMap'
         ));
     }
@@ -185,7 +196,7 @@ class RoomController extends Controller
             'room_number' => 'required|max:20|unique:rooms,room_number',
             'room_category_id' => ['required', Rule::exists('room_categories', 'id')->where(fn ($query) => $query->where('status', 'active'))],
             'floor_number' => 'nullable|integer|min:0',
-            'status' => 'required|in:available,cleaning,inspection,maintenance',
+            'status' => 'nullable|in:available,cleaning,maintenance',
             'note' => 'nullable|string|max:1000',
         ]);
 
@@ -197,7 +208,7 @@ class RoomController extends Controller
 
     public function show(Room $room)
     {
-        $room->load(['category', 'bookingRooms.booking.customer']);
+        $room->load(['category']);
         return view('admin.pages.rooms.show', compact('room'));
     }
 
@@ -207,9 +218,13 @@ class RoomController extends Controller
             'room_number' => 'required|max:20|unique:rooms,room_number,' . $room->id,
             'room_category_id' => ['required', Rule::exists('room_categories', 'id')->where(fn ($query) => $query->where('status', 'active'))],
             'floor_number' => 'nullable|integer|min:0',
-            'status' => 'required|in:available,reserved,occupied,cleaning,inspection,maintenance',
+            'status' => 'nullable|in:available,cleaning,maintenance',
             'note' => 'nullable|string|max:1000',
         ]);
+
+        // Phòng đang Đã giữ/Đang ở hiển thị trạng thái read-only nên form có thể
+        // không gửi status. Khi đó giữ nguyên trạng thái hệ thống thay vì làm fail validation.
+        $data['status'] = $data['status'] ?? $room->status;
 
         if ((int) $data['room_category_id'] !== (int) $room->room_category_id) {
             $hasActiveBooking = $room->bookingRooms()
@@ -226,6 +241,16 @@ class RoomController extends Controller
         } elseif (!in_array($room->status, ['reserved', 'occupied'], true)
             && in_array($data['status'], ['reserved', 'occupied'], true)) {
             return back()->withInput()->with('error', 'Trạng thái Đã giữ/Đang ở do hệ thống booking quản lý, không thể đặt thủ công.');
+        }
+
+        if (($data['status'] ?? null) === 'maintenance' && $room->status !== 'maintenance') {
+            $affectedBookings = $room->bookingRooms()
+                ->whereHas('booking', fn ($q) => $q->activeForOperations()->where('check_out_at', '>', now(self::TIMEZONE)))
+                ->with('booking:id,booking_code,status,check_in_at,check_out_at')
+                ->get()->pluck('booking')->filter()->unique('id')->values();
+            if ($affectedBookings->isNotEmpty()) {
+                return back()->withInput()->with('error', 'Không thể chuyển phòng ' . $room->room_number . ' sang Bảo trì vì còn ' . $affectedBookings->count() . ' booking bị ảnh hưởng (' . $affectedBookings->pluck('booking_code')->implode(', ') . '). Hãy xử lý đổi phòng/sự cố qua nghiệp vụ booking trước.');
+            }
         }
 
         // Trạng thái sửa thủ công không được giữ status_until cũ. Nếu một phòng
@@ -253,7 +278,7 @@ class RoomController extends Controller
     public function updateStatus(Request $request, Room $room)
     {
         $data = $request->validate([
-            'status' => 'required|in:available,reserved,occupied,cleaning,inspection,maintenance',
+            'status' => 'required|in:available,cleaning,maintenance',
             'status_from' => 'nullable|string',
             'status_until' => 'nullable|string',
             'note' => 'nullable|string|max:500',
@@ -266,6 +291,16 @@ class RoomController extends Controller
         if (!in_array($room->status, ['reserved', 'occupied'], true)
             && in_array($data['status'], ['reserved', 'occupied'], true)) {
             return back()->with('error', 'Trạng thái Đã giữ/Đang ở do hệ thống booking quản lý, không thể đặt thủ công.');
+        }
+
+        if (($data['status'] ?? null) === 'maintenance' && $room->status !== 'maintenance') {
+            $affectedBookings = $room->bookingRooms()
+                ->whereHas('booking', fn ($q) => $q->activeForOperations()->where('check_out_at', '>', now(self::TIMEZONE)))
+                ->with('booking:id,booking_code,status,check_in_at,check_out_at')
+                ->get()->pluck('booking')->filter()->unique('id')->values();
+            if ($affectedBookings->isNotEmpty()) {
+                return back()->with('error', 'Phòng ' . $room->room_number . ' còn ' . $affectedBookings->count() . ' booking bị ảnh hưởng. Không được chuyển Bảo trì trực tiếp; hãy xử lý đổi phòng/sự cố trước.');
+            }
         }
 
         $statusFromInput = trim((string) ($data['status_from'] ?? ''));
@@ -398,6 +433,32 @@ class RoomController extends Controller
             'booking' => $mainBooking,
             'bookings' => $matched->values(),
         ];
+    }
+
+
+    private function canViewBookingDetails(Booking $booking): bool
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return false;
+        }
+
+        if (in_array($user->role, ['super_admin', 'manager', 'receptionist_lead'], true)) {
+            return true;
+        }
+
+        if ($user->role !== 'receptionist') {
+            return false;
+        }
+
+        $assignments = $booking->relationLoaded('staffAssignments')
+            ? $booking->staffAssignments
+            : $booking->staffAssignments()->get();
+
+        return $assignments->contains(fn ($assignment) =>
+            (int) $assignment->staff_id === (int) $user->id
+            && in_array($assignment->status, ['active', 'done'], true)
+        );
     }
 
     private function safeDate(?string $value, Carbon $fallback): Carbon

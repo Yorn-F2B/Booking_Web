@@ -105,7 +105,7 @@ class BookingRoomController extends Controller
                     $selectedRooms = Room::query()
                         ->whereIn('id', $selectedRoomIds->all())
                         ->where('room_category_id', $lockedBooking->room_category_id)
-                        ->availableForPeriod(
+                        ->bookableForPeriod(
                             $lockedBooking->check_in_at,
                             $lockedBooking->check_out_at,
                             $lockedBooking->id
@@ -228,11 +228,7 @@ class BookingRoomController extends Controller
 
         try {
             if ($booking->booked_customer_email) {
-                Mail::to($booking->booked_customer_email)->send(new RoomSelectionResultMail(
-                    $booking,
-                    (bool) ($result['fulfilled'] ?? false),
-                    (string) ($data['handling_note'] ?? '')
-                ));
+                app(\App\Services\EmailDeliveryService::class)->sendOrFail($booking->booked_customer_email, new RoomSelectionResultMail($booking, (bool) ($result['fulfilled'] ?? false), (string) ($data['handling_note'] ?? '')), 'room_selection_result', $booking);
             }
         } catch (\Throwable $e) {
             Log::warning('Không gửi được email kết quả chọn phòng.', [
@@ -254,13 +250,18 @@ class BookingRoomController extends Controller
     public function markRoomSelectionRefundCompleted(Request $request, Booking $booking)
     {
         $this->guardCanAccessBooking($booking);
+        abort_unless(
+            in_array(Auth::user()?->role, ['manager', 'super_admin'], true),
+            403,
+            'Chỉ Quản lý hoặc Super Admin được xác nhận hoàn tiền cho khách.'
+        );
 
         if ($booking->refund_status !== 'pending' || (float) ($booking->refund_due_amount ?? 0) <= 0) {
             return back()->with('error', 'Booking này không có khoản hoàn cọc đang chờ xử lý.');
         }
 
-        if ($booking->room_selection_status !== 'fallback_declined' || $booking->status !== 'cancelled') {
-            return back()->with('error', 'Chỉ xác nhận hoàn tiền cho booking đã hủy do khách từ chối phòng dự phòng.');
+        if (!in_array($booking->status, ['cancelled', 'canceled'], true)) {
+            return back()->with('error', 'Chỉ xác nhận hoàn tiền cho booking đã hủy và đang có khoản hoàn chờ xử lý.');
         }
 
         $data = $request->validate([
@@ -278,18 +279,19 @@ class BookingRoomController extends Controller
                 'refund_status' => 'completed',
                 'refund_processed_at' => now('Asia/Ho_Chi_Minh'),
                 'refund_processed_by' => Auth::id(),
+                'refund_processed_note' => trim((string) ($data['refund_note'] ?? '')) ?: null,
             ])->save();
 
             $this->addBookingLog(
                 $locked,
-                'manual_room_refund_completed',
+                'refund_completed',
                 'Đã xác nhận hoàn lại ' . number_format((float) $locked->refund_due_amount, 0, ',', '.')
-                . 'đ cho khách do khách sạn không đáp ứng yêu cầu phòng.'
+                . 'đ cho khách.'
                 . (!empty($data['refund_note']) ? ' Ghi chú: ' . trim((string) $data['refund_note']) : '')
             );
         });
 
-        Realtime::booking($booking->fresh(), 'manual_room_refund_completed', false);
+        Realtime::booking($booking->fresh(), 'refund_completed', false);
 
         return back()->with('success', 'Đã đánh dấu khoản hoàn cọc là hoàn tất.');
     }
@@ -329,7 +331,7 @@ class BookingRoomController extends Controller
 
         $validRoomCount = Room::whereIn('id', $selectedRoomIds)
             ->where('room_category_id', $booking->room_category_id)
-            ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
+            ->bookableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
             ->count();
 
         if ($validRoomCount != $booking->room_quantity) {
@@ -367,7 +369,7 @@ class BookingRoomController extends Controller
 
             $selectedRooms = Room::whereIn('id', $selectedRoomIds)
                 ->where('room_category_id', $booking->room_category_id)
-                ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
+                ->bookableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id)
                 ->lockForUpdate()
                 ->get()
                 ->keyBy('id');
@@ -391,6 +393,7 @@ class BookingRoomController extends Controller
                         'room_id' => $newRoom->id,
                         'adult_count' => 0,
                         'child_count' => 0,
+                        'baby_count' => 0,
                         'price_at_booking' => $booking->roomCategory->price ?? 0,
                         'surcharge' => 0,
                         'surcharge_reason' => null,
@@ -424,6 +427,12 @@ class BookingRoomController extends Controller
                 // trước check-in để tránh ghi đè trạng thái vận hành hiện tại.
 
             }
+
+            // Nếu dữ liệu legacy thiếu booking_rooms hoặc vừa tạo thêm dòng khi gán,
+            // phân lại occupancy để không có phòng 0 người và tổng từng phòng luôn
+            // khớp adult/child/baby của booking.
+            app(\App\Services\BookingRoomOccupancyAllocator::class)
+                ->rebalanceBooking($booking->fresh(['bookingRooms.room.category']));
 
             // Gán được phòng không đồng nghĩa đã đủ cọc. Chỉ xác nhận booking
             // khi ledger thanh toán đã đạt mức cọc bắt buộc; nếu chưa thì giữ pending.
@@ -542,7 +551,7 @@ class BookingRoomController extends Controller
         $candidateQuery = Room::query()
             ->where('room_category_id', $oldRoom->room_category_id)
             ->whereNotIn('id', $assignedRoomIds)
-            ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id);
+            ->bookableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id);
 
         if ($booking->status === 'checked_in') {
             $candidateQuery->where('status', 'available');
@@ -707,7 +716,7 @@ class BookingRoomController extends Controller
                 ->whereKey((int) $data['new_room_id'])
                 ->where('room_category_id', $oldRoom->room_category_id)
                 ->whereNotIn('id', $currentAssignedIds)
-                ->availableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id);
+                ->bookableForPeriod($booking->check_in_at, $booking->check_out_at, $booking->id);
             if ($booking->status === 'checked_in') {
                 $newRoomQuery->where('status', 'available');
             }

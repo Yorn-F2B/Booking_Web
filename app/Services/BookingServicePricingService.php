@@ -325,15 +325,12 @@ class BookingServicePricingService
             return [1, max(1, (int) $item->people_snapshot)];
         }
 
-        $guestCount = $booking->guests->where('booking_room_id', $item->booking_room_id)->count();
-        if ($guestCount <= 0) {
-            $bookingRoom = $booking->bookingRooms->firstWhere('id', (int) $item->booking_room_id);
-            $guestCount = $bookingRoom
-                ? max(1, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count)
-                : 1;
-        }
+        $bookingRoom = $booking->bookingRooms->firstWhere('id', (int) $item->booking_room_id);
+        $guestCount = $bookingRoom
+            ? max(1, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0))
+            : 1;
 
-        return [1, max(1, $guestCount)];
+        return [1, $guestCount];
     }
 
     private function nightCountForItem(Booking $booking, BookingServiceItem $item, int $newNightCount): int

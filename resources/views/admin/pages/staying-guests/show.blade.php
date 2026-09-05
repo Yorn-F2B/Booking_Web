@@ -13,7 +13,7 @@
         <div class="admin-page-head d-flex justify-content-between align-items-start gap-3 flex-wrap">
             <div>
                 <h2>Chi tiết lưu trú</h2>
-                <p>Booking {{ $booking->booking_code }} · toàn bộ người thực tế đã được khai theo từng phòng</p>
+                <p>Booking {{ $booking->booking_code }} · số người thực tế lấy từ phân bổ từng phòng; hồ sơ bên dưới là người đại diện/giấy tờ đã khai</p>
             </div>
             <div class="d-flex gap-2">
                 <a href="{{ route('admin.bookings.show', $booking) }}#stayingGuestsPanel" class="btn btn-outline-primary">Quản lý hồ sơ khách</a>
@@ -27,7 +27,9 @@
                 <div class="d-grid gap-2 small">
                     <div class="d-flex justify-content-between"><span class="text-muted">Nhận thực tế</span><strong>{{ $booking->actual_check_in?->timezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') ?? '---' }}</strong></div>
                     <div class="d-flex justify-content-between"><span class="text-muted">Trả dự kiến</span><strong>{{ $booking->check_out_at?->timezone('Asia/Ho_Chi_Minh')->format('d/m/Y H:i') ?? '---' }}</strong></div>
-                    <div class="d-flex justify-content-between"><span class="text-muted">Khách hiện tại</span><strong>{{ $booking->guests->where('status', 'checked_in')->count() }} người</strong></div>
+                    <div class="d-flex justify-content-between"><span class="text-muted">Khách thực tế</span><strong>{{ (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0) }} người</strong></div>
+                    <div class="d-flex justify-content-between"><span class="text-muted">Cơ cấu</span><strong>{{ (int) $booking->adult_count }} NL / {{ (int) $booking->child_count }} TE / {{ (int) ($booking->baby_count ?? 0) }} EB</strong></div>
+                    <div class="d-flex justify-content-between"><span class="text-muted">Hồ sơ đã khai</span><strong>{{ $booking->guests->count() }} hồ sơ</strong></div>
                 </div>
             </div></div>
             <div class="col-lg-4"><div class="settings-section h-100">
@@ -45,7 +47,11 @@
                 <h5 class="fw-bold mb-3">Phòng đang giữ</h5>
                 <div class="d-flex flex-wrap gap-2">
                     @foreach($booking->bookingRooms as $bookingRoom)
-                        <span class="badge text-bg-light border p-2">Phòng {{ $bookingRoom->room?->room_number ?? '---' }} · {{ $booking->guests->where('booking_room_id', $bookingRoom->id)->count() }} khách</span>
+                        @php
+                            $roomOccupancy = (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0);
+                            $roomProfileCount = $booking->guests->where('booking_room_id', $bookingRoom->id)->count();
+                        @endphp
+                        <span class="badge text-bg-light border p-2">Phòng {{ $bookingRoom->room?->room_number ?? '---' }} · {{ $roomOccupancy }} khách thực tế · {{ $roomProfileCount }} hồ sơ</span>
                     @endforeach
                 </div>
             </div></div>
@@ -61,7 +67,10 @@
                         <h5 class="fw-bold mb-1">Phòng {{ $bookingRoom->room?->room_number ?? '---' }}</h5>
                         <div class="text-muted small">{{ $bookingRoom->room?->category?->name ?? '---' }}</div>
                     </div>
-                    <span class="badge text-bg-primary">{{ $roomGuests->count() }} khách</span>
+                    @php
+                        $roomOccupancy = (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0);
+                    @endphp
+                    <span class="badge text-bg-primary">{{ $roomOccupancy }} khách thực tế · {{ $roomGuests->count() }} hồ sơ</span>
                 </div>
 
                 <div class="table-responsive">
@@ -80,7 +89,7 @@
                                     <td>{{ ['registered'=>'Chưa đến','checked_in'=>'Đang lưu trú','checked_out'=>'Đã rời đi'][$guest->status] ?? $guest->status }}</td>
                                 </tr>
                             @empty
-                                <tr><td colspan="6" class="text-center text-muted py-3">Phòng này chưa có khách thực tế nhận phòng.</td></tr>
+                                <tr><td colspan="6" class="text-center text-muted py-3">Phòng này chưa có hồ sơ đại diện/giấy tờ nào được khai.</td></tr>
                             @endforelse
                         </tbody>
                     </table>

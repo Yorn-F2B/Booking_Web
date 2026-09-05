@@ -38,7 +38,7 @@
                     <form method="GET" action="<?php echo e(route('admin.room-availability.index')); ?>">
                         <div class="row g-3 align-items-end">
 
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 <label class="form-label">Ngày nhận phòng</label>
                                 <input type="text"
                                     name="check_in_date"
@@ -60,7 +60,7 @@
                                     required>
                             </div>
 
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 <label class="form-label">Ngày trả phòng</label>
                                 <input type="text"
                                     name="check_out_date"
@@ -82,10 +82,16 @@
                                     required>
                             </div>
 
+                            <div class="col-md-1">
+                                <label class="form-label">Người lớn</label>
+                                <input type="number" name="adult_count" class="form-control" min="1" max="60" value="<?php echo e(old('adult_count', $searchData['adult_count'] ?? 2)); ?>" required>
+                            </div>
+                            <div class="col-md-1">
+                                <label class="form-label">Trẻ em</label>
+                                <input type="number" name="child_count" class="form-control" min="0" max="60" value="<?php echo e(old('child_count', $searchData['child_count'] ?? 0)); ?>" required>
+                            </div>
                             <div class="col-md-2">
-                                <button class="btn btn-primary w-100">
-                                    Kiểm tra
-                                </button>
+                                <button class="btn btn-primary w-100">Kiểm tra</button>
                             </div>
                         </div>
                     </form>
@@ -134,6 +140,34 @@
                         </div>
                     </div>
                 </div>
+
+                <?php if(($searchData['recommendations'] ?? collect())->isNotEmpty()): ?>
+                    <div class="card shadow-sm border-0 mb-4"><div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <div><h4 class="mb-1">Phương án cho <?php echo e($searchData['adult_count'] + $searchData['child_count']); ?> khách</h4><div class="small text-muted">Chỉ gợi ý phương án còn đủ phòng thật trong toàn bộ khoảng đã tra cứu.</div></div>
+                        </div>
+                        <div class="row g-3">
+                            <?php $__currentLoopData = $searchData['recommendations']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $option): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                <?php
+                                    $recommendedCreateParams = [
+                                        'room_category_id'=>$option['room_category_id'], 'room_quantity'=>$option['room_quantity'],
+                                        'adult_count'=>$searchData['adult_count'], 'child_count'=>$searchData['child_count'],
+                                        'booking_type'=>$searchData['quick_booking_type'] ?? 'overnight', 'booking_mode'=>$searchData['quick_booking_mode'] ?? 'advance',
+                                        'check_in_date'=>$searchData['check_in_date'], 'check_in_time'=>$searchData['check_in_time'],
+                                        'check_out_date'=>$searchData['check_out_date'], 'check_out_time'=>$searchData['check_out_time'],
+                                    ];
+                                ?>
+                                <div class="col-lg-4"><div class="border rounded-3 p-3 h-100">
+                                    <div class="d-flex gap-1 flex-wrap mb-2"><?php $__currentLoopData = $option['labels']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $label): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?><span class="badge bg-warning-subtle text-dark"><?php echo e($label); ?></span><?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?></div>
+                                    <div class="fw-bold fs-5"><?php echo e($option['category_name']); ?> × <?php echo e($option['room_quantity']); ?></div>
+                                    <div class="small text-muted">Còn <?php echo e($option['available_rooms']); ?> phòng phù hợp · dự kiến dùng <?php echo e(implode(', ', $option['room_numbers'])); ?></div>
+                                    <div class="fw-bold text-primary mt-2"><?php echo e(number_format($option['estimated_room_total'],0,',','.')); ?>đ tiền phòng dự kiến</div>
+                                    <?php if($searchData['quick_booking_available'] ?? true): ?><a href="<?php echo e(route('admin.bookings.create',$recommendedCreateParams)); ?>" class="btn btn-primary w-100 mt-3">Tạo booking theo phương án</a><?php endif; ?>
+                                </div></div>
+                            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                        </div>
+                    </div></div>
+                <?php endif; ?>
 
                 <?php if($roomCategories->count()): ?>
                     <div class="row g-3">

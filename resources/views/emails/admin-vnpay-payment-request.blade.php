@@ -3,8 +3,7 @@
         ? $booking->booked_customer_name
         : 'Quý khách';
 
-    $depositPercent = (float) app(\App\Services\HotelPolicyService::class)
-        ->forBooking($booking, 'payment.deposit_percent', 30);
+    $depositPercent = (float) app(\App\Services\HotelPolicyService::class)->depositRate($booking) * 100;
     $depositPercentLabel = rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.') . '%';
     $paymentTypeLabel = $payment->payment_type === 'deposit_30'
         ? 'Thanh toán cọc giữ phòng ' . $depositPercentLabel

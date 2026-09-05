@@ -31,6 +31,10 @@
             'child_count',
             request('child_count', 0)
         );
+        $homeSelectedBabyCount = old(
+            'baby_count',
+            request('baby_count', 0)
+        );
     @endphp
     <!-- Hero + Booking Form -->
     <section class="hero-section position-relative">
@@ -94,40 +98,25 @@
 
                                 <div class="row g-2 mb-3">
 
-                                    <div class="col-6">
+                                    <div class="col-4">
                                         <label class="form-label">
                                             Người lớn
                                         </label>
 
-                                        <select name="adult_count" id="home_adult_count" class="form-select" required>
-                                            <option value="" disabled {{ empty($homeSelectedAdultCount) ? 'selected' : '' }}>
-                                                Số người lớn
-                                            </option>
-
-                                            @for ($i = 1; $i <= $maxAdultCapacity; $i++)
-                                                <option value="{{ $i }}" {{ (string) $homeSelectedAdultCount === (string) $i ? 'selected' : '' }}>
-                                                    {{ $i }}
-                                                </option>
-                                            @endfor
-                                        </select>
+                                        <input type="number" name="adult_count" id="home_adult_count" class="form-control" min="1" max="{{ $maxAdultCapacity }}" value="{{ $homeSelectedAdultCount ?: 2 }}" required>
                                     </div>
 
-                                    <div class="col-6">
+                                    <div class="col-4">
                                         <label class="form-label">
                                             Trẻ em
                                         </label>
 
-                                        <select name="child_count" id="home_child_count" class="form-select" required>
-                                            <option value="" disabled {{ $homeSelectedChildCount === '' || $homeSelectedChildCount === null ? 'selected' : '' }}>
-                                                Số trẻ em
-                                            </option>
+                                        <input type="number" name="child_count" id="home_child_count" class="form-control" min="0" max="{{ $maxChildCapacity }}" value="{{ $homeSelectedChildCount ?? 0 }}" required>
+                                    </div>
 
-                                            @for ($i = 0; $i <= $maxChildCapacity; $i++)
-                                                <option value="{{ $i }}" {{ (string) $homeSelectedChildCount === (string) $i ? 'selected' : '' }}>
-                                                    {{ $i }}
-                                                </option>
-                                            @endfor
-                                        </select>
+                                    <div class="col-4">
+                                        <label class="form-label">Em bé</label>
+                                        <input type="number" name="baby_count" id="home_baby_count" class="form-control" min="0" max="{{ $maxChildCapacity }}" value="{{ $homeSelectedBabyCount ?? 0 }}" required>
                                     </div>
 
 
@@ -683,40 +672,7 @@
                 }
             });
 
-             const categorySelect = document.getElementById('home_room_category_id');
-        const adultSelect = document.getElementById('home_adult_count');
-        const childSelect = document.getElementById('home_child_count');
-
-        if (!categorySelect || !adultSelect || !childSelect) {
-            return;
-        }
-
-        function applyCapacityFromSelectedCategory() {
-            const selectedOption = categorySelect.options[categorySelect.selectedIndex];
-
-            if (!selectedOption || !selectedOption.value) {
-                adultSelect.value = '';
-                childSelect.value = '';
-                adultSelect.disabled = false;
-                childSelect.disabled = false;
-                return;
-            }
-
-            const adultCapacity = selectedOption.dataset.adultCapacity || '';
-            const childCapacity = selectedOption.dataset.childCapacity || '0';
-
-            adultSelect.value = adultCapacity;
-            childSelect.value = childCapacity;
-
-            adultSelect.disabled = false;
-            childSelect.disabled = false;
-        }
-
-        categorySelect.addEventListener('change', applyCapacityFromSelectedCategory);
-
-        if (categorySelect.value) {
-            applyCapacityFromSelectedCategory();
-        }
+            // Chọn hạng phòng chỉ lọc kết quả; không thay đổi số khách đã nhập.
         });
     </script>
 @endsection

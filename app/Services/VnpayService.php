@@ -101,9 +101,13 @@ class VnpayService
 
     private function makeOrderInfo(Booking $booking, BookingPayment $payment): string
     {
-        $paymentTypeLabel = $payment->payment_type === 'deposit_30'
-            ? 'Coc 30 phan tram'
-            : 'Thanh toan con lai';
+        if ($payment->payment_type === 'deposit_30') {
+            $depositPercent = app(HotelPolicyService::class)
+                ->depositPercentForRooms(max(1, (int) $booking->room_quantity), $booking);
+            $paymentTypeLabel = 'Coc ' . rtrim(rtrim(number_format($depositPercent, 2, '.', ''), '0'), '.') . ' phan tram';
+        } else {
+            $paymentTypeLabel = 'Thanh toan con lai';
+        }
 
         $orderInfo = $paymentTypeLabel
             . ' booking '

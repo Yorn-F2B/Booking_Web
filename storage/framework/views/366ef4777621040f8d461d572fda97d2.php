@@ -133,6 +133,15 @@
         ? \App\Models\CustomerRequest::where('type', 'late_arrival')->where('status', 'pending')->count()
         : 0;
 
+
+    $unreadOperationalNotifications = \App\Models\OperationalNotification::query()
+        ->visibleTo($currentUser)
+        ->whereNull('read_at')
+        ->count();
+    // Badge Trung tâm công việc phải dùng đúng cùng tập tiêu chí với trang công việc,
+    // không chỉ cộng vài badge menu con rồi bỏ sót payment/email/khách quá giờ...
+    $workCenterCount = app(\App\Services\OperationCenterService::class)->taskCount($currentUser);
+
     $operationsOpen = request()->routeIs([
         'admin.rooms.*',
         'admin.room-availability.*',
@@ -287,6 +296,15 @@
                 Tổng quan
             </a>
         <?php endif; ?>
+
+        <a href="<?php echo e(route('admin.operation-center.index')); ?>"
+            class="admin-nav-link <?php echo e(request()->routeIs('admin.operation-center.*','admin.notifications.*') ? 'active' : ''); ?>">
+            <i class="bx bx-bell"></i>
+            Trung tâm công việc
+            <?php if($workCenterCount > 0): ?>
+                <span class="admin-menu-count"><?php echo e($workCenterCount > 99 ? '99+' : $workCenterCount); ?></span>
+            <?php endif; ?>
+        </a>
 
         <?php if($canUseFrontDesk): ?>
             <details class="admin-nav-group" open>
@@ -552,6 +570,12 @@
         <strong>Quản trị khách sạn</strong>
     </div>
     <div class="admin-topbar-account">
+        <a href="<?php echo e(route('admin.operation-center.index')); ?>" class="position-relative text-decoration-none text-dark me-2" title="Trung tâm công việc" style="font-size:24px;line-height:1">
+            <i class="bx bx-bell"></i>
+            <?php if($unreadOperationalNotifications > 0): ?>
+                <span style="position:absolute;right:1px;top:1px;width:9px;height:9px;background:#dc3545;border:2px solid #fff;border-radius:999px"></span>
+            <?php endif; ?>
+        </a>
         <img src="<?php echo e($topbarAvatarUrl); ?>" class="admin-topbar-avatar" alt="<?php echo e(auth()->user()->name); ?>">
         <div class="admin-topbar-user">
             <strong><?php echo e(auth()->user()->name); ?></strong>
