@@ -123,9 +123,10 @@ class BookingLifecycleController extends Controller
             }
         }
 
-        // Booking vẫn có một đại diện đoàn để làm đầu mối liên hệ chung.
-        if ($booking->guests->where('is_booking_representative', true)->count() !== 1) {
-            return back()->withInput()->with('error', 'Chưa thể check-in: cần chọn đúng một người đại diện đoàn trong các hồ sơ đã khai.');
+        // Chỉ booking nhiều phòng mới cần thêm một đại diện chung cho cả đoàn.
+        // Người này đồng thời là đại diện của một trong các phòng, không tạo thêm hồ sơ riêng.
+        if ($requiredRoomCount > 1 && $booking->guests->where('is_booking_representative', true)->count() !== 1) {
+            return back()->withInput()->with('error', 'Chưa thể check-in: booking nhiều phòng cần chọn đúng một người đại diện cả đoàn trong các đại diện phòng.');
         }
 
         $perRoomOverCapacity = false;
@@ -382,7 +383,7 @@ class BookingLifecycleController extends Controller
                 $newCheckOutAt
             );
 
-            session()->put('extend_stay_preview', [
+            session()->put('extend_stay_preview.' . $booking->id, [
                 'status' => $analysis['status'],
                 'title' => $analysis['title'],
                 'message' => $analysis['message'],
@@ -412,7 +413,7 @@ class BookingLifecycleController extends Controller
     {
         $this->guardCanAccessBooking($booking);
 
-        session()->forget('extend_stay_preview');
+        session()->forget('extend_stay_preview.' . $booking->id);
         session()->forget('_old_input');
 
         return redirect()->route('admin.bookings.show', $booking->id);
@@ -666,6 +667,11 @@ class BookingLifecycleController extends Controller
             );
 
             DB::commit();
+
+            // Bản xem trước chỉ có hiệu lực cho đúng booking và đúng lần gia hạn.
+            // Xóa ngay sau khi giao dịch thành công để không còn hiện lại hoặc
+            // vô tình xuất hiện khi mở một booking khác trong cùng phiên đăng nhập.
+            session()->forget('extend_stay_preview.' . $booking->id);
 
             $successMessage = 'Gia hạn lưu trú thành công. '
                 . $extendPolicyText
@@ -1023,6 +1029,9 @@ class BookingLifecycleController extends Controller
         $data = $request->validate([
             'additional_room_category_id' => 'required|exists:room_categories,id',
             'additional_room_quantity' => 'required|integer|min:1',
+            'room_assignment_mode' => 'nullable|in:auto,manual',
+            'target_room_ids' => 'nullable|array',
+            'target_room_ids.*' => 'integer|distinct|exists:rooms,id',
             'prefer_near_current_rooms' => 'nullable|boolean',
             'add_room_reason' => 'nullable|string|max:1000',
             'confirm_operation' => 'nullable|boolean',
@@ -1452,7 +1461,9 @@ class BookingLifecycleController extends Controller
             $booking->check_in_at,
             $booking->check_out_at,
             $data['prefer_near_current_rooms'] ?? false,
-            $booking
+            $booking,
+            (string) ($data['room_assignment_mode'] ?? 'auto'),
+            collect($data['target_room_ids'] ?? [])->map(fn ($id) => (int) $id)->all()
         );
 
         if ($rooms->count() < $quantity) {
@@ -1529,18 +1540,16 @@ class BookingLifecycleController extends Controller
             app(\App\Services\RoomPreparationService::class)
                 ->flagPriorityIfNeeded($booking, $room, 'lễ tân thêm phòng vào booking');
 
-            if ($booking->status === 'checked_in') {
-                if ($room->status !== 'available') {
-                    throw new \Exception('Phòng ' . $room->room_number . ' chưa sẵn sàng để nhận khách ngay.');
-                }
+            if ($booking->status === 'checked_in' && $room->status === 'available') {
                 $room->update([
                     'status' => 'occupied',
                     'status_from' => now('Asia/Ho_Chi_Minh'),
                     'status_until' => null,
                 ]);
             }
-            // Booking chưa check-in chỉ thêm lịch giữ trong booking_rooms. Không đổi
-            // room.status vì phòng có thể đang occupied/cleaning ở thời điểm hiện tại.
+            // Nếu phòng đang dọn, vẫn được gán vào booking nhưng giữ nguyên trạng thái
+            // cleaning. RoomPreparationService ở trên sẽ tạo yêu cầu dọn ưu tiên; chỉ
+            // khi buồng phòng hoàn tất thì phòng mới được phép nhận khách.
 
         }
 
@@ -2233,35 +2242,62 @@ class BookingLifecycleController extends Controller
         $checkInAt,
         $checkOutAt,
         bool $preferNearCurrentRooms = false,
-        ?Booking $booking = null
+        ?Booking $booking = null,
+        string $assignmentMode = 'auto',
+        array $targetRoomIds = []
     ) {
-        $query = Room::where('room_category_id', $roomCategoryId)
-            ->bookableForPeriod(
+        $quantity = max(1, $quantity);
+        if (!in_array($assignmentMode, ['auto', 'manual'], true)) {
+            throw new \Exception('Cách chọn phòng không hợp lệ.');
+        }
+
+        $assignedRoomIds = $booking
+            ? $booking->bookingRooms->pluck('room_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all()
+            : [];
+
+        // Luồng thêm phòng chỉ được phép lấy phòng Sẵn sàng hoặc Đang dọn.
+        // Không tính phòng Đã đặt/Đang ở/Bảo trì/Chờ kiểm tra dù chúng có thể rảnh
+        // ở một thời điểm khác. Cleaning được phép chọn để lễ tân giữ trước và hệ
+        // thống tạo việc dọn ưu tiên.
+        $query = Room::query()
+            ->where('room_category_id', $roomCategoryId)
+            ->when($assignedRoomIds !== [], fn ($q) => $q->whereNotIn('id', $assignedRoomIds))
+            ->availableForPeriod(
                 $checkInAt,
                 $checkOutAt,
-                $booking?->id
+                $booking?->id,
+                (int) ($booking?->cleaning_buffer_minutes ?? 0),
+                ['available', 'cleaning'],
+                true
             );
 
-        // Booking đang ở cần phòng có thể nhận khách ngay. Không lấy phòng đang dọn,
-        // kiểm tra hoặc chỉ đang ở trạng thái giữ cho một nghiệp vụ khác.
-        if ($booking?->status === 'checked_in') {
-            $query->where('status', 'available');
-        }
+        $selectedIds = collect($targetRoomIds)
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
 
-        // availableForPeriod bỏ qua booking hiện tại để phục vụ đổi lịch/đổi phòng,
-        // vì vậy khi THÊM phòng phải loại rõ các phòng đã nằm trong booking này.
-        if ($booking) {
-            $assignedRoomIds = $booking->bookingRooms
-                ->pluck('room_id')
-                ->filter()
-                ->map(fn ($roomId) => (int) $roomId)
-                ->values()
-                ->all();
-
-            if ($assignedRoomIds !== []) {
-                $query->whereNotIn('id', $assignedRoomIds);
+        if ($assignmentMode === 'manual') {
+            if ($selectedIds->count() !== $quantity) {
+                throw new \Exception('Vui lòng chọn đúng ' . $quantity . ' phòng cụ thể.');
             }
+
+            $rooms = (clone $query)
+                ->whereIn('id', $selectedIds->all())
+                ->lockForUpdate()
+                ->get()
+                ->keyBy(fn ($room) => (int) $room->id);
+
+            if ($rooms->count() !== $quantity) {
+                throw new \Exception('Có phòng đã chọn không còn hợp lệ: chỉ phòng Sẵn sàng hoặc Đang dọn và không xung đột booking mới được dùng.');
+            }
+
+            return $selectedIds->map(fn ($id) => $rooms->get((int) $id))->values();
         }
+
+        // Hệ thống luôn ưu tiên phòng sẵn sàng trước. Chỉ khi không đủ mới lấy
+        // phòng đang dọn; các phòng cleaning được chọn sẽ phát sinh task dọn nhanh.
+        $query->orderByRaw("CASE rooms.status WHEN 'available' THEN 0 WHEN 'cleaning' THEN 1 ELSE 9 END");
 
         if ($preferNearCurrentRooms && $booking) {
             $currentFloors = $booking->bookingRooms
@@ -2270,16 +2306,12 @@ class BookingLifecycleController extends Controller
                 ->unique()
                 ->values();
 
-            if ($currentFloors->count() > 0) {
-                $floor = (int) $currentFloors->first();
-
-                $query->orderByRaw('ABS(floor_number - ?) ASC', [$floor]);
+            if ($currentFloors->isNotEmpty()) {
+                $query->orderByRaw('ABS(floor_number - ?) ASC', [(int) $currentFloors->first()]);
             }
         }
 
         return $query
-            // Các thao tác gọi hàm này đều chạy trong transaction (kể cả preview),
-            // khóa phòng được chọn để hai lễ tân không thể lấy cùng một phòng đồng thời.
             ->lockForUpdate()
             ->orderBy('floor_number')
             ->orderBy('room_number')

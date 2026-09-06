@@ -56,6 +56,7 @@ class BookingCreateController extends Controller
             ->orderByRaw("FIELD(promotion_type, 'normal_discount', 'event_discount', 'conditional_discount', 'support_discount')")
             ->orderBy('code')
             ->get();
+        $availablePromotionGroups = $availablePromotions->groupBy('promotion_type');
 
         $queryMode = (string) $request->query('booking_mode', 'advance');
         $queryType = (string) $request->query('booking_type', 'overnight');
@@ -96,6 +97,7 @@ class BookingCreateController extends Controller
             'roomCategories',
             'services',
             'availablePromotions',
+            'availablePromotionGroups',
             'bookingPrefill',
             'promotionTypeDisplayConfig'
         ));
@@ -166,6 +168,14 @@ class BookingCreateController extends Controller
 
     public function store(Request $request)
     {
+        if ($request->input('booking_mode') === 'walk_in') {
+            $walkInNow = now('Asia/Ho_Chi_Minh')->startOfMinute();
+            $request->merge([
+                'check_in_date' => $walkInNow->toDateString(),
+                'check_in_time' => $walkInNow->format('H:i'),
+            ]);
+        }
+
         $data = $request->validate([
             'customer_name' => 'required|string|max:150',
             'customer_phone' => 'nullable|string|max:20',
@@ -179,7 +189,7 @@ class BookingCreateController extends Controller
             'booking_type' => 'required|in:overnight,hourly',
             'room_category_id' => 'required|exists:room_categories,id',
             'check_in_date' => 'required|date|after_or_equal:today',
-            'check_out_date' => 'nullable|date',
+            'check_out_date' => 'nullable|date|after_or_equal:check_in_date',
             'check_in_time' => 'nullable|date_format:H:i',
             'check_out_time' => 'nullable|date_format:H:i',
             'allow_late_checkout' => 'nullable|boolean',
@@ -216,6 +226,8 @@ class BookingCreateController extends Controller
             'customer_cccd.regex' => 'CCCD phải gồm đúng 12 chữ số.',
             'customer_birthday.required' => 'Vui lòng nhập ngày sinh người đứng tên booking.',
             'customer_birthday.before_or_equal' => 'Người đứng tên booking phải đủ ' . max(0, (int) app(HotelPolicyService::class)->get('booking.min_age', 18)) . ' tuổi.',
+            'customer_email.required_if' => 'Thanh toán VNPay cần email khách để gửi đường dẫn thanh toán.',
+            'customer_email.email' => 'Email khách không đúng định dạng.',
             'booking_mode.required' => 'Vui lòng chọn hình thức tạo booking.',
             'booking_mode.in' => 'Hình thức tạo booking không hợp lệ.',
             'booking_type.required' => 'Vui lòng chọn loại lưu trú.',
@@ -224,6 +236,7 @@ class BookingCreateController extends Controller
             'check_in_date.required' => 'Vui lòng chọn ngày nhận phòng.',
             'check_in_date.after_or_equal' => 'Ngày nhận phòng không được nhỏ hơn hôm nay.',
             'check_out_date.date' => 'Ngày trả phòng không hợp lệ.',
+            'check_out_date.after_or_equal' => 'Ngày trả phòng không được trước ngày nhận phòng.',
             'check_in_time.date_format' => 'Giờ nhận phòng phải đúng định dạng 24 giờ, ví dụ 13:30 hoặc 14:00.',
             'check_out_time.date_format' => 'Giờ trả phòng phải đúng định dạng 24 giờ, ví dụ 16:30 hoặc 18:00.',
             'adult_count.required' => 'Vui lòng nhập số người lớn.',
@@ -1063,6 +1076,14 @@ class BookingCreateController extends Controller
         $policyFeeNote = null;
         $policyExtraPercent = 0;
 
+        // Booking "ở ngay" luôn bắt đầu tại thời điểm thực tế của máy chủ.
+        // Không tin ngày/giờ nhận do client gửi lên vì lễ tân không được chọn lùi/tiến thời gian nhận.
+        if ($bookingMode === 'walk_in') {
+            $walkInNow = now('Asia/Ho_Chi_Minh')->startOfMinute();
+            $data['check_in_date'] = $walkInNow->toDateString();
+            $data['check_in_time'] = $walkInNow->format('H:i');
+        }
+
         if ($bookingMode === 'advance') {
             $bookingType = 'overnight';
 
@@ -1115,6 +1136,9 @@ class BookingCreateController extends Controller
                 throw new \Exception('Giờ ra phải khác giờ vào.');
             }
 
+            if ($checkOutAt->lessThan($checkInAt)) {
+                throw new \Exception('Thời gian trả phòng phải sau thời gian nhận phòng. Nếu ở qua ngày, hãy chọn đúng ngày trả phòng kế tiếp.');
+            }
 
             $nowVn = now('Asia/Ho_Chi_Minh');
 
@@ -1966,7 +1990,7 @@ class BookingCreateController extends Controller
             'booking_type' => 'required|in:overnight,hourly',
             'room_category_id' => 'required|exists:room_categories,id',
             'check_in_date' => 'required|date|after_or_equal:today',
-            'check_out_date' => 'nullable|date',
+            'check_out_date' => 'nullable|date|after_or_equal:check_in_date',
             'check_in_time' => 'nullable|date_format:H:i',
             'check_out_time' => 'nullable|date_format:H:i',
             'allow_late_checkout' => 'nullable|boolean',
@@ -2548,10 +2572,17 @@ class BookingCreateController extends Controller
             'check_out_date' => 'required|date',
             'check_in_time' => 'nullable|date_format:H:i',
             'check_out_time' => 'nullable|date_format:H:i',
+            'room_quantity' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)),
         ]);
 
         $bookingMode = $data['booking_mode'];
         $bookingType = $bookingMode === 'advance' ? 'overnight' : $data['booking_type'];
+
+        if ($bookingMode === 'walk_in') {
+            $walkInNow = now('Asia/Ho_Chi_Minh')->startOfMinute();
+            $data['check_in_date'] = $walkInNow->toDateString();
+            $data['check_in_time'] = $walkInNow->format('H:i');
+        }
 
         if ($bookingMode === 'advance') {
             $checkInAt = Carbon::parse($data['check_in_date'] . ' ' . $this->standardCheckInTime(), 'Asia/Ho_Chi_Minh');
@@ -2573,7 +2604,35 @@ class BookingCreateController extends Controller
         }
 
         if ($checkOutAt->lessThanOrEqualTo($checkInAt)) {
-            return response()->json(['categories' => []]);
+            return response()->json([
+                'categories' => [],
+                'message' => 'Thời gian trả phòng phải sau thời gian nhận phòng.',
+            ]);
+        }
+
+        $normalizedBookingType = $bookingType;
+        if ($bookingMode === 'walk_in' && $bookingType === 'hourly') {
+            $overnightThresholdMinutes = max(60, (int) app(HotelPolicyService::class)->get('stay.short_stay_to_overnight_hours', 12) * 60);
+
+            if ($checkInAt->diffInMinutes($checkOutAt) > $overnightThresholdMinutes) {
+                // Đồng bộ với resolveBookingPeriod(): ca ở ngay kéo dài quá ngưỡng
+                // chính sách là booking qua đêm. Tồn phòng phải kiểm tra theo đúng
+                // khoảng qua đêm (giờ trả tiêu chuẩn), không trả danh sách rỗng giả.
+                $normalizedBookingType = 'overnight';
+                $bookingType = 'overnight';
+                $checkOutAt = Carbon::parse(
+                    $data['check_out_date'] . ' ' . $this->standardCheckOutTime(),
+                    'Asia/Ho_Chi_Minh'
+                );
+
+                if ($checkOutAt->lessThanOrEqualTo($checkInAt)) {
+                    return response()->json([
+                        'categories' => [],
+                        'normalized_booking_type' => $normalizedBookingType,
+                        'message' => 'Ngày trả phòng phải sau ngày nhận phòng.',
+                    ]);
+                }
+            }
         }
 
         $categories = RoomCategory::where('status', 'active')
@@ -2589,13 +2648,14 @@ class BookingCreateController extends Controller
                     'available_count' => $availableCount,
                 ];
             })
-            ->filter(fn (array $category) => $category['available_count'] > 0)
+            ->filter(fn (array $category) => $category['available_count'] >= (int) $data['room_quantity'])
             ->values();
 
         return response()->json([
             'categories' => $categories,
             'check_in_at' => $checkInAt->format('d/m/Y H:i'),
             'check_out_at' => $checkOutAt->format('d/m/Y H:i'),
+            'normalized_booking_type' => $normalizedBookingType,
         ]);
     }
 
@@ -2607,7 +2667,7 @@ class BookingCreateController extends Controller
             'room_category_id' => 'required|exists:room_categories,id',
             'room_quantity' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)),
             'check_in_date' => 'required|date|after_or_equal:today',
-            'check_out_date' => 'nullable|date',
+            'check_out_date' => 'nullable|date|after_or_equal:check_in_date',
             'check_in_time' => 'nullable|date_format:H:i',
             'check_out_time' => 'nullable|date_format:H:i',
         ]);
@@ -2636,6 +2696,17 @@ class BookingCreateController extends Controller
             ])
             ->values();
 
+        if ($rooms->count() < (int) $data['room_quantity']) {
+            return response()->json([
+                'rooms' => [],
+                'required_quantity' => (int) $data['room_quantity'],
+                'available_quantity' => $rooms->count(),
+                'check_in_at' => $period['check_in_at']->format('d/m/Y H:i'),
+                'check_out_at' => $period['check_out_at']->format('d/m/Y H:i'),
+                'message' => 'Không còn đủ số phòng cần chọn trong toàn bộ thời gian lưu trú.',
+            ]);
+        }
+
         return response()->json([
             'rooms' => $rooms,
             'required_quantity' => (int) $data['room_quantity'],
@@ -2657,10 +2728,11 @@ class BookingCreateController extends Controller
 
         $roomCategory = RoomCategory::findOrFail($data['room_category_id']);
 
-        $checkInAt = Carbon::parse(
-            $data['check_in_date'] . ' ' . $data['check_in_time'] . ':00',
-            'Asia/Ho_Chi_Minh'
-        );
+        $walkInNow = now('Asia/Ho_Chi_Minh')->startOfMinute();
+        $data['check_in_date'] = $walkInNow->toDateString();
+        $data['check_in_time'] = $walkInNow->format('H:i');
+
+        $checkInAt = $walkInNow->copy();
 
         $checkOutAt = Carbon::parse(
             $data['check_out_date'] . ' ' . $data['check_out_time'] . ':00',
@@ -2691,10 +2763,12 @@ class BookingCreateController extends Controller
             ]);
         }
 
-        if ($durationMinutes > 24 * 60) {
+        $overnightThresholdMinutes = max(60, (int) app(HotelPolicyService::class)->get('stay.short_stay_to_overnight_hours', 12) * 60);
+        if ($durationMinutes > $overnightThresholdMinutes) {
             return response()->json([
-                'blocked' => true,
-                'message' => 'Booking theo giờ không được vượt quá 24 giờ. Nếu khách ở lâu hơn, hãy chọn qua đêm.',
+                'blocked' => false,
+                'switch_to_overnight' => true,
+                'message' => 'Thời gian lưu trú vượt ' . (int) ceil($overnightThresholdMinutes / 60) . ' giờ nên hệ thống chuyển sang qua đêm.',
             ]);
         }
 

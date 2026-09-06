@@ -39,7 +39,10 @@ use App\Models\StaffRoomAssignment;
 use App\Models\User;
 use App\Observers\AppRealtimeObserver;
 use App\Observers\BookingObserver;
+use App\Observers\BookingRoomChangeObserver;
 use App\Observers\ChatMessageObserver;
+use App\Observers\CustomerRequestObserver;
+use App\Observers\RoomIssueRequestObserver;
 use App\Observers\RoomInspectionObserver;
 use App\Observers\RoomObserver;
 use App\Services\HotelPolicyService;
@@ -60,9 +63,12 @@ class AppServiceProvider extends ServiceProvider
         Paginator::useBootstrapFive();
 
         Booking::observe(BookingObserver::class);
+        BookingRoomChange::observe(BookingRoomChangeObserver::class);
         Room::observe(RoomObserver::class);
         RoomInspection::observe(RoomInspectionObserver::class);
         ChatMessage::observe(ChatMessageObserver::class);
+        CustomerRequest::observe(CustomerRequestObserver::class);
+        RoomIssueRequest::observe(RoomIssueRequestObserver::class);
 
         foreach ([
             Amenity::class,

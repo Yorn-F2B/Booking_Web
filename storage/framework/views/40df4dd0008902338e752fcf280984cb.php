@@ -826,11 +826,20 @@
                             </select>
                         </div>
                         <div class="rm-field">
+                            <label>Lọc theo hạng phòng</label>
+                            <select name="room_category_id">
+                                <option value="">Tất cả hạng phòng</option>
+                                <?php $__currentLoopData = $roomCategories; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $category): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                    <option value="<?php echo e($category->id); ?>" <?php if((string) request('room_category_id') === (string) $category->id): echo 'selected'; endif; ?>><?php echo e($category->name); ?></option>
+                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                            </select>
+                        </div>
+                        <div class="rm-field">
                             <label>Tìm số phòng</label>
                             <input name="room_number" value="<?php echo e(request('room_number')); ?>" placeholder="VD: 405">
                         </div>
                         <button class="rm-btn rm-btn-primary" type="submit"><i class="bx bx-filter-alt"></i> Lọc</button>
-                        <?php if(request()->filled('floor_number') || request()->filled('room_number')): ?>
+                        <?php if(request()->filled('floor_number') || request()->filled('room_category_id') || request()->filled('room_number')): ?>
                             <a class="rm-btn" href="<?php echo e(route('admin.rooms.index', ['tab' => 'catalog'])); ?>">Bỏ lọc</a>
                         <?php endif; ?>
                     </div>

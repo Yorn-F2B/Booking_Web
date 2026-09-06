@@ -482,26 +482,40 @@
             return $bookingRoom->room->category->child_capacity ?? 0;
         });
 
-        $roomCategoriesForBookingManage = \App\Models\RoomCategory::where('status', 'active')
-            ->withCount([
-                'rooms as available_rooms_count' => function ($query) use ($booking) {
-                    if ($booking->status === 'checked_in') {
-                        $query->availableForPeriod(
-                            $booking->check_in_at,
-                            $booking->check_out_at,
-                            $booking->id
-                        )->where('status', 'available');
-                    } else {
-                        $query->bookableForPeriod(
-                            $booking->check_in_at,
-                            $booking->check_out_at,
-                            $booking->id
-                        );
-                    }
-                },
-            ])
-            ->orderBy('price')
+        $assignedRoomIdsForManage = $booking->bookingRooms
+            ->pluck('room_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $roomCandidatesForBookingManage = \App\Models\Room::query()
+            ->with('category')
+            ->when($assignedRoomIdsForManage !== [], fn ($query) => $query->whereNotIn('id', $assignedRoomIdsForManage))
+            ->availableForPeriod(
+                $booking->check_in_at,
+                $booking->check_out_at,
+                $booking->id,
+                (int) ($booking->cleaning_buffer_minutes ?? 0),
+                ['available', 'cleaning'],
+                true
+            )
+            ->orderByRaw("CASE rooms.status WHEN 'available' THEN 0 WHEN 'cleaning' THEN 1 ELSE 9 END")
+            ->orderBy('floor_number')
+            ->orderBy('room_number')
             ->get();
+
+        $roomManageCountByCategory = $roomCandidatesForBookingManage
+            ->groupBy('room_category_id')
+            ->map->count();
+
+        $roomCategoriesForBookingManage = \App\Models\RoomCategory::where('status', 'active')
+            ->orderBy('price')
+            ->get()
+            ->each(function ($category) use ($roomManageCountByCategory) {
+                $category->setAttribute('available_rooms_count', (int) ($roomManageCountByCategory[$category->id] ?? 0));
+            });
 
         $extraGuestServices = \App\Models\Service::where('type', 'occupancy_fee')
             ->where('status', 'active')
@@ -2257,7 +2271,100 @@ unset($__errorArgs, $__bag); ?>
                                         $initialAggregateOverCapacity = $initialActualAdults > $currentAdultCapacity
                                             || ($initialActualChildren + $initialActualBabies) > $currentChildCapacity;
                                         $initialAnyOverCapacity = $initialAggregateOverCapacity || $perRoomOverCapacityForCheckIn;
+                                        $workflowRoomCount = max(1, $booking->bookingRooms->count());
+                                        $workflowNeedsGroupRepresentative = $workflowRoomCount > 1;
+                                        $workflowMissingRepresentativeRooms = $booking->bookingRooms->filter(function ($bookingRoom) use ($booking) {
+                                            return !$booking->guests->contains(function ($guest) use ($bookingRoom) {
+                                                return (int) $guest->booking_room_id === (int) $bookingRoom->id && $guest->guest_type === 'adult';
+                                            });
+                                        });
+                                        $workflowGroupRepresentativeReady = !$workflowNeedsGroupRepresentative
+                                            || $booking->guests->where('is_booking_representative', true)->count() === 1;
                                     ?>
+
+                                    <div class="border rounded p-3 mb-3 <?php echo e($adminPaymentPaidAmount + 0.01 >= $adminPaymentDepositTarget ? 'bg-light' : 'border-warning bg-warning-subtle'); ?>" id="checkInDepositStep">
+                                        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                                            <div>
+                                                <div class="fw-bold">Bước 1 · Thu đủ cọc</div>
+                                                <div class="small text-muted">Đã thu <?php echo e(number_format($adminPaymentPaidAmount, 0, ',', '.')); ?>đ / mức cọc cần <?php echo e(number_format($adminPaymentDepositTarget, 0, ',', '.')); ?>đ.</div>
+                                            </div>
+                                            <?php if($adminPaymentPaidAmount + 0.01 >= $adminPaymentDepositTarget): ?>
+                                                <span class="badge text-bg-success">Đã đủ cọc</span>
+                                            <?php else: ?>
+                                                <a href="#bookingPaymentPanel" class="btn btn-warning btn-sm">Thu thêm <?php echo e(number_format(max(0, $adminPaymentDepositTarget - $adminPaymentPaidAmount), 0, ',', '.')); ?>đ</a>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+
+                                    <details class="compact-panel mb-3" id="actualOccupancyPanel" open>
+                                        <summary>
+                                            <span>Bước 2 · Xác nhận số khách thực tế theo phòng</span>
+                                            <span class="badge-clean <?php echo e($initialAnyOverCapacity ? 'status-warning' : 'status-done'); ?>">
+                                                <?php echo e($initialActualAdults); ?> NL / <?php echo e($initialActualChildren); ?> TE / <?php echo e($initialActualBabies); ?> EB
+                                            </span>
+                                        </summary>
+                                        <div class="compact-panel-body">
+                                            <div class="small text-muted mb-3">
+                                                Nhập đúng số người thực tế sẽ ở từng phòng. Đây là số dùng để kiểm tra sức chứa và phụ thu; không cần tạo hồ sơ cho từng khách.
+                                            </div>
+                                            <form method="POST" action="<?php echo e(route('admin.bookings.occupancy.update', $booking)); ?>">
+                                                <?php echo csrf_field(); ?>
+                                                <?php echo method_field('PATCH'); ?>
+                                                <div class="row g-2">
+                                                    <?php $__currentLoopData = $booking->bookingRooms; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $bookingRoom): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                                        <?php
+                                                            $capacity = $bookingRoom->room?->category;
+                                                            $roomAdult = max(1, (int) $bookingRoom->adult_count);
+                                                            $roomChild = max(0, (int) $bookingRoom->child_count);
+                                                            $roomBaby = max(0, (int) ($bookingRoom->baby_count ?? 0));
+                                                        ?>
+                                                        <div class="col-12">
+                                                            <div class="border rounded p-3 bg-light">
+                                                                <div class="d-flex justify-content-between gap-2 flex-wrap mb-2">
+                                                                    <strong>Phòng <?php echo e($bookingRoom->room?->room_number ?? '---'); ?></strong>
+                                                                    <span class="small text-muted">Sức chứa: <?php echo e((int) ($capacity?->adult_capacity ?? 0)); ?> NL / <?php echo e((int) ($capacity?->child_capacity ?? 0)); ?> TE/EB</span>
+                                                                </div>
+                                                                <div class="row g-2">
+                                                                    <div class="col-md-4">
+                                                                        <label class="form-label small">Người lớn <span class="text-danger">*</span></label>
+                                                                        <input type="number" min="1" max="50" class="form-control form-control-sm"
+                                                                            name="rooms[<?php echo e($bookingRoom->id); ?>][adult_count]" value="<?php echo e(old('rooms.' . $bookingRoom->id . '.adult_count', $roomAdult)); ?>" required>
+                                                                    </div>
+                                                                    <div class="col-md-4">
+                                                                        <label class="form-label small">Trẻ em</label>
+                                                                        <input type="number" min="0" max="50" class="form-control form-control-sm"
+                                                                            name="rooms[<?php echo e($bookingRoom->id); ?>][child_count]" value="<?php echo e(old('rooms.' . $bookingRoom->id . '.child_count', $roomChild)); ?>" required>
+                                                                    </div>
+                                                                    <div class="col-md-4">
+                                                                        <label class="form-label small">Em bé</label>
+                                                                        <input type="number" min="0" max="50" class="form-control form-control-sm"
+                                                                            name="rooms[<?php echo e($bookingRoom->id); ?>][baby_count]" value="<?php echo e(old('rooms.' . $bookingRoom->id . '.baby_count', $roomBaby)); ?>" required>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                                </div>
+                                                <button type="submit" class="btn btn-primary btn-sm mt-3">Lưu số khách thực tế</button>
+                                            </form>
+                                        </div>
+                                    </details>
+
+                
+                                    <?php echo $__env->make('admin.pages.bookings.partials.staying-guests', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+
+                                    <div class="border rounded p-3 mb-3 bg-light" id="checkInReadinessFlow">
+                                        <div class="fw-bold mb-2">Bước 4 · Kiểm tra điều kiện trước khi nhận phòng</div>
+                                        <div class="row g-2 small">
+                                            <div class="col-md-6"><div class="d-flex justify-content-between border rounded p-2 bg-white"><span>Phân đủ phòng</span><strong class="<?php echo e($booking->bookingRooms->count() === max(1, (int) $booking->room_quantity) ? 'text-success' : 'text-danger'); ?>"><?php echo e($booking->bookingRooms->count()); ?>/<?php echo e(max(1, (int) $booking->room_quantity)); ?></strong></div></div>
+                                            <div class="col-md-6"><div class="d-flex justify-content-between border rounded p-2 bg-white"><span>Đại diện từng phòng</span><strong class="<?php echo e($workflowMissingRepresentativeRooms->isEmpty() && $workflowGroupRepresentativeReady ? 'text-success' : 'text-danger'); ?>"><?php echo e($workflowMissingRepresentativeRooms->isEmpty() && $workflowGroupRepresentativeReady ? 'Đủ' : 'Chưa đủ'); ?></strong></div></div>
+                                            <div class="col-md-6"><div class="d-flex justify-content-between border rounded p-2 bg-white"><span>Cọc tối thiểu</span><strong class="<?php echo e($adminPaymentPaidAmount + 0.01 >= $adminPaymentDepositTarget ? 'text-success' : 'text-danger'); ?>"><?php echo e(number_format($adminPaymentPaidAmount,0,',','.')); ?>đ / <?php echo e(number_format($adminPaymentDepositTarget,0,',','.')); ?>đ</strong></div></div>
+                                            <div class="col-md-6"><div class="d-flex justify-content-between border rounded p-2 bg-white"><span>Phòng sẵn sàng</span><strong class="<?php echo e($roomsNotReadyForCheckIn->isEmpty() ? 'text-success' : 'text-danger'); ?>"><?php echo e($roomsNotReadyForCheckIn->isEmpty() ? 'Sẵn sàng' : 'Còn ' . $roomsNotReadyForCheckIn->count() . ' phòng'); ?></strong></div></div>
+                                        </div>
+                                        <?php if($adminPaymentPaidAmount + 0.01 < $adminPaymentDepositTarget): ?>
+                                            <a href="#bookingPaymentPanel" class="btn btn-outline-primary btn-sm mt-3">Thu đủ cọc trước</a>
+                                        <?php endif; ?>
+                                    </div>
 
                                     <form action="<?php echo e(route('admin.bookings.check-in', $booking->id)); ?>" method="POST" enctype="multipart/form-data"
                                         id="checkInForm">
@@ -2285,13 +2392,11 @@ unset($__errorArgs, $__bag); ?>
                                             $checkInDeclaredAdults = $booking->guests->where('guest_type', 'adult')->count();
                                             $checkInDeclaredChildren = $booking->guests->where('guest_type', 'child')->count();
                                             $checkInDeclaredInfants = $booking->guests->where('guest_type', 'infant')->count();
-                                            $hasRepresentative = $booking->guests->where('is_booking_representative', true)->count() === 1;
+                                            $checkInRequiredRoomCount = max(1, (int) ($booking->room_quantity ?? 1));
+                                            $needsGroupRepresentativeForCheckIn = $checkInRequiredRoomCount > 1;
+                                            $hasRepresentative = !$needsGroupRepresentativeForCheckIn || $booking->guests->where('is_booking_representative', true)->count() === 1;
                                             $missingAdultRepresentativeRooms = $booking->bookingRooms
                                                 ->filter(function ($bookingRoom) use ($booking) {
-                                                    if ((int) ($bookingRoom->adult_count ?? 0) <= 0) {
-                                                        return false;
-                                                    }
-
                                                     return !$booking->guests->contains(function ($guest) use ($bookingRoom) {
                                                         return (int) $guest->booking_room_id === (int) $bookingRoom->id
                                                             && $guest->guest_type === 'adult';
@@ -2300,7 +2405,6 @@ unset($__errorArgs, $__bag); ?>
                                             $checkInProfileReady = !$booking->guests->isEmpty()
                                                 && $hasRepresentative
                                                 && $missingAdultRepresentativeRooms->isEmpty();
-                                            $checkInRequiredRoomCount = max(1, (int) ($booking->room_quantity ?? 1));
                                             $checkInAssignedRoomIds = $booking->bookingRooms->pluck('room_id')->filter()->map(fn ($id) => (int) $id);
                                             $checkInHasExactRoomAssignments = $booking->bookingRooms->count() === $checkInRequiredRoomCount
                                                 && $checkInAssignedRoomIds->unique()->count() === $checkInRequiredRoomCount;
@@ -2320,7 +2424,7 @@ unset($__errorArgs, $__bag); ?>
                                             <div class="alert alert-warning small mb-3">
                                                 <strong>Chưa đủ hồ sơ người đại diện để check-in.</strong>
                                                 Hiện đã khai <?php echo e($checkInDeclaredAdults); ?> người lớn / <?php echo e($checkInDeclaredChildren); ?> trẻ em / <?php echo e($checkInDeclaredInfants); ?> em bé.
-                                                Mỗi phòng cần ít nhất một hồ sơ người lớn và toàn booking cần đúng một người đại diện đoàn.
+                                                Mỗi phòng chỉ cần một người lớn đại diện. Booking nhiều phòng cần chọn thêm đúng một trong các đại diện phòng làm đại diện cả đoàn.
                                                 <?php if($missingAdultRepresentativeRooms->isNotEmpty()): ?>
                                                     <div class="mt-1">
                                                         Thiếu người lớn đại diện tại:
@@ -2331,7 +2435,7 @@ unset($__errorArgs, $__bag); ?>
                                             </div>
                                         <?php else: ?>
                                             <div class="small text-muted mb-3">
-                                                Hồ sơ đại diện đã hợp lệ cho từng phòng: <?php echo e($checkInDeclaredAdults); ?> người lớn / <?php echo e($checkInDeclaredChildren); ?> trẻ em / <?php echo e($checkInDeclaredInfants); ?> em bé. Số khách thực tế được quản lý riêng theo từng phòng.
+                                                Đã đủ người đại diện cho từng phòng<?php echo e($needsGroupRepresentativeForCheckIn ? ' và đại diện cả đoàn' : ''); ?>. Số khách thực tế được quản lý riêng ở Bước 1.
                                             </div>
                                         <?php endif; ?>
 
@@ -2357,85 +2461,13 @@ unset($__errorArgs, $__bag); ?>
                                             </div>
                                         <?php endif; ?>
 
-                                        <div class="border rounded p-3 mb-3 bg-light">
-                                            <div class="fw-semibold mb-2">Thông tin người làm thủ tục nhận phòng</div>
-                                            <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-                                                <button type="button" id="checkInCccdImageButton" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('checkInCccdImage').click()">
-                                                    <i class="bx bx-image-add me-1"></i> Quét CCCD từ ảnh
-                                                </button>
-                                            </div>
-                                            <input type="file" name="cccd_image" id="checkInCccdImage" class="d-none js-cccd-image"
-                                                accept="image/jpeg,image/png,image/webp"
-                                                data-button="#checkInCccdImageButton" data-status="#checkInCccdStatus"
-                                                data-target-cccd="#checkInCccd" data-target-full-name="#checkInScannedFullName"
-                                                data-target-birthday="#checkInScannedBirthday" data-target-gender="#checkInScannedGender"
-                                                data-target-address="#checkInScannedAddress" data-target-nationality="#checkInScannedNationality"
-                                                data-required-fields="cccd,full_name,birthday,gender,nationality,address">
-                                            <small id="checkInCccdStatus" class="text-muted d-block mb-3"></small>
-                                            <div class="row g-2">
-                                                <div class="col-md-6">
-                                                    <label class="form-label small">Họ tên người làm thủ tục (tùy chọn)</label>
-                                                    <input type="text" name="scanned_full_name" id="checkInScannedFullName" class="form-control"
-                                                        value="<?php echo e(old('scanned_full_name', $booking->guests->firstWhere('is_booking_representative', true)?->full_name ?? $booking->booked_customer_name)); ?>">
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <label class="form-label small">Số giấy tờ người làm thủ tục (tùy chọn)</label>
-                                                    <input type="text" name="check_in_cccd" id="checkInCccd" class="form-control" maxlength="20"
-                                                        value="<?php echo e(old('check_in_cccd', $booking->booked_customer_cccd)); ?>"
-                                                        data-booking-cccd="<?php echo e($booking->booked_customer_cccd); ?>">
-                                                </div>
-                                                <div class="col-md-6 birth-date-field">
-                                                    <label class="form-label small">Ngày sinh</label>
-                                                    <input type="date" name="scanned_birthday" id="checkInScannedBirthday"
-                                                        class="form-control" min="1900-01-01"
-                                                        max="<?php echo e(now('Asia/Ho_Chi_Minh')->toDateString()); ?>" data-birth-date
-                                                        value="<?php echo e(old('scanned_birthday', $booking->booked_customer_birthday ? \Carbon\Carbon::parse($booking->booked_customer_birthday)->format('Y-m-d') : '')); ?>">
-                                                    <div class="form-text">Ngày sinh không được nằm trong tương lai.</div>
-                                                </div>
-                                                <div class="col-md-3">
-                                                    <label class="form-label small">Giới tính</label>
-                                                    <select name="scanned_gender" id="checkInScannedGender" class="form-select">
-                                                        <option value="">-- Chọn --</option>
-                                                        <option value="male" <?php echo e(old('scanned_gender', $booking->booked_customer_gender) === 'male' ? 'selected' : ''); ?>>Nam</option>
-                                                        <option value="female" <?php echo e(old('scanned_gender', $booking->booked_customer_gender) === 'female' ? 'selected' : ''); ?>>Nữ</option>
-                                                        <option value="other" <?php echo e(old('scanned_gender', $booking->booked_customer_gender) === 'other' ? 'selected' : ''); ?>>Khác</option>
-                                                    </select>
-                                                </div>
-                                                <div class="col-md-3">
-                                                    <label class="form-label small">Quốc tịch</label>
-                                                    <input type="text" name="guest_nationality" id="checkInScannedNationality" class="form-control" value="<?php echo e(old('guest_nationality', 'Việt Nam')); ?>">
-                                                </div>
-                                                <div class="col-12">
-                                                    <label class="form-label small">Địa chỉ</label>
-                                                    <textarea name="scanned_address" id="checkInScannedAddress" class="form-control" rows="2"><?php echo e(old('scanned_address', $booking->booked_customer_address)); ?></textarea>
-                                                </div>
-                                            </div>
-                                        </div>
+                                        <input type="hidden" name="actual_adult_count" id="actualAdultCount" value="<?php echo e($initialActualAdults); ?>">
+                                        <input type="hidden" name="actual_child_count" id="actualChildCount" value="<?php echo e($initialActualChildren); ?>">
+                                        <input type="hidden" name="actual_baby_count" id="actualBabyCount" value="<?php echo e($initialActualBabies); ?>">
 
-                                        <div class="row g-2 mb-3">
-                                            <div class="col-12">
-                                                <div class="soft-note mb-0">
-                                                    <strong>Số khách thực tế lấy từ phân bổ của booking theo từng phòng.</strong>
-                                                    Hồ sơ khách bên dưới chỉ cần người đại diện/giấy tờ cần lưu, không dùng số hồ sơ để suy ra số người thực tế.
-                                                </div>
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="form-label small">Người lớn thực tế</label>
-                                                <input type="number" name="actual_adult_count" id="actualAdultCount"
-                                                    class="form-control bg-light" value="<?php echo e($initialActualAdults); ?>" readonly>
-                                            </div>
-
-                                            <div class="col-md-4">
-                                                <label class="form-label small">Trẻ em thực tế</label>
-                                                <input type="number" name="actual_child_count" id="actualChildCount"
-                                                    class="form-control bg-light" value="<?php echo e($initialActualChildren); ?>" readonly>
-                                            </div>
-
-                                            <div class="col-md-4">
-                                                <label class="form-label small">Em bé thực tế</label>
-                                                <input type="number" name="actual_baby_count" id="actualBabyCount"
-                                                    class="form-control bg-light" value="<?php echo e($initialActualBabies); ?>" readonly>
-                                            </div>
+                                        <div class="soft-note mb-3">
+                                            <strong>Bước 5 · Xác nhận nhận phòng.</strong>
+                                            Nút bên dưới chỉ mở khi đã đủ phòng, đủ cọc, đủ người đại diện và phòng sẵn sàng. Không cần quét lại CCCD ở bước này vì hồ sơ đại diện đã được lưu ở Bước 2.
                                         </div>
 
                                         <div id="normalCheckInBox" class="action-summary mb-3 <?php echo e($initialAnyOverCapacity ? 'd-none' : ''); ?>">
@@ -2832,7 +2864,7 @@ unset($__errorArgs, $__bag); ?>
                                     <?php
                                         $extendTypeLabel = $booking->booking_type == 'hourly' ? 'Đặt theo giờ' : 'Đặt qua đêm';
                                         $currentRoomNumbersForExtend = $booking->bookingRooms->pluck('room.room_number')->filter()->implode(', ');
-                                        $extendPreview = session('extend_stay_preview');
+                                        $extendPreview = session('extend_stay_preview.' . $booking->id);
                                         $previewDateValue = old(
                                             'new_check_out_date',
                                             $extendPreview['new_check_out_date'] ?? ($lateShowCheckOutAt ? $lateShowCheckOutAt->format('Y-m-d') : $booking->check_out_date)
@@ -2907,12 +2939,32 @@ unset($__errorArgs, $__bag); ?>
                                             </div>
                                             <div class="small"><?php echo e($extendPreview['message'] ?? ''); ?></div>
 
+                                            <?php if(empty($extendPreview['repricing'])): ?>
+                                                <?php
+                                                    $sameDayExtensionFee = (float) ($extendPreview['fee_amount'] ?? 0);
+                                                    $sameDayExtensionTotal = $finalTotal + $sameDayExtensionFee;
+                                                    $sameDayExtensionRemaining = max(0, $sameDayExtensionTotal - $adminPaymentPaidAmount);
+                                                ?>
+                                                <details class="border rounded bg-white p-2 mt-2 small">
+                                                    <summary class="fw-semibold">Xem chi tiết tiền gia hạn</summary>
+                                                    <div class="mt-2">
+                                                        <div class="d-flex justify-content-between gap-2"><span>Tổng booking hiện tại</span><strong><?php echo e(number_format($finalTotal, 0, ',', '.')); ?>đ</strong></div>
+                                                        <div class="d-flex justify-content-between gap-2 mt-1"><span>Phụ thu gia hạn lưu trú</span><strong class="text-danger">+<?php echo e(number_format($sameDayExtensionFee, 0, ',', '.')); ?>đ</strong></div>
+                                                        <div class="text-muted border-bottom pb-2 mt-1"><?php echo e($extendPreview['policy_text'] ?? 'Theo chính sách gia hạn hiện hành.'); ?></div>
+                                                        <div class="d-flex justify-content-between gap-2 mt-2"><span>Tổng sau gia hạn</span><strong><?php echo e(number_format($sameDayExtensionTotal, 0, ',', '.')); ?>đ</strong></div>
+                                                        <div class="d-flex justify-content-between gap-2 mt-1"><span>Khách đã thanh toán</span><strong>-<?php echo e(number_format($adminPaymentPaidAmount, 0, ',', '.')); ?>đ</strong></div>
+                                                        <div class="d-flex justify-content-between gap-2 mt-1 text-danger"><span>Còn phải thu</span><strong><?php echo e(number_format($sameDayExtensionRemaining, 0, ',', '.')); ?>đ</strong></div>
+                                                    </div>
+                                                </details>
+                                            <?php endif; ?>
+
                                             <?php if(!empty($extendPreview['repricing'])): ?>
                                                 <?php
                                                     $extendRepricing = $extendPreview['repricing'];
                                                     $extendRepriceOld = $extendRepricing['old'] ?? [];
                                                     $extendRepriceNew = $extendRepricing['new'] ?? [];
-                                                    $extendServiceChanges = collect($extendRepricing['service_preview']['lines'] ?? [])
+                                                    $extendServiceLines = collect($extendRepricing['service_preview']['lines'] ?? []);
+                                                    $extendServiceChanges = $extendServiceLines
                                                         ->filter(fn ($line) => !empty($line['will_reprice']) || !empty($line['will_remove']));
                                                     $extendRemovedPromotions = $extendRepricing['promotion_preview']['removed'] ?? [];
                                                 ?>
@@ -2968,6 +3020,53 @@ unset($__errorArgs, $__bag); ?>
                                                             </tbody>
                                                         </table>
                                                     </div>
+                                                    <details class="border rounded p-2 mb-2 bg-light">
+                                                        <summary class="fw-semibold">Xem chi tiết từng khoản tiền sau gia hạn</summary>
+                                                        <div class="mt-2">
+                                                            <div class="d-flex justify-content-between gap-2 mb-1">
+                                                                <span>Tiền phòng</span>
+                                                                <strong>+<?php echo e(number_format((float) ($extendRepriceNew['room_total'] ?? 0), 0, ',', '.')); ?>đ</strong>
+                                                            </div>
+                                                            <?php $__currentLoopData = $extendServiceLines; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $serviceLine): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                                                <?php if(!empty($serviceLine['will_remove'])) continue; ?>
+                                                                <div class="border-top pt-2 mt-2">
+                                                                    <div class="d-flex justify-content-between gap-2">
+                                                                        <span><?php echo e($serviceLine['name'] ?? 'Khoản dịch vụ'); ?></span>
+                                                                        <strong>+<?php echo e(number_format((float) ($serviceLine['new_total'] ?? 0), 0, ',', '.')); ?>đ</strong>
+                                                                    </div>
+                                                                    <div class="text-muted"><?php echo e($serviceLine['new_formula'] ?? ''); ?></div>
+                                                                </div>
+                                                            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                                            <?php if((float) ($extendRepriceNew['inspection_total'] ?? 0) > 0): ?>
+                                                                <div class="d-flex justify-content-between gap-2 border-top pt-2 mt-2">
+                                                                    <span>Dịch vụ tại phòng / hư hại đã duyệt</span>
+                                                                    <strong>+<?php echo e(number_format((float) $extendRepriceNew['inspection_total'], 0, ',', '.')); ?>đ</strong>
+                                                                </div>
+                                                            <?php endif; ?>
+                                                            <?php if((float) ($extendRepriceNew['manual_room_selection_fee'] ?? 0) > 0): ?>
+                                                                <div class="d-flex justify-content-between gap-2 border-top pt-2 mt-2">
+                                                                    <span>Phí chọn phòng thủ công</span>
+                                                                    <strong>+<?php echo e(number_format((float) $extendRepriceNew['manual_room_selection_fee'], 0, ',', '.')); ?>đ</strong>
+                                                                </div>
+                                                            <?php endif; ?>
+                                                            <div class="d-flex justify-content-between gap-2 border-top pt-2 mt-2 text-success">
+                                                                <span>Mã giảm giá / hỗ trợ</span>
+                                                                <strong>-<?php echo e(number_format((float) ($extendRepriceNew['discount_total'] ?? 0), 0, ',', '.')); ?>đ</strong>
+                                                            </div>
+                                                            <div class="d-flex justify-content-between gap-2 border-top pt-2 mt-2">
+                                                                <span>Tổng cần thanh toán</span>
+                                                                <strong><?php echo e(number_format((float) ($extendRepriceNew['total'] ?? 0), 0, ',', '.')); ?>đ</strong>
+                                                            </div>
+                                                            <div class="d-flex justify-content-between gap-2 mt-1">
+                                                                <span>Khách đã thanh toán</span>
+                                                                <strong>-<?php echo e(number_format((float) ($extendRepricing['paid_total'] ?? 0), 0, ',', '.')); ?>đ</strong>
+                                                            </div>
+                                                            <div class="d-flex justify-content-between gap-2 mt-1 text-danger">
+                                                                <span>Còn phải thu</span>
+                                                                <strong><?php echo e(number_format((float) ($extendRepriceNew['remaining'] ?? 0), 0, ',', '.')); ?>đ</strong>
+                                                            </div>
+                                                        </div>
+                                                    </details>
                                                     <?php if($extendServiceChanges->isNotEmpty()): ?>
                                                         <div class="alert alert-info py-2 mb-2">
                                                             <strong>Dịch vụ tính lại theo số đêm mới:</strong>
@@ -3362,7 +3461,6 @@ unset($__errorArgs, $__bag); ?>
                         </div>
                     </section>
 
-                    <?php echo $__env->make('admin.pages.bookings.partials.staying-guests', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
 
                     <details class="compact-panel mb-3">
                         <summary>
@@ -3405,7 +3503,6 @@ unset($__errorArgs, $__bag); ?>
                                     ],
                                 ];
 
-                                $availablePromotionGroups = collect($availablePromotions ?? collect())->groupBy('promotion_type');
                             ?>
 
                             <?php if($booking->bookingPromotions->count() > 0): ?>
@@ -3521,7 +3618,7 @@ unset($__errorArgs, $__bag); ?>
 
                                         <?php $__currentLoopData = $promotionTypeDisplayConfig; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $promotionType => $typeConfig): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                                             <?php
-                                                $groupPromotions = $availablePromotionGroups->get($promotionType, collect());
+                                                $groupPromotions = collect($availablePromotionGroups ?? [])->get($promotionType, collect());
                                             ?>
 
                                             <?php if($groupPromotions->count() > 0): ?>
@@ -4040,6 +4137,39 @@ unset($__errorArgs, $__bag); ?>
                                             <label class="form-label small">Số phòng thêm</label>
                                             <input type="number" name="additional_room_quantity" class="form-control" value="1"
                                                 min="1" required>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label small d-block">Cách chọn phòng</label>
+                                            <div class="d-flex gap-3 flex-wrap">
+                                                <label class="form-check mb-0">
+                                                    <input class="form-check-input js-add-room-assignment-mode" type="radio"
+                                                        name="room_assignment_mode" value="auto" checked>
+                                                    <span class="form-check-label">Hệ thống tự chọn</span>
+                                                </label>
+                                                <label class="form-check mb-0">
+                                                    <input class="form-check-input js-add-room-assignment-mode" type="radio"
+                                                        name="room_assignment_mode" value="manual">
+                                                    <span class="form-check-label">Lễ tân chọn thủ công</span>
+                                                </label>
+                                            </div>
+                                            <div class="form-text">Hệ thống ưu tiên phòng Sẵn sàng; chỉ khi không đủ mới lấy phòng Đang dọn.</div>
+                                        </div>
+
+                                        <div class="mb-3 d-none js-add-room-manual-wrap">
+                                            <label class="form-label small">Chọn phòng cụ thể</label>
+                                            <select name="target_room_ids[]" class="form-select js-add-room-manual-select" multiple size="6">
+                                                <?php $__currentLoopData = $roomCandidatesForBookingManage; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $candidateRoom): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                                    <option value="<?php echo e($candidateRoom->id); ?>"
+                                                        data-category-id="<?php echo e($candidateRoom->room_category_id); ?>"
+                                                        data-status="<?php echo e($candidateRoom->status); ?>">
+                                                        Phòng <?php echo e($candidateRoom->room_number); ?> · Tầng <?php echo e($candidateRoom->floor_number); ?> ·
+                                                        <?php echo e($candidateRoom->status === 'available' ? 'Sẵn sàng' : 'Đang dọn - sẽ yêu cầu dọn nhanh'); ?>
+
+                                                    </option>
+                                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                            </select>
+                                            <div class="form-text js-add-room-manual-help">Chọn đúng số phòng cần thêm.</div>
                                         </div>
 
                                         <div class="form-check mb-3">
@@ -4668,7 +4798,7 @@ unset($__errorArgs, $__bag); ?>
                 </div>
 
                 <aside class="side-stack">
-                    <section class="card-clean">
+                    <section class="card-clean" id="bookingPaymentPanel">
                         <div class="card-title-clean">
                             <h5>Thanh toán</h5>
                         </div>
@@ -4740,9 +4870,19 @@ unset($__errorArgs, $__bag); ?>
                                     <span class="info-value"><?php echo e(number_format($roomTotal, 0, ',', '.')); ?>đ</span>
                                 </button>
                                 <button type="button" class="info-line payment-detail-trigger" data-payment-detail="paymentDetailServices" data-payment-title="Dịch vụ khách gọi thêm và phụ thu">
-                                    <span class="info-label">Dịch vụ / phụ thu</span>
+                                    <span class="info-label">Dịch vụ và phụ thu đã xác nhận</span>
                                     <span class="info-value <?php echo e($serviceItemTotal > 0 ? 'text-danger' : ''); ?>"><?php echo e($serviceItemTotal > 0 ? '+' : ''); ?><?php echo e(number_format((float) $serviceItemTotal, 0, ',', '.')); ?>đ</span>
                                 </button>
+                                <?php if($confirmedServiceItemsForBreakdown->isNotEmpty()): ?>
+                                    <div class="small text-muted px-2 pb-2">
+                                        <?php $__currentLoopData = $confirmedServiceItemsForBreakdown; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $item): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                            <div class="d-flex justify-content-between gap-2 mt-1">
+                                                <span><?php echo e($item->name); ?></span>
+                                                <strong class="text-danger">+<?php echo e(number_format((float) $item->total, 0, ',', '.')); ?>đ</strong>
+                                            </div>
+                                        <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                    </div>
+                                <?php endif; ?>
                                 <?php if($manualRoomSelectionFee > 0): ?>
                                     <div class="info-line">
                                         <span class="info-label">Phí chọn phòng thủ công</span>
@@ -6251,7 +6391,10 @@ unset($__errorArgs, $__bag); ?>
                         onChange(selectedDates) {
                             if (!checkOutDate?._flatpickr || selectedDates.length === 0) return;
                             const minimum = new Date(selectedDates[0]);
-                            minimum.setDate(minimum.getDate() + 1);
+                            const minimumDayGap = <?php echo json_encode($booking->booking_type === 'hourly' ? 0 : 1, 15, 512) ?>;
+                            minimum.setDate(minimum.getDate() + minimumDayGap);
+                            const minimumLocal = new Date(minimum.getTime() - minimum.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+                            checkOutDate.min = minimumLocal;
                             checkOutDate._flatpickr.set('minDate', minimum);
                             const current = checkOutDate._flatpickr.selectedDates[0];
                             if (!current || current < minimum) {
@@ -6503,6 +6646,75 @@ document.addEventListener('DOMContentLoaded', function () {
             window.setTimeout(() => previewTarget.scrollIntoView({block: 'center', behavior: 'auto'}), 200);
         }
     }
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const addRoomForm = document.querySelector('form[action*="add-room-to-booking"]');
+    if (!addRoomForm) return;
+
+    const categorySelect = addRoomForm.querySelector('select[name="additional_room_category_id"]');
+    const quantityInput = addRoomForm.querySelector('input[name="additional_room_quantity"]');
+    const modeInputs = addRoomForm.querySelectorAll('.js-add-room-assignment-mode');
+    const manualWrap = addRoomForm.querySelector('.js-add-room-manual-wrap');
+    const manualSelect = addRoomForm.querySelector('.js-add-room-manual-select');
+    const manualHelp = addRoomForm.querySelector('.js-add-room-manual-help');
+
+    if (!categorySelect || !quantityInput || !manualWrap || !manualSelect) return;
+
+    const refreshManualRooms = function () {
+        const categoryId = String(categorySelect.value || '');
+        let visibleCount = 0;
+
+        Array.from(manualSelect.options).forEach(function (option) {
+            const matches = categoryId !== '' && option.dataset.categoryId === categoryId;
+            option.hidden = !matches;
+            option.disabled = !matches;
+            if (!matches) option.selected = false;
+            if (matches) visibleCount++;
+        });
+
+        const quantity = Math.max(1, parseInt(quantityInput.value || '1', 10));
+        if (manualHelp) {
+            manualHelp.textContent = categoryId === ''
+                ? 'Chọn hạng phòng trước.'
+                : `Có ${visibleCount} phòng hợp lệ (chỉ Sẵn sàng/Đang dọn). Chọn đúng ${quantity} phòng.`;
+        }
+    };
+
+    const refreshMode = function () {
+        const mode = addRoomForm.querySelector('.js-add-room-assignment-mode:checked')?.value || 'auto';
+        manualWrap.classList.toggle('d-none', mode !== 'manual');
+        manualSelect.required = mode === 'manual';
+        if (mode !== 'manual') {
+            Array.from(manualSelect.options).forEach(option => option.selected = false);
+        }
+        refreshManualRooms();
+    };
+
+    modeInputs.forEach(input => input.addEventListener('change', refreshMode));
+    categorySelect.addEventListener('change', refreshManualRooms);
+    quantityInput.addEventListener('input', refreshManualRooms);
+
+    addRoomForm.addEventListener('submit', function (event) {
+        const mode = addRoomForm.querySelector('.js-add-room-assignment-mode:checked')?.value || 'auto';
+        if (mode !== 'manual') return;
+
+        const quantity = Math.max(1, parseInt(quantityInput.value || '1', 10));
+        const selected = Array.from(manualSelect.selectedOptions).filter(option => !option.disabled);
+        if (selected.length !== quantity) {
+            event.preventDefault();
+            if (manualHelp) {
+                manualHelp.textContent = `Bạn đang chọn ${selected.length}/${quantity} phòng. Hãy chọn đúng số phòng cần thêm.`;
+                manualHelp.classList.add('text-danger');
+            }
+            manualSelect.focus();
+        } else if (manualHelp) {
+            manualHelp.classList.remove('text-danger');
+        }
+    });
+
+    refreshMode();
 });
 </script>
 <?php /**PATH C:\xampp\htdocs\booking-web\resources\views/admin/pages/bookings/_workspace.blade.php ENDPATH**/ ?>

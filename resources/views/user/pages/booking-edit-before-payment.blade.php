@@ -210,6 +210,31 @@ document.addEventListener('DOMContentLoaded', function () {
     const roomSelect = document.getElementById('room_category_id');
     const checkIn = document.getElementById('check_in_date');
     const checkOut = document.getElementById('check_out_date');
+
+    function addOneStayDate(dateValue) {
+        if (!dateValue) return '';
+        const date = new Date(`${dateValue}T00:00:00`);
+        if (Number.isNaN(date.getTime())) return '';
+        date.setDate(date.getDate() + 1);
+        const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+        return local.toISOString().slice(0, 10);
+    }
+
+    function syncStayDateRange() {
+        if (!checkIn || !checkOut || !checkIn.value) return;
+        const minimumCheckout = addOneStayDate(checkIn.value);
+        checkOut.min = minimumCheckout;
+        if (checkOut._flatpickr) checkOut._flatpickr.set('minDate', minimumCheckout);
+        if (!checkOut.value || checkOut.value <= checkIn.value) {
+            checkOut.value = minimumCheckout;
+            if (checkOut._flatpickr) checkOut._flatpickr.setDate(minimumCheckout, false);
+        }
+    }
+
+    checkIn?.addEventListener('change', syncStayDateRange);
+    checkIn?.addEventListener('project-date-change', syncStayDateRange);
+    syncStayDateRange();
+
     const serviceChecks = Array.from(document.querySelectorAll('.service-check'));
     const promoChecks = Array.from(document.querySelectorAll('.promo-check'));
     const promotionRules = @json($promotionSelectionRules);

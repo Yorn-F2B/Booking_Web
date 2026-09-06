@@ -294,12 +294,10 @@ class RoomController extends Controller
 
         if (!$capacityPossible) {
             $message = $childCapacity < 1 && ($children + $babies) > 0
-                ? 'Hạng phòng này không có sức chứa trẻ em/em bé theo cấu hình hiện tại.'
-                : 'Số khách không thể phân vào hạng phòng này theo quy tắc mỗi phòng có ít nhất một người lớn đại diện.';
-        } elseif (!$inventoryEnoughForMinimum) {
-            $message = 'Khoảng ngày này chỉ còn ' . $availableRooms . ' phòng, trong khi đoàn cần tối thiểu ' . $minimumRooms . ' phòng.';
+                ? 'Hạng phòng này không phù hợp với số khách đã chọn.'
+                : 'Số khách không thể phân vào hạng phòng này.';
         } else {
-            $message = 'Còn ' . $availableRooms . ' phòng trống trong khoảng đã chọn. Đoàn cần tối thiểu ' . $minimumRooms . ' phòng.';
+            $message = 'Còn ' . $availableRooms . ' phòng';
         }
 
         return response()->json([

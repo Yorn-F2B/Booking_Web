@@ -825,11 +825,20 @@
                             </select>
                         </div>
                         <div class="rm-field">
+                            <label>Lọc theo hạng phòng</label>
+                            <select name="room_category_id">
+                                <option value="">Tất cả hạng phòng</option>
+                                @foreach($roomCategories as $category)
+                                    <option value="{{ $category->id }}" @selected((string) request('room_category_id') === (string) $category->id)>{{ $category->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="rm-field">
                             <label>Tìm số phòng</label>
                             <input name="room_number" value="{{ request('room_number') }}" placeholder="VD: 405">
                         </div>
                         <button class="rm-btn rm-btn-primary" type="submit"><i class="bx bx-filter-alt"></i> Lọc</button>
-                        @if(request()->filled('floor_number') || request()->filled('room_number'))
+                        @if(request()->filled('floor_number') || request()->filled('room_category_id') || request()->filled('room_number'))
                             <a class="rm-btn" href="{{ route('admin.rooms.index', ['tab' => 'catalog']) }}">Bỏ lọc</a>
                         @endif
                     </div>

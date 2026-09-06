@@ -739,6 +739,27 @@
                 allowInput: true,
                 disableMobile: true,
             });
+
+            const bindRange = (fromName, toName) => {
+                const from = document.querySelector(`[name="${fromName}"]`);
+                const to = document.querySelector(`[name="${toName}"]`);
+                if (!from?._flatpickr || !to?._flatpickr) return;
+
+                const sync = () => {
+                    const selected = from._flatpickr.selectedDates[0];
+                    to._flatpickr.set('minDate', selected || null);
+                    const current = to._flatpickr.selectedDates[0];
+                    if (selected && current && current < selected) {
+                        to._flatpickr.setDate(selected, true);
+                    }
+                };
+
+                from._flatpickr.config.onChange.push(sync);
+                sync();
+            };
+
+            bindRange('valid_from', 'valid_to');
+            bindRange('stay_from', 'stay_to');
         }
 
         function updateDiscountUI() {

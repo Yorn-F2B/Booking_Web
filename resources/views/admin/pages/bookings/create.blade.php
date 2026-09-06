@@ -435,7 +435,9 @@
                                 </div>
 
                                 <div class="col-md-6">
-                                    <label class="form-label">Email</label>
+                                    <label class="form-label">
+                                        Email <span id="customerEmailRequiredMark" class="text-danger d-none">*</span>
+                                    </label>
                                     <input type="email" name="customer_email" id="customerEmail"
                                         class="form-control @error('customer_email') is-invalid @enderror"
                                         value="{{ old('customer_email') }}" placeholder="email@example.com">
@@ -443,6 +445,7 @@
                                     @error('customer_email')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
+                                    <div id="customerEmailHelp" class="booking-help-text mt-1">Không bắt buộc khi khách thanh toán tại quầy.</div>
                                     <div id="customerAccountLookupNotice" class="alert d-none mt-2 mb-0 py-2 px-3 small" role="alert"></div>
                                 </div>
 
@@ -530,7 +533,7 @@
                                     @enderror
                                 </div>
 
-                                <div class="col-md-3">
+                                <div class="col-md-3" id="checkInDateBox">
                                     <label class="form-label">Ngày nhận <span class="text-danger">*</span></label>
                                     <input type="date" name="check_in_date" id="checkInDate"
                                         class="form-control @error('check_in_date') is-invalid @enderror"
@@ -828,7 +831,9 @@
                                     @enderror
 
                                     <div class="booking-help-text mt-1">
-                                        @php($policy = app(\App\Services\HotelPolicyService::class))
+                                        @php
+                                            $policy = app(\App\Services\HotelPolicyService::class);
+                                        @endphp
                                         Booking cọc theo số lượng phòng: 1 phòng {{ $policy->depositPercentForRooms(1) }}%, 2 phòng {{ $policy->depositPercentForRooms(2) }}%, 3 phòng {{ $policy->depositPercentForRooms(3) }}%, 4 phòng {{ $policy->depositPercentForRooms(4) }}%, từ 5 phòng {{ $policy->depositPercentForRooms(5) }}%.
                                     </div>
                                 </div>
@@ -994,7 +999,6 @@
 
                             @php
                                 $promotionTypeDisplayConfig = $promotionTypeDisplayConfig ?? [];
-                                $availablePromotionGroups = collect($availablePromotions ?? collect())->groupBy('promotion_type');
                             @endphp
 
                             @if (($availablePromotions ?? collect())->count() > 0)
@@ -1012,7 +1016,7 @@
                                     <div class="promotion-collapsible-body">
                                         @foreach ($promotionTypeDisplayConfig as $promotionType => $typeConfig)
                                             @php
-                                                $groupPromotions = $availablePromotionGroups->get($promotionType, collect());
+                                                $groupPromotions = collect($availablePromotionGroups ?? [])->get($promotionType, collect());
                                             @endphp
 
                                             @if ($groupPromotions->count() > 0)
@@ -1256,6 +1260,7 @@
             const confirmAdjacentFallback = document.getElementById('confirmAdjacentFallback');
 
             const checkInDate = document.getElementById('checkInDate');
+            const checkInDateBox = document.getElementById('checkInDateBox');
             const checkOutDate = document.getElementById('checkOutDate');
             const checkOutDateBox = document.getElementById('checkOutDateBox');
 
@@ -1283,6 +1288,8 @@
 
             const promotionChecks = document.querySelectorAll('.promotion-check');
             const customerEmail = document.getElementById('customerEmail');
+            const customerEmailRequiredMark = document.getElementById('customerEmailRequiredMark');
+            const customerEmailHelp = document.getElementById('customerEmailHelp');
             const customerPhone = document.getElementById('customerPhone');
             const customerCccd = document.getElementById('customerCccd');
             const eligiblePromotionCount = document.getElementById('eligiblePromotionCount');
@@ -1339,6 +1346,8 @@
             let categoryAvailabilityRequestId = 0;
             let categoryAvailabilityAbortController = null;
             let categoryAvailabilityTimer = null;
+            let hourlyInventoryRequestId = 0;
+            let hourlyInventoryAbortController = null;
 
             const roomSelectionModeInputs = Array.from(document.querySelectorAll('input[name="room_selection_mode"]'));
             const manualRoomSelectionBox = document.getElementById('manualRoomSelectionBox');
@@ -1366,6 +1375,7 @@
             }
 
             function currentManualRoomOptionsPayload() {
+                syncWalkInNow();
                 return {
                     booking_mode: bookingMode.value,
                     booking_type: bookingType.value,
@@ -1502,9 +1512,14 @@
                     ) {
                         return;
                     }
+                    manualRoomIds.innerHTML = '';
+                    if (manualRoomChecklist) {
+                        manualRoomChecklist.innerHTML = '<div class="text-muted small p-2">Không có phòng có thể chọn với thời gian hiện tại.</div>';
+                    }
                     if (manualRoomHelp) {
                         manualRoomHelp.textContent = error.message || 'Không tải được danh sách phòng.';
                     }
+                    updateEstimatedTotal();
                 } finally {
                     if (requestId === manualRoomOptionsRequestId) {
                         manualRoomIds.disabled = false;
@@ -1937,6 +1952,26 @@
                 };
             }
 
+            function syncWalkInNow(force = false) {
+                if (bookingMode.value !== 'walk_in' || !checkInDate || !checkInTime) {
+                    return;
+                }
+
+                const now = new Date();
+                const dateValue = formatDateInput(now);
+                const timeValue = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+                // "Ở ngay" luôn lấy thời điểm hiện tại; lễ tân không tự sửa ngày/giờ nhận.
+                if (force || checkInDate.value !== dateValue || checkInTime.value !== timeValue) {
+                    setBookingDateValue(checkInDate, dateValue);
+                    checkInTime.value = timeValue;
+                    if (checkInTime._flatpickr) {
+                        checkInTime._flatpickr.setDate(timeValue, false, 'H:i');
+                    }
+                }
+
+            }
+
             function setMinDates() {
                 const today = formatDateInput(new Date());
 
@@ -1956,6 +1991,14 @@
                 checkOutDate.min = checkInDate.value || today;
             }
 
+            function setBookingDateValue(input, value) {
+                if (!input) return;
+                input.value = value || '';
+                if (input._flatpickr) {
+                    input._flatpickr.setDate(value || null, false);
+                }
+            }
+
             function autoSetCheckoutDate() {
                 if (!checkInDate.value || !checkOutDate) {
                     return;
@@ -1967,7 +2010,7 @@
                     checkOutDate.min = minCheckoutDate;
 
                     if (!checkOutDate.value || checkOutDate.value <= checkInDate.value) {
-                        checkOutDate.value = minCheckoutDate;
+                        setBookingDateValue(checkOutDate, minCheckoutDate);
                     }
 
                     return;
@@ -1979,7 +2022,7 @@
                     checkOutDate.min = minCheckoutDate;
 
                     if (!checkOutDate.value || checkOutDate.value <= checkInDate.value) {
-                        checkOutDate.value = minCheckoutDate;
+                        setBookingDateValue(checkOutDate, minCheckoutDate);
                     }
 
                     return;
@@ -1993,8 +2036,42 @@
                 checkOutDate.min = checkInDate.value;
 
                 if (!checkOutDate.value) {
-                    checkOutDate.value = checkInDate.value;
+                    setBookingDateValue(checkOutDate, checkInDate.value);
                 }
+            }
+
+            function shouldPromoteWalkInHourlyToOvernight() {
+                if (bookingMode.value !== 'walk_in' || bookingType.value !== 'hourly') {
+                    return false;
+                }
+
+                syncWalkInNow();
+
+                if (!checkInDate?.value || !checkInTime?.value || !checkOutDate?.value || !hourlyCheckOutTime?.value) {
+                    return false;
+                }
+
+                const checkInDateTime = parseDateTime(checkInDate.value, checkInTime.value);
+                const checkOutDateTime = parseDateTime(checkOutDate.value, hourlyCheckOutTime.value);
+
+                if (!checkInDateTime || !checkOutDateTime
+                    || Number.isNaN(checkInDateTime.getTime())
+                    || Number.isNaN(checkOutDateTime.getTime())
+                    || checkOutDateTime <= checkInDateTime) {
+                    return false;
+                }
+
+                const durationMinutes = Math.ceil((checkOutDateTime - checkInDateTime) / 60000);
+                return durationMinutes > Number(policy.shortToOvernightHours || 12) * 60;
+            }
+
+            function autoPromoteWalkInHourlyToOvernight() {
+                if (!shouldPromoteWalkInHourlyToOvernight()) {
+                    return false;
+                }
+
+                bookingType.value = 'overnight';
+                return true;
             }
 
             function updateBookingTypeUi() {
@@ -2005,6 +2082,7 @@
 
                 if (isAdvance) {
                     bookingType.value = 'overnight';
+                    checkInDateBox?.classList.remove('d-none');
 
                     if (hourlyOption) {
                         hourlyOption.disabled = true;
@@ -2043,8 +2121,14 @@
                     hourlyOption.disabled = false;
                 }
 
+                if (isWalkIn) {
+                    syncWalkInNow(true);
+                    checkInDateBox?.classList.add('d-none');
+                    checkInTimeBox?.classList.add('d-none');
+                }
+
                 if (isWalkIn && isHourly) {
-                    checkInTimeBox.classList.remove('d-none');
+                    checkInTimeBox.classList.add('d-none');
                     hourlyCheckOutTimeBox.classList.remove('d-none');
                     hourlyPreviewWrapper.classList.remove('d-none');
                     walkInOvernightPolicyWrapper.classList.add('d-none');
@@ -2080,7 +2164,7 @@
                     return;
                 }
 
-                checkInTimeBox.classList.remove('d-none');
+                checkInTimeBox.classList.add('d-none');
                 hourlyCheckOutTimeBox.classList.add('d-none');
                 hourlyPreviewWrapper.classList.add('d-none');
                 walkInOvernightPolicyWrapper.classList.add('d-none');
@@ -2162,6 +2246,7 @@
             }
 
             function updateHourlyPreview() {
+                syncWalkInNow();
                 if (!hourlyPreviewWrapper || bookingMode.value !== 'walk_in' || bookingType.value !== 'hourly') {
                     if (lowStockConfirmWrapper) {
                         lowStockConfirmWrapper.classList.add('d-none');
@@ -2248,21 +2333,29 @@
                 hourlyPreviewBadge.innerText = 'Đang kiểm tra...';
                 hourlyPreviewMessage.innerText = 'Đang kiểm tra phòng trống thật trong khung giờ này.';
 
+                const hourlyPayload = {
+                    room_category_id: roomCategorySelect.value,
+                    check_in_date: checkInDate.value,
+                    check_in_time: checkInTime.value,
+                    check_out_date: checkOutDate.value,
+                    check_out_time: hourlyCheckOutTime.value,
+                    room_quantity: roomQuantity.value,
+                };
+                const requestId = ++hourlyInventoryRequestId;
+                if (hourlyInventoryAbortController) {
+                    hourlyInventoryAbortController.abort();
+                }
+                hourlyInventoryAbortController = new AbortController();
+
                 fetch(hourlyInventoryCheckUrl, {
                     method: 'POST',
+                    signal: hourlyInventoryAbortController.signal,
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRF-TOKEN': document.querySelector('input[name="_token"]').value,
                         'Accept': 'application/json',
                     },
-                    body: JSON.stringify({
-                        room_category_id: roomCategorySelect.value,
-                        check_in_date: checkInDate.value,
-                        check_in_time: checkInTime.value,
-                        check_out_date: checkOutDate.value,
-                        check_out_time: hourlyCheckOutTime.value,
-                        room_quantity: roomQuantity.value,
-                    }),
+                    body: JSON.stringify(hourlyPayload),
                 })
                     .then(function (response) {
                         if (!response.ok) {
@@ -2272,6 +2365,16 @@
                         return response.json();
                     })
                     .then(function (data) {
+                        if (requestId !== hourlyInventoryRequestId) {
+                            return;
+                        }
+
+                        if (data.switch_to_overnight) {
+                            bookingType.value = 'overnight';
+                            refreshBookingForm();
+                            return;
+                        }
+
                         const selectedAvailable = Number(data.available_for_selected_period || 0);
                         const remainingOvernight = Number(data.remaining_after_hourly || 0);
 
@@ -2318,6 +2421,11 @@
                         }
 
                         if (data.blocked || selectedAvailable <= 0) {
+                            if (manualRoomIds) manualRoomIds.innerHTML = '';
+                            if (manualRoomChecklist) {
+                                manualRoomChecklist.innerHTML = '<div class="text-muted small p-2">Không còn phòng phù hợp trong khung giờ đã chọn.</div>';
+                            }
+                            if (manualRoomHelp) manualRoomHelp.textContent = 'Không thể chọn phòng thủ công vì tồn phòng hiện tại không đủ.';
                             hourlyPreviewBox.classList.remove('safe');
                             hourlyPreviewBox.classList.add('warning');
                             hourlyPreviewBadge.className = 'badge bg-danger';
@@ -2346,7 +2454,13 @@
                         hourlyPreviewBadge.className = 'badge bg-success';
                         hourlyPreviewBadge.innerText = 'An toàn';
                     })
-                    .catch(function () {
+                    .catch(function (error) {
+                        if (error && error.name === 'AbortError') {
+                            return;
+                        }
+                        if (requestId !== hourlyInventoryRequestId) {
+                            return;
+                        }
                         hourlyPreviewBox.classList.remove('safe');
                         hourlyPreviewBox.classList.add('warning');
                         hourlyPreviewBadge.className = 'badge bg-danger';
@@ -2356,6 +2470,7 @@
             }
 
             function updateWalkInOvernightPreview() {
+                syncWalkInNow();
                 if (!walkInOvernightPolicyWrapper || bookingMode.value !== 'walk_in' || bookingType.value !== 'overnight') {
                     return;
                 }
@@ -2465,6 +2580,23 @@
                 }
             }
 
+            function syncCustomerEmailRequirement() {
+                if (!customerEmail) return;
+
+                const requiresEmail = (paymentMethod?.value || 'cash') === 'vnpay';
+                customerEmail.required = requiresEmail;
+
+                if (customerEmailRequiredMark) {
+                    customerEmailRequiredMark.classList.toggle('d-none', !requiresEmail);
+                }
+
+                if (customerEmailHelp) {
+                    customerEmailHelp.textContent = requiresEmail
+                        ? 'Bắt buộc khi chọn VNPay để gửi đường dẫn thanh toán cho khách.'
+                        : 'Không bắt buộc khi khách thanh toán tại quầy.';
+                }
+            }
+
             function updatePaymentUi(total, roomTotalForDeposit = 0, moneyDiscount = 0) {
                 if (!paymentMethod || !paymentType || !depositAmount) {
                     return;
@@ -2472,6 +2604,7 @@
 
                 const method = paymentMethod.value || 'cash';
                 const type = paymentType.value || '';
+                syncCustomerEmailRequirement();
                 const customOption = paymentType.querySelector('option[value="custom"]');
                 const depositBase = Math.max(
                     0,
@@ -2559,6 +2692,7 @@
             }
 
             function canCheckCategoryAvailability() {
+                syncWalkInNow();
                 if (!checkInDate.value || !checkOutDate.value) {
                     return false;
                 }
@@ -2582,6 +2716,7 @@
                     check_out_date: checkOutDate.value,
                     check_in_time: checkInTime.value,
                     check_out_time: bookingType.value === 'hourly' ? hourlyCheckOutTime.value : null,
+                    room_quantity: getRoomQuantity(),
                 };
             }
 
@@ -2643,6 +2778,12 @@
                             return;
                         }
 
+                        if (data.normalized_booking_type && data.normalized_booking_type !== bookingType.value) {
+                            bookingType.value = data.normalized_booking_type;
+                            refreshBookingForm();
+                            return;
+                        }
+
                         const categories = Array.isArray(data.categories) ? data.categories : [];
                         roomCategorySelect.innerHTML = '<option value="">-- Chọn hạng phòng còn phòng --</option>';
 
@@ -2665,9 +2806,10 @@
                         roomCategorySelect.value = canRestore ? previousValue : '';
 
                         if (roomCategoryStockNote) {
-                            roomCategoryStockNote.innerText = categories.length > 0
-                                ? 'Chỉ hiển thị hạng còn phòng trong khoảng ' + (data.check_in_at || '') + ' → ' + (data.check_out_at || '') + '.'
-                                : 'Không còn hạng phòng nào phù hợp trong thời gian đã chọn.';
+                            roomCategoryStockNote.innerText = data.message
+                                || (categories.length > 0
+                                    ? 'Chỉ hiển thị hạng còn phòng trong khoảng ' + (data.check_in_at || '') + ' → ' + (data.check_out_at || '') + '.'
+                                    : 'Không còn hạng phòng nào phù hợp trong thời gian đã chọn.');
                         }
 
                         updateEstimatedTotal();
@@ -2692,7 +2834,9 @@
             }
 
             function refreshBookingForm() {
+                autoPromoteWalkInHourlyToOvernight();
                 updateBookingTypeUi();
+                autoSetCheckoutDate();
                 setMinDates();
                 updateAdjacentRoomBox();
                 updateHourlyPreview();
@@ -2729,6 +2873,16 @@
             });
 
             bookingType.addEventListener('change', function () {
+                syncWalkInNow(true);
+
+                // Khi lễ tân chủ động chuyển sang "Theo giờ", bỏ ngày trả cũ của
+                // booking qua đêm để không lập tức bị chuyển ngược lại. Ca theo giờ
+                // mặc định bắt đầu từ hiện tại và trả cùng ngày; nếu ca thực tế kéo
+                // qua ngưỡng chính sách thì refreshBookingForm sẽ tự đổi sang Qua đêm.
+                if (bookingMode.value === 'walk_in' && bookingType.value === 'hourly' && checkInDate?.value) {
+                    setBookingDateValue(checkOutDate, checkInDate.value);
+                }
+
                 autoSetCheckoutDate();
                 refreshBookingForm();
             });
@@ -2883,6 +3037,7 @@
 
             if (bookingForm) {
                 bookingForm.addEventListener('submit', function (event) {
+                syncWalkInNow(true);
                     const noteInput = document.getElementById('promotionNote');
 
                     if (hasRequiredNotePromotion() && noteInput && noteInput.value.trim() === '') {
@@ -3053,6 +3208,8 @@
                     element.addEventListener('input', scheduleEligiblePromotionRefresh);
                     element.addEventListener('change', scheduleEligiblePromotionRefresh);
                 });
+
+            syncCustomerEmailRequirement();
 
             if (customerEmail) {
                 customerEmail.addEventListener('input', scheduleCustomerAccountLookup);

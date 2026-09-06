@@ -14,14 +14,14 @@
             <div class="admin-page-head">
                 <div>
                     <h2>Khách đang lưu trú</h2>
-                    <p>Danh sách các phòng đang có khách ở tại khách sạn</p>
+                    <p>Mỗi booking hiển thị số khách thực tế và người đại diện của từng phòng</p>
                 </div>
             </div>
 
             <div class="settings-section mb-4">
                 <form action="{{ route('admin.staying-guests.index') }}" method="GET" class="row g-3 align-items-center">
                     <div class="col-md-6">
-                        <input type="text" name="search" class="form-control" placeholder="Tìm khách đại diện, khách lưu trú, CCCD, SĐT, phòng, mã booking..." value="{{ request('search') }}">
+                        <input type="text" name="search" class="form-control" placeholder="Tìm người đại diện, giấy tờ, SĐT, phòng, mã booking..." value="{{ request('search') }}">
                     </div>
                     <div class="col-md-2">
                         <button type="submit" class="btn btn-primary w-100">Tìm kiếm</button>
@@ -72,12 +72,22 @@
                                             @else
                                                 <span class="fw-bold">{{ $booking->customer->full_name }}</span>
                                             @endif
-                                            @if($booking->guests && $booking->guests->count() > 0)
+                                            @php
+                                                $roomRepresentatives = $booking->bookingRooms->map(function ($bookingRoom) use ($booking) {
+                                                    return $booking->guests->where('booking_room_id', $bookingRoom->id)
+                                                        ->first(fn ($guest) => $guest->guest_type === 'adult');
+                                                })->filter();
+                                                $groupRepresentative = $booking->guests->firstWhere('is_booking_representative', true);
+                                            @endphp
+                                            @if($roomRepresentatives->isNotEmpty())
                                                 <div class="mt-2 small text-muted">
-                                                    <div class="fw-bold mb-1">Khai báo lưu trú:</div>
+                                                    <div class="fw-bold mb-1">Đại diện phòng:</div>
                                                     <ul class="mb-0 ps-3">
-                                                    @foreach($booking->guests as $guest)
-                                                        <li>{{ $guest->full_name }} ({{ $guest->cccd ?: 'Chưa có CCCD' }})</li>
+                                                    @foreach($roomRepresentatives as $guest)
+                                                        <li>
+                                                            P.{{ $guest->bookingRoom?->room?->room_number ?? '---' }} · {{ $guest->full_name }}
+                                                            @if($guest->is_booking_representative)<strong class="text-primary"> · đại diện đoàn</strong>@endif
+                                                        </li>
                                                     @endforeach
                                                     </ul>
                                                 </div>

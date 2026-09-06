@@ -30,6 +30,8 @@
                 data-rounded-now-time="<?php echo e($uiData['rounded_now_time']); ?>"
                 data-default-checkout-date="<?php echo e($uiData['default_checkout_date']); ?>"
                 data-default-checkout-time="<?php echo e($uiData['default_checkout_time']); ?>"
+                data-current-timestamp-ms="<?php echo e($uiData['current_timestamp_ms'] ?? ''); ?>"
+                data-auto-current-check-in="<?php echo e(!empty($uiData['auto_current_check_in']) ? '1' : '0'); ?>"
                 data-cleaning-buffer-minutes="<?php echo e($uiData['cleaning_buffer_minutes']); ?>">
             </div>
 
@@ -84,13 +86,17 @@
 
                             <div class="col-md-1">
                                 <label class="form-label">Người lớn</label>
-                                <input type="number" name="adult_count" class="form-control" min="1" max="60" value="<?php echo e(old('adult_count', $searchData['adult_count'] ?? 2)); ?>" required>
+                                <input type="number" name="adult_count" class="form-control" min="1" max="<?php echo e((int) ($uiData['max_online_guests'] ?? 60)); ?>" value="<?php echo e(old('adult_count', $searchData['adult_count'] ?? 2)); ?>" required>
                             </div>
                             <div class="col-md-1">
                                 <label class="form-label">Trẻ em</label>
-                                <input type="number" name="child_count" class="form-control" min="0" max="60" value="<?php echo e(old('child_count', $searchData['child_count'] ?? 0)); ?>" required>
+                                <input type="number" name="child_count" class="form-control" min="0" max="<?php echo e((int) ($uiData['max_online_guests'] ?? 60)); ?>" value="<?php echo e(old('child_count', $searchData['child_count'] ?? 0)); ?>" required>
                             </div>
-                            <div class="col-md-2">
+                            <div class="col-md-1">
+                                <label class="form-label">Em bé</label>
+                                <input type="number" name="baby_count" class="form-control" min="0" max="<?php echo e((int) ($uiData['max_online_guests'] ?? 60)); ?>" value="<?php echo e(old('baby_count', $searchData['baby_count'] ?? 0)); ?>" required>
+                            </div>
+                            <div class="col-md-1">
                                 <button class="btn btn-primary w-100">Kiểm tra</button>
                             </div>
                         </div>
@@ -144,14 +150,14 @@
                 <?php if(($searchData['recommendations'] ?? collect())->isNotEmpty()): ?>
                     <div class="card shadow-sm border-0 mb-4"><div class="card-body">
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                            <div><h4 class="mb-1">Phương án cho <?php echo e($searchData['adult_count'] + $searchData['child_count']); ?> khách</h4><div class="small text-muted">Chỉ gợi ý phương án còn đủ phòng thật trong toàn bộ khoảng đã tra cứu.</div></div>
+                            <div><h4 class="mb-1">Phương án cho <?php echo e($searchData['adult_count'] + $searchData['child_count'] + ($searchData['baby_count'] ?? 0)); ?> khách</h4><div class="small text-muted">Chỉ gợi ý phương án còn đủ phòng thật trong toàn bộ khoảng đã tra cứu.</div></div>
                         </div>
                         <div class="row g-3">
                             <?php $__currentLoopData = $searchData['recommendations']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $option): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                                 <?php
                                     $recommendedCreateParams = [
                                         'room_category_id'=>$option['room_category_id'], 'room_quantity'=>$option['room_quantity'],
-                                        'adult_count'=>$searchData['adult_count'], 'child_count'=>$searchData['child_count'],
+                                        'adult_count'=>$searchData['adult_count'], 'child_count'=>$searchData['child_count'], 'baby_count'=>$searchData['baby_count'] ?? 0,
                                         'booking_type'=>$searchData['quick_booking_type'] ?? 'overnight', 'booking_mode'=>$searchData['quick_booking_mode'] ?? 'advance',
                                         'check_in_date'=>$searchData['check_in_date'], 'check_in_time'=>$searchData['check_in_time'],
                                         'check_out_date'=>$searchData['check_out_date'], 'check_out_time'=>$searchData['check_out_time'],
@@ -174,6 +180,8 @@
                         <?php $__currentLoopData = $roomCategories; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $category): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                             <?php
                                 $hasAvailableRoom = $category->available_rooms_count > 0;
+                                $matchingRecommendation = collect($searchData['recommendations'] ?? [])->firstWhere('room_category_id', (int) $category->id);
+                                $canFitRequestedGuests = !empty($matchingRecommendation);
 
                                 $createParams = [
                                     'room_category_id' => $category->id,
@@ -183,6 +191,10 @@
                                     'check_in_time' => $searchData['check_in_time'],
                                     'check_out_date' => $searchData['check_out_date'],
                                     'check_out_time' => $searchData['check_out_time'],
+                                    'adult_count' => $searchData['adult_count'],
+                                    'child_count' => $searchData['child_count'],
+                                    'baby_count' => $searchData['baby_count'] ?? 0,
+                                    'room_quantity' => $matchingRecommendation['room_quantity'] ?? 1,
                                 ];
                             ?>
 
@@ -212,13 +224,17 @@
                                             </div>
                                         </div>
 
-                                        <?php if($hasAvailableRoom && ($searchData['quick_booking_available'] ?? true)): ?>
+                                        <?php if($hasAvailableRoom && $canFitRequestedGuests && ($searchData['quick_booking_available'] ?? true)): ?>
                                             <a href="<?php echo e(route('admin.bookings.create', $createParams)); ?>" class="btn btn-success mt-auto">
                                                 Tạo booking hạng này
                                             </a>
-                                        <?php elseif($hasAvailableRoom): ?>
+                                        <?php elseif($hasAvailableRoom && $canFitRequestedGuests): ?>
                                             <button type="button" class="btn btn-outline-secondary mt-auto" disabled>
                                                 Ở ngay chỉ áp dụng hôm nay
+                                            </button>
+                                        <?php elseif($hasAvailableRoom): ?>
+                                            <button type="button" class="btn btn-outline-warning mt-auto" disabled>
+                                                Không đủ phòng/sức chứa cho số khách
                                             </button>
                                         <?php else: ?>
                                             <button type="button" class="btn btn-outline-secondary mt-auto" disabled>
@@ -308,6 +324,17 @@
             return clonedDate;
         }
 
+        function addDays(date, days) {
+            const clonedDate = new Date(date.getTime());
+            clonedDate.setDate(clonedDate.getDate() + days);
+
+            return clonedDate;
+        }
+
+        function getActualNow() {
+            return new Date();
+        }
+
         function setFlatpickrDate(input, value) {
             if (!input || !value) {
                 return;
@@ -368,24 +395,28 @@
                     noCalendar: true,
                     dateFormat: 'H:i',
                     time_24hr: true,
-                    minuteIncrement: 15,
+                    minuteIncrement: 1,
                     allowInput: false,
                     disableMobile: true,
                 });
             });
         }
 
-        function ensureDefaultValues() {
-            const defaultCheckInDate = config.roundedNowDate || config.today;
-            const defaultCheckInTime = config.roundedNowTime || '14:00';
-            const defaultCheckOutDate = config.defaultCheckoutDate || defaultCheckInDate;
-            const defaultCheckOutTime = config.defaultCheckoutTime || '16:00';
+        let autoCurrentCheckIn = config.autoCurrentCheckIn === '1';
+        let checkoutTimeWasManuallyChanged = false;
 
-            if (checkInDate && !checkInDate.value) {
+        function ensureDefaultValues() {
+            const actualNow = getActualNow();
+            const defaultCheckInDate = formatDateInput(actualNow);
+            const defaultCheckInTime = formatTimeInput(actualNow);
+            const defaultCheckOutDate = config.defaultCheckoutDate || formatDateInput(addDays(actualNow, 1));
+            const defaultCheckOutTime = config.defaultCheckoutTime || '12:00';
+
+            if (checkInDate && (autoCurrentCheckIn || !checkInDate.value)) {
                 setFlatpickrDate(checkInDate, defaultCheckInDate);
             }
 
-            if (checkInTime && !checkInTime.value) {
+            if (checkInTime && (autoCurrentCheckIn || !checkInTime.value)) {
                 setFlatpickrTime(checkInTime, defaultCheckInTime);
             }
 
@@ -398,13 +429,25 @@
             }
         }
 
+        function refreshCurrentCheckIn() {
+            if (!autoCurrentCheckIn || !checkInDate || !checkInTime) {
+                return;
+            }
+
+            const actualNow = getActualNow();
+            setFlatpickrDate(checkInDate, formatDateInput(actualNow));
+            setFlatpickrTime(checkInTime, formatTimeInput(actualNow));
+            normalizeCheckout();
+        }
+
         function normalizeCheckout() {
             if (!checkInDate || !checkInTime || !checkOutDate || !checkOutTime) {
                 return;
             }
 
-            setDateMin(checkInDate, config.today);
-            setDateMin(checkOutDate, checkInDate.value || config.today);
+            const actualNow = getActualNow();
+            setDateMin(checkInDate, formatDateInput(actualNow));
+            setDateMin(checkOutDate, checkInDate.value || formatDateInput(actualNow));
 
             const checkInAt = parseDateTime(checkInDate.value, checkInTime.value);
             const checkOutAt = parseDateTime(checkOutDate.value, checkOutTime.value);
@@ -414,9 +457,11 @@
             }
 
             if (!checkOutAt || checkOutAt <= checkInAt) {
-                const nextCheckoutAt = addHours(checkInAt, 2);
-                setFlatpickrDate(checkOutDate, formatDateInput(nextCheckoutAt));
-                setFlatpickrTime(checkOutTime, formatTimeInput(nextCheckoutAt));
+                const nextDay = addDays(checkInAt, 1);
+                setFlatpickrDate(checkOutDate, formatDateInput(nextDay));
+                if (!checkoutTimeWasManuallyChanged) {
+                    setFlatpickrTime(checkOutTime, config.defaultCheckoutTime || '12:00');
+                }
             }
         }
 
@@ -424,13 +469,38 @@
         ensureDefaultValues();
         normalizeCheckout();
 
-        [checkInDate, checkInTime, checkOutDate, checkOutTime].forEach(function (input) {
+        [checkInDate, checkInTime].forEach(function (input) {
             if (!input) {
                 return;
             }
 
-            input.addEventListener('change', normalizeCheckout);
+            input.addEventListener('change', function () {
+                autoCurrentCheckIn = false;
+                normalizeCheckout();
+            });
         });
+
+        if (checkOutDate) {
+            checkOutDate.addEventListener('change', normalizeCheckout);
+        }
+
+        if (checkOutTime) {
+            checkOutTime.addEventListener('change', function () {
+                checkoutTimeWasManuallyChanged = true;
+                normalizeCheckout();
+            });
+        }
+
+        const availabilityForm = checkInDate ? checkInDate.closest('form') : null;
+        if (availabilityForm) {
+            availabilityForm.addEventListener('submit', function () {
+                refreshCurrentCheckIn();
+            });
+        }
+
+        if (autoCurrentCheckIn) {
+            window.setInterval(refreshCurrentCheckIn, 30000);
+        }
     </script>
 
 <?php $__env->stopSection(); ?>

@@ -23,8 +23,10 @@ class RoomAvailabilityController extends Controller
         $now = now(self::TIMEZONE)->startOfMinute();
         $policies = app(HotelPolicyService::class);
         $cleaningBufferMinutes = max(0, (int) $policies->get('booking.cleaning_buffer_minutes', self::DEFAULT_CLEANING_BUFFER_MINUTES));
-        $roundedNow = $this->roundUpTime($now->copy(), 15);
-        $defaultCheckOutAt = $roundedNow->copy()->addHours(self::DEFAULT_LOOKUP_DURATION_HOURS);
+        $currentCheckInAt = $now->copy();
+        $standardCheckOutTime = (string) $policies->get('stay.standard_check_out_time', '12:00');
+        [$defaultCheckOutHour, $defaultCheckOutMinute] = array_pad(array_map('intval', explode(':', $standardCheckOutTime, 2)), 2, 0);
+        $defaultCheckOutAt = $currentCheckInAt->copy()->addDay()->setTime($defaultCheckOutHour, $defaultCheckOutMinute, 0);
 
         $roomCategories = collect();
 
@@ -34,8 +36,8 @@ class RoomAvailabilityController extends Controller
 
         $searchData = [
             'searched' => false,
-            'check_in_date' => $request->input('check_in_date', $roundedNow->toDateString()),
-            'check_in_time' => $request->input('check_in_time', $roundedNow->format('H:i')),
+            'check_in_date' => $request->input('check_in_date', $currentCheckInAt->toDateString()),
+            'check_in_time' => $request->input('check_in_time', $currentCheckInAt->format('H:i')),
             'check_out_date' => $request->input('check_out_date', $defaultCheckOutAt->toDateString()),
             'check_out_time' => $request->input('check_out_time', $defaultCheckOutAt->format('H:i')),
             'check_in_at' => null,
@@ -52,8 +54,10 @@ class RoomAvailabilityController extends Controller
 
         $uiData = [
             'today' => $now->toDateString(),
-            'rounded_now_date' => $roundedNow->toDateString(),
-            'rounded_now_time' => $roundedNow->format('H:i'),
+            'rounded_now_date' => $currentCheckInAt->toDateString(),
+            'rounded_now_time' => $currentCheckInAt->format('H:i'),
+            'current_timestamp_ms' => $currentCheckInAt->getTimestampMs(),
+            'auto_current_check_in' => !$hasSearch,
             'default_checkout_date' => $defaultCheckOutAt->toDateString(),
             'default_checkout_time' => $defaultCheckOutAt->format('H:i'),
             'cleaning_buffer_minutes' => $cleaningBufferMinutes,
@@ -134,8 +138,11 @@ class RoomAvailabilityController extends Controller
         });
 
         if ($validator->fails()) {
-            return back()
-                ->withInput()
+            // This is a GET lookup page: keep validation errors local to this
+            // response instead of flashing them into the session. Flashing a
+            // GET validation bag can make the same error surface on another
+            // admin page opened immediately afterwards.
+            return view('admin.pages.room-availability.index', compact('roomCategories', 'searchData', 'uiData'))
                 ->withErrors($validator);
         }
 

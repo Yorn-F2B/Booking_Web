@@ -32,6 +32,8 @@
                 data-rounded-now-time="{{ $uiData['rounded_now_time'] }}"
                 data-default-checkout-date="{{ $uiData['default_checkout_date'] }}"
                 data-default-checkout-time="{{ $uiData['default_checkout_time'] }}"
+                data-current-timestamp-ms="{{ $uiData['current_timestamp_ms'] ?? '' }}"
+                data-auto-current-check-in="{{ !empty($uiData['auto_current_check_in']) ? '1' : '0' }}"
                 data-cleaning-buffer-minutes="{{ $uiData['cleaning_buffer_minutes'] }}">
             </div>
 
@@ -323,6 +325,17 @@
             return clonedDate;
         }
 
+        function addDays(date, days) {
+            const clonedDate = new Date(date.getTime());
+            clonedDate.setDate(clonedDate.getDate() + days);
+
+            return clonedDate;
+        }
+
+        function getActualNow() {
+            return new Date();
+        }
+
         function setFlatpickrDate(input, value) {
             if (!input || !value) {
                 return;
@@ -383,24 +396,28 @@
                     noCalendar: true,
                     dateFormat: 'H:i',
                     time_24hr: true,
-                    minuteIncrement: 15,
+                    minuteIncrement: 1,
                     allowInput: false,
                     disableMobile: true,
                 });
             });
         }
 
-        function ensureDefaultValues() {
-            const defaultCheckInDate = config.roundedNowDate || config.today;
-            const defaultCheckInTime = config.roundedNowTime || '14:00';
-            const defaultCheckOutDate = config.defaultCheckoutDate || defaultCheckInDate;
-            const defaultCheckOutTime = config.defaultCheckoutTime || '16:00';
+        let autoCurrentCheckIn = config.autoCurrentCheckIn === '1';
+        let checkoutTimeWasManuallyChanged = false;
 
-            if (checkInDate && !checkInDate.value) {
+        function ensureDefaultValues() {
+            const actualNow = getActualNow();
+            const defaultCheckInDate = formatDateInput(actualNow);
+            const defaultCheckInTime = formatTimeInput(actualNow);
+            const defaultCheckOutDate = config.defaultCheckoutDate || formatDateInput(addDays(actualNow, 1));
+            const defaultCheckOutTime = config.defaultCheckoutTime || '12:00';
+
+            if (checkInDate && (autoCurrentCheckIn || !checkInDate.value)) {
                 setFlatpickrDate(checkInDate, defaultCheckInDate);
             }
 
-            if (checkInTime && !checkInTime.value) {
+            if (checkInTime && (autoCurrentCheckIn || !checkInTime.value)) {
                 setFlatpickrTime(checkInTime, defaultCheckInTime);
             }
 
@@ -413,13 +430,25 @@
             }
         }
 
+        function refreshCurrentCheckIn() {
+            if (!autoCurrentCheckIn || !checkInDate || !checkInTime) {
+                return;
+            }
+
+            const actualNow = getActualNow();
+            setFlatpickrDate(checkInDate, formatDateInput(actualNow));
+            setFlatpickrTime(checkInTime, formatTimeInput(actualNow));
+            normalizeCheckout();
+        }
+
         function normalizeCheckout() {
             if (!checkInDate || !checkInTime || !checkOutDate || !checkOutTime) {
                 return;
             }
 
-            setDateMin(checkInDate, config.today);
-            setDateMin(checkOutDate, checkInDate.value || config.today);
+            const actualNow = getActualNow();
+            setDateMin(checkInDate, formatDateInput(actualNow));
+            setDateMin(checkOutDate, checkInDate.value || formatDateInput(actualNow));
 
             const checkInAt = parseDateTime(checkInDate.value, checkInTime.value);
             const checkOutAt = parseDateTime(checkOutDate.value, checkOutTime.value);
@@ -429,9 +458,11 @@
             }
 
             if (!checkOutAt || checkOutAt <= checkInAt) {
-                const nextCheckoutAt = addHours(checkInAt, 2);
-                setFlatpickrDate(checkOutDate, formatDateInput(nextCheckoutAt));
-                setFlatpickrTime(checkOutTime, formatTimeInput(nextCheckoutAt));
+                const nextDay = addDays(checkInAt, 1);
+                setFlatpickrDate(checkOutDate, formatDateInput(nextDay));
+                if (!checkoutTimeWasManuallyChanged) {
+                    setFlatpickrTime(checkOutTime, config.defaultCheckoutTime || '12:00');
+                }
             }
         }
 
@@ -439,13 +470,38 @@
         ensureDefaultValues();
         normalizeCheckout();
 
-        [checkInDate, checkInTime, checkOutDate, checkOutTime].forEach(function (input) {
+        [checkInDate, checkInTime].forEach(function (input) {
             if (!input) {
                 return;
             }
 
-            input.addEventListener('change', normalizeCheckout);
+            input.addEventListener('change', function () {
+                autoCurrentCheckIn = false;
+                normalizeCheckout();
+            });
         });
+
+        if (checkOutDate) {
+            checkOutDate.addEventListener('change', normalizeCheckout);
+        }
+
+        if (checkOutTime) {
+            checkOutTime.addEventListener('change', function () {
+                checkoutTimeWasManuallyChanged = true;
+                normalizeCheckout();
+            });
+        }
+
+        const availabilityForm = checkInDate ? checkInDate.closest('form') : null;
+        if (availabilityForm) {
+            availabilityForm.addEventListener('submit', function () {
+                refreshCurrentCheckIn();
+            });
+        }
+
+        if (autoCurrentCheckIn) {
+            window.setInterval(refreshCurrentCheckIn, 30000);
+        }
     </script>
 
 @endsection

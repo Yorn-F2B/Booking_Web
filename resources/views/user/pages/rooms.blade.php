@@ -266,7 +266,7 @@
 
                                             @if (!empty($searchData['check_in_date']) && !empty($searchData['check_out_date']))
                                                 <span class="badge bg-success-subtle text-success border border-success-subtle">
-                                                    Còn {{ $category->available_rooms_count }} phòng trống
+                                                    Còn {{ $category->available_rooms_count }} phòng
                                                 </span>
                                             @endif
                                         </div>

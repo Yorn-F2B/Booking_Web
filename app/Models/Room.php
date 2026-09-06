@@ -58,7 +58,9 @@ class Room extends Model
         $checkInAt,
         $checkOutAt,
         ?int $excludeBookingId = null,
-        int $cleaningBufferMinutes = 0
+        int $cleaningBufferMinutes = 0,
+        ?array $allowedCurrentStatuses = null,
+        bool $allowCleaningWithoutReadyTime = false
     ): Builder {
         $checkInAt = Carbon::parse($checkInAt, 'Asia/Ho_Chi_Minh');
         $checkOutAt = Carbon::parse($checkOutAt, 'Asia/Ho_Chi_Minh');
@@ -76,13 +78,27 @@ class Room extends Model
             // (chỉ là thời gian dự kiến) để tự coi phòng đã sửa xong. Cleaning/inspection
             // có thể được bán cho kỳ lưu trú tương lai nếu thời gian dự kiến hoàn tất
             // đã nằm trước giờ nhận phòng; backend vẫn kiểm tra lại khi xác nhận booking.
-            ->where(function (Builder $statusQuery) use ($checkInAtString) {
-                $statusQuery->whereIn('status', ['available', 'reserved', 'occupied'])
-                    ->orWhere(function (Builder $temporaryStatus) use ($checkInAtString) {
-                        $temporaryStatus->whereIn('status', ['cleaning', 'inspection'])
-                            ->whereNotNull('status_until')
-                            ->where('status_until', '<=', $checkInAtString);
-                    });
+            ->where(function (Builder $statusQuery) use ($checkInAtString, $allowedCurrentStatuses, $allowCleaningWithoutReadyTime) {
+                if ($allowedCurrentStatuses !== null) {
+                    $statusQuery->whereIn('status', $allowedCurrentStatuses);
+
+                    if (!$allowCleaningWithoutReadyTime && in_array('cleaning', $allowedCurrentStatuses, true)) {
+                        $statusQuery->where(function (Builder $readyQuery) use ($checkInAtString) {
+                            $readyQuery->where('status', '!=', 'cleaning')
+                                ->orWhere(function (Builder $cleaningReady) use ($checkInAtString) {
+                                    $cleaningReady->whereNotNull('status_until')
+                                        ->where('status_until', '<=', $checkInAtString);
+                                });
+                        });
+                    }
+
+                    return;
+                }
+
+                // Trạng thái vật lý chỉ khóa bán khi phòng đang bảo trì.
+                // Phòng đang dọn/kiểm tra vẫn được phép giữ cho booking; các booking
+                // giao nhau và room-hold vẫn được chặn ở các điều kiện phía dưới.
+                $statusQuery->where('status', '!=', 'maintenance');
             })
             // Hold sự cố chỉ chặn nếu hold còn hiệu lực *và* booking được giữ phòng
             // thực sự giao với khoảng đang tìm. Tránh giữ 30 phút hôm nay làm mất

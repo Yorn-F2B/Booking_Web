@@ -48,11 +48,9 @@ class DashboardController extends Controller
         $now = Carbon::now('Asia/Ho_Chi_Minh');
 
         $grossRevenue = $this->grossCollectedForPeriod($from, $to);
-        $refundAmount = $this->refundsCompletedForPeriod($from, $to);
-        $revenue = $grossRevenue - $refundAmount;
+        $revenue = $grossRevenue;
         $previousGrossRevenue = $this->grossCollectedForPeriod($previousFrom, $previousTo);
-        $previousRefundAmount = $this->refundsCompletedForPeriod($previousFrom, $previousTo);
-        $previousRevenue = $previousGrossRevenue - $previousRefundAmount;
+        $previousRevenue = $previousGrossRevenue;
         $revenueChangePercent = $this->percentChange($revenue, $previousRevenue);
 
         $successPayments = BookingPayment::query()
@@ -65,21 +63,28 @@ class DashboardController extends Controller
             });
 
         $paymentProviderRows = (clone $successPayments)
-            ->selectRaw("CASE WHEN provider IN ('vnpay','admin_vnpay') THEN 'VNPay' WHEN provider = 'cash' THEN 'Tiền mặt' WHEN provider = 'bank_transfer' THEN 'Chuyển khoản' ELSE provider END as provider_label, SUM(amount) as total")
-            ->groupBy('provider_label')
+            ->selectRaw("CASE WHEN provider IN ('vnpay','admin_vnpay') THEN 'vnpay' WHEN provider IN ('cash','admin_cash') THEN 'cash' WHEN provider IN ('bank_transfer','admin_bank_transfer') THEN 'bank_transfer' ELSE provider END as provider_key, SUM(amount) as total")
+            ->groupBy('provider_key')
             ->orderByDesc('total')
             ->get()
-            ->map(fn ($row) => ['label' => (string) $row->provider_label, 'total' => (float) $row->total])
+            ->map(fn ($row) => [
+                'key' => (string) $row->provider_key,
+                'label' => match ((string) $row->provider_key) {
+                    'vnpay' => 'VNPay',
+                    'cash' => 'Tiền mặt',
+                    'bank_transfer' => 'Chuyển khoản',
+                    default => (string) $row->provider_key,
+                },
+                'total' => (float) $row->total,
+            ])
             ->values()
             ->all();
 
         $bookingPeriod = Booking::query()->whereBetween('created_at', [$from, $to]);
         $newBookings = (int) (clone $bookingPeriod)->count();
         $cancelledBookings = (int) (clone $bookingPeriod)->where('status', 'cancelled')->count();
-        $nonCancelledBookings = (int) (clone $bookingPeriod)->where('status', '!=', 'cancelled')->count();
         $completedBookings = (int) (clone $bookingPeriod)->whereIn('status', ['checked_out', 'completed'])->count();
         $bookingValue = (float) (clone $bookingPeriod)->where('status', '!=', 'cancelled')->sum('estimated_total');
-        $discountAmount = (float) (clone $bookingPeriod)->where('status', '!=', 'cancelled')->sum('discount_amount');
 
         $noShowCount = (int) BookingLog::query()
             ->whereBetween('created_at', [$from, $to])
@@ -96,15 +101,24 @@ class DashboardController extends Controller
         $bookingSourceRows = Booking::query()
             ->whereBetween('created_at', [$from, $to])
             ->selectRaw("CASE
-                WHEN booking_source = 'user_online' THEN 'Website'
-                WHEN booking_source = 'reception' AND booking_mode = 'walk_in' THEN 'Walk-in tại quầy'
-                WHEN booking_source = 'reception' THEN 'Lễ tân đặt trước'
-                ELSE 'Khác'
-            END as source_label, COUNT(*) as total")
-            ->groupBy('source_label')
+                WHEN booking_source = 'user_online' THEN 'website'
+                WHEN booking_source = 'reception' AND booking_mode = 'walk_in' THEN 'walk_in'
+                WHEN booking_source = 'reception' THEN 'reception_advance'
+                ELSE 'other'
+            END as source_key, COUNT(*) as total")
+            ->groupBy('source_key')
             ->orderByDesc('total')
             ->get()
-            ->map(fn ($row) => ['label' => (string) $row->source_label, 'count' => (int) $row->total])
+            ->map(fn ($row) => [
+                'key' => (string) $row->source_key,
+                'label' => match ((string) $row->source_key) {
+                    'website' => 'Website',
+                    'walk_in' => 'Walk-in tại quầy',
+                    'reception_advance' => 'Lễ tân đặt trước',
+                    default => 'Khác',
+                },
+                'count' => (int) $row->total,
+            ])
             ->values()
             ->all();
 
@@ -143,33 +157,13 @@ class DashboardController extends Controller
         $receivableAmount = (float) ($receivableRow->amount ?? 0);
         $receivableBookings = (int) ($receivableRow->booking_count ?? 0);
 
-        $failedPayments = (int) BookingPayment::query()
-            ->where('status', 'failed')
-            ->whereBetween('updated_at', [$from, $to])
-            ->count();
-        $pendingPayments = (int) BookingPayment::query()
-            ->where('status', 'pending')
-            ->whereBetween('created_at', [$from, $to])
-            ->count();
-
         $activeGuests = (int) Booking::query()->where('status', 'checked_in')
             ->sum(DB::raw('COALESCE(adult_count,0) + COALESCE(child_count,0) + COALESCE(baby_count,0)'));
         $activeStays = (int) Booking::query()->where('status', 'checked_in')->count();
-        $openRoomIssues = (int) RoomIssueRequest::query()
-            ->whereNotIn('workflow_status', ['completed', 'rejected'])
-            ->count();
-        $failedEmails = (int) EmailDeliveryLog::query()->where('status', 'failed')->whereBetween('created_at', [$from, $to])->count();
-        $averageBookingValue = $nonCancelledBookings > 0 ? round($bookingValue / $nonCancelledBookings, 0) : 0;
-
-        // Cảnh báo điều hành là snapshot hiện tại, không phụ thuộc khoảng thời gian
-        // đang xem báo cáo. Chỉ đưa lên những ngoại lệ thực sự cần Super Admin chú ý.
-        $operationAlerts = $this->buildExecutiveAlerts($now);
 
         $periodLabel = $from->format('d/m/Y') === $to->format('d/m/Y')
             ? $from->format('d/m/Y')
             : $from->format('d/m/Y') . ' – ' . $to->format('d/m/Y');
-        $previousPeriodLabel = $previousFrom->format('d/m/Y') . ' – ' . $previousTo->format('d/m/Y');
-
         return view('admin.pages.dashboard.dashboard', compact(
             'now',
             'from',
@@ -177,19 +171,15 @@ class DashboardController extends Controller
             'preset',
             'periodDays',
             'periodLabel',
-            'previousPeriodLabel',
             'revenue',
             'grossRevenue',
-            'refundAmount',
             'previousRevenue',
             'revenueChangePercent',
             'paymentProviderRows',
             'newBookings',
-            'nonCancelledBookings',
             'cancelledBookings',
             'completedBookings',
             'bookingValue',
-            'discountAmount',
             'noShowCount',
             'bookingSourceRows',
             'bookingStatusRows',
@@ -204,14 +194,8 @@ class DashboardController extends Controller
             'surchargeRows',
             'receivableAmount',
             'receivableBookings',
-            'failedPayments',
-            'pendingPayments',
-            'operationAlerts',
             'activeGuests',
-            'activeStays',
-            'openRoomIssues',
-            'failedEmails',
-            'averageBookingValue'
+            'activeStays'
         ));
     }
 
@@ -222,56 +206,145 @@ class DashboardController extends Controller
         [$from, $to] = $this->resolveDashboardRange($request);
 
         $labels = [
-            'revenue' => ['Doanh thu thuần thực thu', 'Tiền thu vào từ payment thành công trong kỳ, trừ các khoản hoàn tiền đã xác nhận hoàn tất trong kỳ.'],
-            'refunds' => ['Tiền đã hoàn khách', 'Tổng refund_due_amount của booking có refund_status = completed và thời điểm hoàn tất nằm trong kỳ.'],
+            'revenue' => ['Tiền đã thu trong kỳ', 'Tổng các giao dịch payment có trạng thái thành công theo paid_at; nếu paid_at trống thì dùng created_at.'],
             'booking_value' => ['Giá trị booking phát sinh', 'Tổng estimated_total của booking tạo trong kỳ, không tính booking đã hủy.'],
             'new_bookings' => ['Booking mới', 'Tất cả booking được tạo trong kỳ.'],
             'receivables' => ['Công nợ liên quan kỳ', 'Phần giá trị phải thu (ưu tiên final_total, nếu chưa chốt thì estimated_total) còn thiếu sau khi trừ tổng payment thành công của booking đã xác nhận/đang ở/đã trả và giao với kỳ; booking pending không được coi là công nợ.'],
-            'discounts' => ['Ưu đãi / giảm giá', 'Tổng discount_amount snapshot của booking tạo trong kỳ và chưa bị hủy.'],
-            'pending_payments' => ['Thanh toán chờ xử lý', 'Các payment tạo trong kỳ đang ở trạng thái pending.'],
-            'failed_payments' => ['Thanh toán thất bại', 'Các payment chuyển sang trạng thái failed trong kỳ.'],
-            'failed_emails' => ['Email gửi thất bại', 'Các lần gửi email được ứng dụng ghi nhận thất bại trong kỳ.'],
+            'occupancy' => ['Chi tiết công suất phòng', 'Mỗi dòng là số phòng-ngày thực tế một phòng được booking hợp lệ sử dụng trong khoảng đang xem. Công suất = tổng phòng-ngày sử dụng / tổng số phòng × số ngày.'],
+            'active_stays' => ['Khách đang lưu trú', 'Các booking đang checked-in tại thời điểm hiện tại; số lượng khách gồm người lớn, trẻ em và em bé trên booking.'],
+            'booking_source' => ['Booking theo kênh tiếp nhận', 'Danh sách đầy đủ các booking được tạo trong kỳ thuộc đúng kênh đã chọn.'],
+            'surcharges' => ['Phụ thu và phí phát sinh', 'Từng khoản phụ thu đã xác nhận trong kỳ, ghi rõ booking, tên khoản và số tiền.'],
+            'payment_provider' => ['Tiền thu theo phương thức', 'Từng giao dịch thanh toán thành công trong kỳ thuộc phương thức đã chọn.'],
+            'booking_status' => ['Booking theo trạng thái', 'Danh sách booking tạo trong kỳ thuộc đúng trạng thái đã chọn.'],
+            'room_status' => ['Phòng theo trạng thái hiện tại', 'Danh sách phòng đang có trạng thái đã chọn tại thời điểm mở báo cáo.'],
+            'category_occupancy' => ['Công suất theo hạng phòng', 'Các lượt sử dụng phòng thuộc hạng đã chọn và số phòng-ngày giao với khoảng báo cáo.'],
         ];
         abort_unless(isset($labels[$metric]), 404);
+        [$title, $formula] = $labels[$metric];
 
         $rows = collect();
         $total = 0.0;
+        $valueLabel = 'Số tiền';
+        $valueType = 'money';
+        $totalLabel = 'Tổng';
+        $group = trim((string) $request->query('group'));
+        $overlapRows = function (?int $categoryId = null) use ($from, $to) {
+            return Booking::query()
+                ->with(['bookingRooms.room.category'])
+                ->whereIn('status', $this->occupancyBookingStatuses)
+                ->where('check_in_at', '<=', $to)
+                ->where('check_out_at', '>=', $from)
+                ->get()
+                ->flatMap(function ($booking) use ($from, $to, $categoryId) {
+                    return $booking->bookingRooms->filter(function ($bookingRoom) use ($categoryId) {
+                        return !$categoryId || (int) $bookingRoom->room?->room_category_id === $categoryId;
+                    })->map(function ($bookingRoom) use ($booking, $from, $to) {
+                        $bookingStart = Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh');
+                        $bookingEnd = Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh');
+                        $start = $bookingStart->greaterThan($from) ? $bookingStart : $from;
+                        $end = $bookingEnd->lessThan($to) ? $bookingEnd : $to;
+                        $roomDays = max(0, $start->diffInMinutes($end) / 1440);
+                        return [
+                            'booking' => $booking->booking_code,
+                            'customer' => $booking->booked_customer_name,
+                            'kind' => 'Phòng ' . ($bookingRoom->room?->room_number ?? '---') . ' · ' . ($bookingRoom->room?->category?->name ?? 'Chưa rõ hạng'),
+                            'amount' => round($roomDays, 2),
+                            'time' => $booking->check_in_at,
+                            'url' => route('admin.bookings.show', $booking),
+                        ];
+                    });
+                })->filter(fn ($row) => $row['amount'] > 0)->values();
+        };
+
         if ($metric === 'revenue') {
             $paymentRows = BookingPayment::query()->with('booking')->where('status', 'success')
                 ->where(fn($q) => $q->whereBetween('paid_at', [$from,$to])->orWhere(fn($x) => $x->whereNull('paid_at')->whereBetween('created_at',[$from,$to])))
                 ->latest('id')->get()->map(fn($p) => ['booking'=>$p->booking?->booking_code,'customer'=>$p->booking?->customer_name_snapshot,'kind'=>'Thu · '.$p->provider,'amount'=>(float)$p->amount,'time'=>$p->paid_at ?: $p->created_at,'url'=>$p->booking ? route('admin.bookings.show',$p->booking) : null]);
-            $refundRows = Booking::query()->where('refund_status','completed')->where('refund_due_amount','>',0)
-                ->whereBetween('refund_processed_at',[$from,$to])->latest('refund_processed_at')->get()
-                ->map(fn($b)=>['booking'=>$b->booking_code,'customer'=>$b->customer_name_snapshot,'kind'=>'Hoàn tiền','amount'=>-(float)$b->refund_due_amount,'time'=>$b->refund_processed_at,'url'=>route('admin.bookings.show',$b)]);
-            $rows=$paymentRows->concat($refundRows)->sortByDesc(fn($r)=>(string)($r['time']??''))->values();
+            $rows=$paymentRows->sortByDesc(fn($r)=>(string)($r['time']??''))->values();
             $total=(float)$rows->sum('amount');
-        } elseif ($metric === 'refunds') {
-            $rows=Booking::query()->where('refund_status','completed')->where('refund_due_amount','>',0)
-                ->whereBetween('refund_processed_at',[$from,$to])->latest('refund_processed_at')->get()
-                ->map(fn($b)=>['booking'=>$b->booking_code,'customer'=>$b->customer_name_snapshot,'kind'=>'Đã hoàn khách','amount'=>(float)$b->refund_due_amount,'time'=>$b->refund_processed_at,'url'=>route('admin.bookings.show',$b)]);
-            $total=(float)$rows->sum('amount');
-        } elseif (in_array($metric, ['booking_value','new_bookings','discounts'], true)) {
+            $totalLabel='Tổng tiền từ '.$rows->count().' giao dịch';
+        } elseif (in_array($metric, ['booking_value','new_bookings'], true)) {
             $q=Booking::query()->whereBetween('created_at',[$from,$to]);
             if ($metric !== 'new_bookings') $q->where('status','!=','cancelled');
-            $rows=$q->latest()->get()->map(fn($b)=>['booking'=>$b->booking_code,'customer'=>$b->customer_name_snapshot,'kind'=>$b->status,'amount'=>$metric==='discounts'?(float)$b->discount_amount:(float)$b->estimated_total,'time'=>$b->created_at,'url'=>route('admin.bookings.show',$b)]);
+            $rows=$q->latest()->get()->map(fn($b)=>['booking'=>$b->booking_code,'customer'=>$b->customer_name_snapshot,'kind'=>$b->status,'amount'=>(float)$b->estimated_total,'time'=>$b->created_at,'url'=>route('admin.bookings.show',$b)]);
             $total=$metric==='new_bookings'?(float)$rows->count():(float)$rows->sum('amount');
+            if ($metric === 'new_bookings') {
+                $totalLabel = 'Số booking';
+            } else {
+                $totalLabel = 'Tổng giá trị '.$rows->count().' booking';
+            }
         } elseif ($metric === 'receivables') {
             $bookings=Booking::query()->whereIn('status',$this->receivableBookingStatuses)->where('check_in_at','<=',$to)->where('check_out_at','>=',$from)->latest()->get();
             $paid=BookingPayment::query()->whereIn('booking_id',$bookings->pluck('id'))->where('status','success')->selectRaw('booking_id,SUM(amount) total')->groupBy('booking_id')->pluck('total','booking_id');
             $rows=$bookings->map(function($b) use($paid){$amount=max(0,(float)($b->final_total ?? $b->estimated_total ?? 0)-(float)($paid[$b->id]??0));return ['booking'=>$b->booking_code,'customer'=>$b->customer_name_snapshot,'kind'=>$b->status,'amount'=>$amount,'time'=>$b->check_out_at,'url'=>route('admin.bookings.show',$b)];})->filter(fn($r)=>$r['amount']>0)->values();
             $total=(float)$rows->sum('amount');
-        } elseif (in_array($metric,['pending_payments','failed_payments'],true)) {
-            $status=$metric==='pending_payments'?'pending':'failed';
-            $dateCol=$status==='failed'?'updated_at':'created_at';
-            $rows=BookingPayment::query()->with('booking')->where('status',$status)->whereBetween($dateCol,[$from,$to])->latest('id')->get()->map(fn($p)=>['booking'=>$p->booking?->booking_code,'customer'=>$p->booking?->customer_name_snapshot,'kind'=>$p->provider,'amount'=>(float)$p->amount,'time'=>$p->{$dateCol},'url'=>$p->booking?route('admin.bookings.show',$p->booking):null]);
+            $totalLabel='Tổng công nợ '.$rows->count().' booking';
+        } elseif ($metric === 'occupancy' || $metric === 'category_occupancy') {
+            $categoryId = $metric === 'category_occupancy' ? (int) $group : null;
+            abort_if($metric === 'category_occupancy' && $categoryId <= 0, 404);
+            $rows = $overlapRows($categoryId);
             $total=(float)$rows->sum('amount');
+            $valueLabel = 'Phòng-ngày';
+            $valueType = 'number';
+            $totalLabel = 'Tổng phòng-ngày sử dụng';
+            $roomCount = $metric === 'category_occupancy'
+                ? Room::query()->where('room_category_id', $categoryId)->count()
+                : Room::query()->count();
+            $periodDays = $from->copy()->startOfDay()->diffInDays($to->copy()->startOfDay()) + 1;
+            $capacity = $roomCount * $periodDays;
+            $rate = $capacity > 0 ? round(min(100, ($total / $capacity) * 100), 1) : 0;
+            $formula .= ' Kỳ này: '.number_format($total, 2, ',', '.').' phòng-ngày sử dụng / '
+                .number_format($capacity, 0, ',', '.').' phòng-ngày khả dụng = '
+                .number_format($rate, 1, ',', '.').'%.'.($metric === 'category_occupancy' ? ' Chỉ tính hạng phòng đã chọn.' : '');
+        } elseif ($metric === 'active_stays') {
+            $rows = Booking::query()->where('status', 'checked_in')->latest('actual_check_in')->get()->map(function ($booking) {
+                $guests = (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0);
+                return ['booking'=>$booking->booking_code,'customer'=>$booking->booked_customer_name,'kind'=>'Đang ở đến '.optional($booking->check_out_at)->format('d/m/Y H:i'),'amount'=>$guests,'time'=>$booking->actual_check_in ?: $booking->check_in_at,'url'=>route('admin.bookings.show',$booking)];
+            });
+            $total=(float)$rows->sum('amount');
+            $valueLabel='Số khách'; $valueType='integer'; $totalLabel='Tổng khách đang lưu trú';
+        } elseif ($metric === 'booking_source') {
+            abort_unless(in_array($group, ['website','walk_in','reception_advance','other'], true), 404);
+            $query=Booking::query()->whereBetween('created_at',[$from,$to]);
+            if ($group==='website') $query->where('booking_source','user_online');
+            elseif ($group==='walk_in') $query->where('booking_source','reception')->where('booking_mode','walk_in');
+            elseif ($group==='reception_advance') $query->where('booking_source','reception')->where('booking_mode','advance');
+            else $query->whereNotIn('booking_source',['user_online','reception']);
+            $rows=$query->latest()->get()->map(fn($b)=>['booking'=>$b->booking_code,'customer'=>$b->booked_customer_name,'kind'=>$b->status,'amount'=>(float)$b->estimated_total,'time'=>$b->created_at,'url'=>route('admin.bookings.show',$b)]);
+            $total=(float)$rows->sum('amount');
+            $totalLabel='Tổng giá trị '.$rows->count().' booking';
+        } elseif ($metric === 'surcharges') {
+            if ($group === 'room_adjustment') {
+                $rows=DB::table('booking_rooms')->join('bookings','bookings.id','=','booking_rooms.booking_id')->leftJoin('rooms','rooms.id','=','booking_rooms.room_id')->whereNull('bookings.deleted_at')->where('booking_rooms.surcharge','>',0)->where('bookings.check_in_at','<=',$to)->where('bookings.check_out_at','>=',$from)->select('bookings.id','bookings.booking_code','bookings.customer_name_snapshot','rooms.room_number','booking_rooms.surcharge','bookings.check_in_at')->get()->map(fn($r)=>['booking'=>$r->booking_code,'customer'=>$r->customer_name_snapshot,'kind'=>'Điều chỉnh/phụ thu phòng '.($r->room_number??'---'),'amount'=>(float)$r->surcharge,'time'=>$r->check_in_at,'url'=>route('admin.bookings.show',$r->id)]);
+            } else {
+                abort_if($group === '', 404);
+                $rows=BookingServiceItem::query()->with('booking')->where('billing_status','confirmed')->where('type',$group)->where(fn($q)=>$q->whereBetween('confirmed_at',[$from,$to])->orWhere(fn($x)=>$x->whereNull('confirmed_at')->whereBetween('created_at',[$from,$to])))->latest('id')->get()->map(fn($item)=>['booking'=>$item->booking?->booking_code,'customer'=>$item->booking?->booked_customer_name,'kind'=>$item->name,'amount'=>(float)$item->total,'time'=>$item->confirmed_at ?: $item->created_at,'url'=>$item->booking?route('admin.bookings.show',$item->booking):null]);
+            }
+            $total=(float)$rows->sum('amount');
+            $totalLabel='Tổng '.$rows->count().' khoản';
+        } elseif ($metric === 'payment_provider') {
+            $providers=match($group){'vnpay'=>['vnpay','admin_vnpay'],'cash'=>['cash','admin_cash'],'bank_transfer'=>['bank_transfer','admin_bank_transfer'],default=>[$group]};
+            abort_if($group === '', 404);
+            $rows=BookingPayment::query()->with('booking')->where('status','success')->whereIn('provider',$providers)->where(fn($q)=>$q->whereBetween('paid_at',[$from,$to])->orWhere(fn($x)=>$x->whereNull('paid_at')->whereBetween('created_at',[$from,$to])))->latest('id')->get()->map(fn($p)=>['booking'=>$p->booking?->booking_code,'customer'=>$p->booking?->booked_customer_name,'kind'=>$p->provider,'amount'=>(float)$p->amount,'time'=>$p->paid_at ?: $p->created_at,'url'=>$p->booking?route('admin.bookings.show',$p->booking):null]);
+            $total=(float)$rows->sum('amount');
+            $totalLabel='Tổng '.$rows->count().' giao dịch';
+        } elseif ($metric === 'booking_status') {
+            abort_unless(in_array($group,['pending','confirmed','checked_in','inspection_requested','checked_out','completed','cancelled'],true),404);
+            $rows=Booking::query()->whereBetween('created_at',[$from,$to])->where('status',$group)->latest()->get()->map(fn($b)=>['booking'=>$b->booking_code,'customer'=>$b->booked_customer_name,'kind'=>$b->status,'amount'=>(float)$b->estimated_total,'time'=>$b->created_at,'url'=>route('admin.bookings.show',$b)]);
+            $total=(float)$rows->sum('amount');
+            $totalLabel='Tổng giá trị '.$rows->count().' booking';
         } else {
-            $rows=EmailDeliveryLog::query()->with('booking')->where('status','failed')->whereBetween('created_at',[$from,$to])->latest()->get()->map(fn($e)=>['booking'=>$e->booking?->booking_code,'customer'=>$e->recipient,'kind'=>$e->mail_type,'amount'=>null,'time'=>$e->created_at,'url'=>$e->booking?route('admin.bookings.show',$e->booking):route('admin.email-logs.index')]);
+            abort_unless(in_array($group,['available','reserved','occupied','cleaning','inspection','maintenance','not_ready'],true),404);
+            $roomQuery=Room::query()->with('category');
+            $group === 'not_ready'
+                ? $roomQuery->whereIn('status',['cleaning','inspection','maintenance'])
+                : $roomQuery->where('status',$group);
+            $rows=$roomQuery->orderBy('floor_number')->orderBy('room_number')->get()->map(fn($room)=>['booking'=>'Phòng '.$room->room_number,'customer'=>$room->category?->name,'kind'=>$room->status,'amount'=>null,'time'=>$room->updated_at,'url'=>route('admin.rooms.show',$room)]);
             $total=(float)$rows->count();
+            $valueLabel=''; $valueType='none'; $totalLabel='Số phòng';
         }
 
-        [$title,$formula]=$labels[$metric];
-        return view('admin.pages.dashboard.detail', compact('metric','title','formula','rows','total','from','to'));
+        return view('admin.pages.dashboard.detail', compact('metric','title','formula','rows','total','from','to','valueLabel','valueType','totalLabel'));
     }
 
     private function resolveDashboardRange(Request $request): array
@@ -382,6 +455,7 @@ class DashboardController extends Controller
             $roomDays = (float) ($used[$categoryId] ?? 0);
 
             return [
+                'id' => (int) $categoryId,
                 'name' => (string) $row->name,
                 'room_count' => (int) $row->room_count,
                 'room_days' => round($roomDays, 1),
@@ -484,6 +558,7 @@ class DashboardController extends Controller
             ->groupBy('type')
             ->get()
             ->map(fn ($row) => [
+                'key' => (string) $row->type,
                 'label' => $labels[$row->type] ?? $row->type,
                 'total' => (float) $row->total,
                 'items' => (int) $row->items,
@@ -497,7 +572,7 @@ class DashboardController extends Controller
             ->where('bookings.check_out_at', '>=', $from)
             ->sum('booking_rooms.surcharge');
         if ($roomAdjustments > 0) {
-            $rows->push(['label' => 'Điều chỉnh/phụ thu phòng', 'total' => $roomAdjustments, 'items' => null]);
+            $rows->push(['key' => 'room_adjustment', 'label' => 'Điều chỉnh/phụ thu phòng', 'total' => $roomAdjustments, 'items' => null]);
         }
 
         return $rows->sortByDesc('total')->values()->all();

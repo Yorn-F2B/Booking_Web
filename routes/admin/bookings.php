@@ -75,6 +75,9 @@ Route::post('bookings/{booking}/room-operation/discard-preview', [BookingLifecyc
 |--------------------------------------------------------------------------
 */
 
+Route::patch('bookings/{booking}/occupancy', [BookingController::class, 'updateOccupancy'])
+    ->name('admin.bookings.occupancy.update');
+
 Route::patch('bookings/{booking}/check-in', [BookingLifecycleController::class, 'checkIn'])
     ->name('admin.bookings.check-in');
 

@@ -36,6 +36,11 @@
         $searchData['child_count'] ?? 0
     );
 
+    $currentBabyCount = old(
+        'baby_count',
+        $searchData['baby_count'] ?? 0
+    );
+
 
     $hasCompleteBookingSearch = $hasCompleteBookingSearch ?? (
         !empty($searchData['check_in_date'])
@@ -43,6 +48,8 @@
         && !empty($searchData['adult_count'])
         && array_key_exists('child_count', $searchData ?? [])
         && $searchData['child_count'] !== null
+        && array_key_exists('baby_count', $searchData ?? [])
+        && $searchData['baby_count'] !== null
     );
 ?>
 
@@ -118,19 +125,24 @@
        value="<?php echo e($currentCheckOutDate && $currentCheckOutDate >= $minOnlineCheckOutDate ? $currentCheckOutDate : ''); ?>">
                             </div>
 
-                            <div class="col-md-2">
+                            <div class="col-md-1">
                                 <label class="form-label">
                                     Người lớn
                                 </label>
 <input type="number" name="adult_count" id="rooms_adult_count" class="form-control" min="1" max="<?php echo e($maxAdultCapacity); ?>" value="<?php echo e($currentAdultCount ?: 2); ?>" required>
                             </div>
 
-                            <div class="col-md-2">
+                            <div class="col-md-1">
                                 <label class="form-label">
                                     Trẻ em
                                 </label>
 
                 <input type="number" name="child_count" id="rooms_child_count" class="form-control" min="0" max="<?php echo e($maxChildCapacity); ?>" value="<?php echo e($currentChildCount ?? 0); ?>" required>
+                            </div>
+
+                            <div class="col-md-1">
+                                <label class="form-label">Em bé</label>
+                                <input type="number" name="baby_count" id="rooms_baby_count" class="form-control" min="0" max="<?php echo e($maxChildCapacity); ?>" value="<?php echo e($currentBabyCount ?? 0); ?>" required>
                             </div>
 
                             <div class="col-md-3">
@@ -185,16 +197,16 @@
                     <div class="card-body p-4">
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                             <div><h2 class="h5 fw-bold mb-1">Phương án phòng phù hợp</h2><div class="text-muted small">Chỉ hiển thị phương án đang còn đủ phòng thật trong thời gian đã chọn.</div></div>
-                            <span class="badge bg-primary-subtle text-primary"><?php echo e((int)($searchData['adult_count'] ?? 0) + (int)($searchData['child_count'] ?? 0)); ?> khách</span>
+                            <span class="badge bg-primary-subtle text-primary"><?php echo e((int)($searchData['adult_count'] ?? 0) + (int)($searchData['child_count'] ?? 0) + (int)($searchData['baby_count'] ?? 0)); ?> khách</span>
                         </div>
                         <div class="row g-3">
                             <?php $__currentLoopData = $roomRecommendations; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $option): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                                 <div class="col-lg-4"><div class="border rounded-3 p-3 h-100">
                                     <div class="d-flex gap-1 flex-wrap mb-2"><?php $__currentLoopData = $option['labels']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $label): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?><span class="badge bg-warning-subtle text-dark"><?php echo e($label); ?></span><?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?></div>
                                     <div class="fw-bold fs-5"><?php echo e($option['category_name']); ?> × <?php echo e($option['room_quantity']); ?></div>
-                                    <div class="small text-muted mt-1">Còn <?php echo e($option['available_rooms']); ?> phòng · sức chứa <?php echo e($option['adult_capacity_total']); ?> người lớn + <?php echo e($option['child_capacity_total']); ?> trẻ em</div>
+                                    <div class="small text-muted mt-1">Còn <?php echo e($option['available_rooms']); ?> phòng · sức chứa <?php echo e($option['adult_capacity_total']); ?> người lớn + <?php echo e($option['child_capacity_total']); ?> trẻ em/em bé</div>
                                     <div class="fw-bold text-primary mt-2"><?php echo e(number_format($option['estimated_room_total'],0,',','.')); ?>đ</div>
-                                    <a class="btn btn-primary w-100 mt-3" href="<?php echo e(route('bookings.confirm', ['room_category_id'=>$option['room_category_id'],'check_in_date'=>$searchData['check_in_date'],'check_out_date'=>$searchData['check_out_date'],'adult_count'=>$searchData['adult_count'],'child_count'=>$searchData['child_count'],'room_quantity'=>$option['room_quantity']])); ?>">Chọn phương án này</a>
+                                    <a class="btn btn-primary w-100 mt-3" href="<?php echo e(route('bookings.confirm', ['room_category_id'=>$option['room_category_id'],'check_in_date'=>$searchData['check_in_date'],'check_out_date'=>$searchData['check_out_date'],'adult_count'=>$searchData['adult_count'],'child_count'=>$searchData['child_count'],'baby_count'=>$searchData['baby_count'] ?? 0,'room_quantity'=>$option['room_quantity']])); ?>">Chọn phương án này</a>
                                 </div></div>
                             <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
                         </div>
@@ -254,7 +266,7 @@
 
                                             <?php if(!empty($searchData['check_in_date']) && !empty($searchData['check_out_date'])): ?>
                                                 <span class="badge bg-success-subtle text-success border border-success-subtle">
-                                                    Còn <?php echo e($category->available_rooms_count); ?> phòng trống
+                                                    Còn <?php echo e($category->available_rooms_count); ?> phòng
                                                 </span>
                                             <?php endif; ?>
                                         </div>
@@ -344,6 +356,7 @@
             <input type="hidden" name="check_out_date" value="<?php echo e($searchData['check_out_date']); ?>">
             <input type="hidden" name="adult_count" value="<?php echo e($searchData['adult_count']); ?>">
             <input type="hidden" name="child_count" value="<?php echo e($searchData['child_count'] ?? 0); ?>">
+            <input type="hidden" name="baby_count" value="<?php echo e($searchData['baby_count'] ?? 0); ?>">
             <input type="hidden" name="room_quantity" value="<?php echo e((int) $categoryRecommendation['room_quantity']); ?>">
 
             <?php if(auth()->guard()->check()): ?>
@@ -525,40 +538,7 @@
             }
         });
 
-         const categorySelect = document.getElementById('rooms_room_category_id');
-        const adultSelect = document.getElementById('rooms_adult_count');
-        const childSelect = document.getElementById('rooms_child_count');
-
-        if (!categorySelect || !adultSelect || !childSelect) {
-            return;
-        }
-
-        function applyCapacityFromSelectedCategory() {
-            const selectedOption = categorySelect.options[categorySelect.selectedIndex];
-
-            if (!selectedOption || !selectedOption.value) {
-                adultSelect.value = '';
-                childSelect.value = '';
-                adultSelect.disabled = false;
-                childSelect.disabled = false;
-                return;
-            }
-
-            const adultCapacity = selectedOption.dataset.adultCapacity || '';
-            const childCapacity = selectedOption.dataset.childCapacity || '0';
-
-            adultSelect.value = adultCapacity;
-            childSelect.value = childCapacity;
-
-            adultSelect.disabled = false;
-            childSelect.disabled = false;
-        }
-
-        categorySelect.addEventListener('change', applyCapacityFromSelectedCategory);
-
-        if (categorySelect.value) {
-            applyCapacityFromSelectedCategory();
-        }
+        // Chọn hạng phòng chỉ lọc kết quả; không được tự thay đổi số khách đã nhập.
     });
 </script>
 

@@ -150,31 +150,46 @@
 
         const birthInput = isBirthInput(input);
         const bookingInput = isBookingDateInput(input);
-        const minDate = input.getAttribute('min') || (birthInput ? '1900-01-01' : (bookingInput ? todayValue() : null));
-        const maxDate = input.getAttribute('max') || (birthInput ? todayValue() : null);
+        const defaultMinDate = birthInput ? '1900-01-01' : (bookingInput ? todayValue() : null);
+        const defaultMaxDate = birthInput ? todayValue() : null;
 
-        if (minDate && !input.getAttribute('min')) input.setAttribute('min', minDate);
-        if (maxDate && !input.getAttribute('max')) input.setAttribute('max', maxDate);
+        if (defaultMinDate && !input.getAttribute('min')) input.setAttribute('min', defaultMinDate);
+        if (defaultMaxDate && !input.getAttribute('max')) input.setAttribute('max', defaultMaxDate);
+
+        const currentMinDate = () => input.getAttribute('min') || null;
+        const currentMaxDate = () => input.getAttribute('max') || null;
 
         const validateDate = () => {
             const value = input.value;
+            const minDate = currentMinDate();
+            const maxDate = currentMaxDate();
             let message = '';
             if (value && minDate && value < minDate) {
                 message = birthInput
                     ? 'Ngày sinh không hợp lệ.'
-                    : 'Ngày đặt hoặc lưu trú không được nhỏ hơn ngày hiện tại.';
+                    : 'Ngày đã chọn không được nhỏ hơn mốc tối thiểu cho phép.';
             } else if (value && maxDate && value > maxDate) {
-                message = birthInput ? 'Ngày sinh không được lớn hơn ngày hiện tại.' : 'Ngày đã chọn không hợp lệ.';
+                message = birthInput ? 'Ngày sinh không được lớn hơn ngày hiện tại.' : 'Ngày đã chọn vượt quá mốc tối đa cho phép.';
             }
             input.setCustomValidity(message);
+        };
+
+        const watchDynamicLimits = (instance) => {
+            const sync = () => {
+                instance?.set('minDate', currentMinDate());
+                instance?.set('maxDate', currentMaxDate());
+                validateDate();
+            };
+            const observer = new MutationObserver(sync);
+            observer.observe(input, { attributes: true, attributeFilter: ['min', 'max'] });
+            sync();
         };
 
         // Một số trang có cấu hình nghiệp vụ riêng (cặp ngày, ngày giờ). Giữ nguyên
         // instance đó, đồng bộ giới hạn và bổ sung dropdown năm.
         if (input._flatpickr) {
             const instance = input._flatpickr;
-            if (minDate) instance.set('minDate', minDate);
-            if (maxDate) instance.set('maxDate', maxDate);
+            watchDynamicLimits(instance);
             if (needsYearSelect(input)) {
                 const enhance = () => attachYearSelect(instance, input);
                 instance.config.onReady.push(enhance);
@@ -194,8 +209,8 @@
             dateFormat: 'Y-m-d',
             altInput: true,
             altFormat: 'd/m/Y',
-            minDate,
-            maxDate,
+            minDate: currentMinDate(),
+            maxDate: currentMaxDate(),
             allowInput: true,
             disableMobile: true,
             monthSelectorType: 'dropdown',
@@ -209,6 +224,7 @@
             },
         });
 
+        watchDynamicLimits(input._flatpickr);
         input.addEventListener('change', validateDate);
         input.addEventListener('blur', validateDate);
         validateDate();

@@ -1295,6 +1295,30 @@ function syncBookingOptionDirtyState() {
 bookingOptionInputs.forEach(input => input.addEventListener('input', syncBookingOptionDirtyState));
 syncBookingOptionDirtyState();
 
+const editBookingCheckIn = document.getElementById('editBookingCheckIn');
+const editBookingCheckOut = document.getElementById('editBookingCheckOut');
+function addOneDate(dateValue) {
+    if (!dateValue) return '';
+    const date = new Date(`${dateValue}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return '';
+    date.setDate(date.getDate() + 1);
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+}
+function syncOnlineBookingDates() {
+    if (!editBookingCheckIn || !editBookingCheckOut || !editBookingCheckIn.value) return;
+    const minimumCheckout = addOneDate(editBookingCheckIn.value);
+    editBookingCheckOut.min = minimumCheckout;
+    if (editBookingCheckOut._flatpickr) editBookingCheckOut._flatpickr.set('minDate', minimumCheckout);
+    if (!editBookingCheckOut.value || editBookingCheckOut.value <= editBookingCheckIn.value) {
+        editBookingCheckOut.value = minimumCheckout;
+        if (editBookingCheckOut._flatpickr) editBookingCheckOut._flatpickr.setDate(minimumCheckout, false);
+    }
+}
+editBookingCheckIn?.addEventListener('change', syncOnlineBookingDates);
+editBookingCheckIn?.addEventListener('project-date-change', syncOnlineBookingDates);
+syncOnlineBookingDates();
+
 document.getElementById('recheckBookingOption')?.addEventListener('click', function () {
     const params = new URLSearchParams({
         room_category_id: <?php echo json_encode($bookingData['room_category_id'], 15, 512) ?>,

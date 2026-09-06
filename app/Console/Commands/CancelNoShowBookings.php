@@ -15,7 +15,7 @@ class CancelNoShowBookings extends Command
     protected $signature = 'bookings:cancel-no-show
                             {--now= : Thời điểm giả lập để kiểm thử, định dạng Y-m-d H:i:s. Bỏ trống để dùng giờ thực tế}';
 
-    protected $description = 'Tự động hủy booking đã quá giờ G nhưng khách chưa check-in';
+    protected $description = 'Tự động hủy booking quá hạn giữ hoặc đã hết thời gian lưu trú nhưng khách chưa check-in';
 
     public function handle(BookingFinancialService $financials, BookingCancellationService $cancellations): int
     {
@@ -30,20 +30,16 @@ class CancelNoShowBookings extends Command
             ->where('status', 'confirmed')
             ->whereNull('actual_check_in')
             ->whereNotNull('check_in_at')
-            ->where('booking_mode', 'advance')
-            ->where('booking_type', 'overnight')
+            ->whereNotNull('check_out_at')
             ->get();
 
         $count = 0;
 
         foreach ($bookings as $booking) {
-            // Chỉ booking đặt trước thật sự mới chịu chính sách giờ G/no-show.
-            // Walk-in, ở ngay qua đêm, theo giờ và đơn vừa đổi ngày đều bỏ qua.
-            if (!$booking->usesLateArrivalNoShowPolicy()) {
-                continue;
-            }
-
-            $holdLimitAt = $booking->lateArrivalHoldLimitAt();
+            $usesNoShowPolicy = $booking->usesLateArrivalNoShowPolicy();
+            $holdLimitAt = $usesNoShowPolicy
+                ? $booking->lateArrivalHoldLimitAt()
+                : Carbon::parse($booking->check_out_at, 'Asia/Ho_Chi_Minh');
 
             if (!$holdLimitAt || $now->lt($holdLimitAt)) {
                 continue;
@@ -51,7 +47,9 @@ class CancelNoShowBookings extends Command
 
             try {
                 $policy = $financials->cancellationPolicy($booking);
-                $historyPrefix = $this->buildNoShowHistoryPrefix($booking, $holdLimitAt, $now);
+                $historyPrefix = $usesNoShowPolicy
+                    ? $this->buildNoShowHistoryPrefix($booking, $holdLimitAt, $now)
+                    : $this->buildExpiredStayHistoryPrefix($booking, $holdLimitAt, $now);
 
                 $cancellations->cancel(
                     $booking,
@@ -80,6 +78,16 @@ class CancelNoShowBookings extends Command
         $this->info('Đã tự động hủy ' . $count . ' booking no-show.');
 
         return self::SUCCESS;
+    }
+
+    private function buildExpiredStayHistoryPrefix(Booking $booking, Carbon $checkOutAt, Carbon $now): string
+    {
+        return 'Hệ thống tự động hủy booking vì đã quá toàn bộ thời gian lưu trú nhưng khách chưa từng check-in. '
+            . 'Loại đơn: ' . ($booking->booking_mode === 'walk_in' ? 'đặt tại quầy' : 'đặt trước')
+            . ' / ' . ($booking->booking_type === 'hourly' ? 'theo giờ' : 'qua đêm') . '. '
+            . 'Giờ nhận dự kiến: ' . Carbon::parse($booking->check_in_at, 'Asia/Ho_Chi_Minh')->format('d/m/Y H:i') . '. '
+            . 'Giờ trả dự kiến: ' . $checkOutAt->format('d/m/Y H:i') . '. '
+            . 'Thời điểm hệ thống xử lý: ' . $now->format('d/m/Y H:i') . '.';
     }
 
     private function buildNoShowHistoryPrefix(Booking $booking, Carbon $holdLimitAt, Carbon $now): string

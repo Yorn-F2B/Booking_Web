@@ -39,7 +39,8 @@ class StayingGuestController extends Controller
                     ->orWhereHas('guests', function ($guestQuery) use ($search) {
                         $guestQuery
                             ->where('full_name', 'like', "%{$search}%")
-                            ->orWhere('cccd', 'like', "%{$search}%");
+                            ->orWhere('cccd', 'like', "%{$search}%")
+                            ->orWhere('document_number', 'like', "%{$search}%");
                     });
             });
         }

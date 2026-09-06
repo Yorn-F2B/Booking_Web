@@ -502,14 +502,14 @@
                                             }
 
                                             if (error) {
-                                                roomQuantityHint.textContent = error;
-                                                roomQuantityHint.className = 'form-text text-danger mb-3';
+                                                roomQuantityHint.textContent = '';
+                                                roomQuantityHint.className = 'd-none';
                                                 if (submitButton) submitButton.disabled = true;
                                                 return false;
                                             }
 
                                             const inventoryText = availabilityData && availabilityKey === currentAvailabilityKey()
-                                                ? ` Còn ${availabilityData.available_rooms} phòng trống trong khoảng đã chọn.`
+                                                ? ` Còn ${availabilityData.available_rooms} phòng.`
                                                 : '';
                                             roomQuantityHint.textContent = `Gợi ý tối thiểu ${minimumRooms} phòng.${inventoryText}`;
                                             roomQuantityHint.className = 'form-text text-muted mb-3';

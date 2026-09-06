@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\User;
+use App\Services\OperationalNotificationService;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -70,6 +71,15 @@ class RegisteredUserController extends Controller
 
         Auth::login($user);
         $request->session()->regenerate();
+
+        app(OperationalNotificationService::class)->toUser(
+            $user->id,
+            'Tạo tài khoản thành công',
+            'Tài khoản MCuong Hotel của bạn đã được tạo thành công với email ' . $user->email . '. Bạn có thể dùng tài khoản này để đặt phòng, theo dõi booking và nhận các cập nhật từ khách sạn.',
+            route('home'),
+            'success',
+            ['meta' => ['event' => 'account_created']]
+        );
 
         return redirect()->route('home')
             ->with('success', 'Đăng ký tài khoản thành công.');

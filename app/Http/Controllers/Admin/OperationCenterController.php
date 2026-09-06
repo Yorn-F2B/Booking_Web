@@ -187,10 +187,20 @@ class OperationCenterController extends Controller
         if ($housekeeping) {
             $cleaningRooms = Room::query()->where('status', 'cleaning');
             HousekeepingWorkScope::applyToRooms($cleaningRooms, $user);
-            $cleaningRooms->with('category')->orderBy('updated_at')->get()->each(fn ($room) => $tasks->push([
-                'priority' => 'medium', 'type' => 'room_cleaning', 'title' => 'Phòng ' . $room->room_number . ' cần hoàn tất dọn',
-                'detail' => $room->category?->name ?: 'Phòng đang dọn', 'url' => route('admin.housekeeping.index'), 'time' => $room->updated_at,
-            ]));
+            $cleaningRooms->with('category')->orderBy('updated_at')->get()->each(function ($room) use ($tasks) {
+                $isPriority = str_contains((string) $room->note, '[PRIORITY_BOOKING:');
+                $tasks->push([
+                    'priority' => $isPriority ? 'high' : 'medium',
+                    'type' => $isPriority ? 'priority_room_cleaning' : 'room_cleaning',
+                    'title' => $isPriority
+                        ? 'Ưu tiên dọn nhanh phòng ' . $room->room_number
+                        : 'Phòng ' . $room->room_number . ' cần hoàn tất dọn',
+                    'detail' => ($room->category?->name ?: 'Phòng đang dọn')
+                        . ($isPriority ? ' · đã được lễ tân/booking chọn, cần hoàn tất sớm' : ''),
+                    'url' => route('admin.housekeeping.index'),
+                    'time' => $room->updated_at,
+                ]);
+            });
 
             $verification = RoomIssueRequest::query()->where('status', 'pending')->where('workflow_status', 'awaiting_housekeeping');
             HousekeepingWorkScope::applyToIssues($verification, $user);
@@ -228,11 +238,36 @@ class OperationCenterController extends Controller
         $priorityRank = ['high' => 0, 'medium' => 1, 'low' => 2];
         $tasks = $tasks->sortBy(fn ($t) => sprintf('%d|%s', $priorityRank[$t['priority']] ?? 9, (string) ($t['time'] ?? '')))->values();
 
+        $taskGroups = $tasks->groupBy('type')->map(function ($items, $type) use ($priorityRank) {
+            $items = $items->values();
+            $first = $items->first();
+            $highestPriority = $items->sortBy(fn ($item) => $priorityRank[$item['priority']] ?? 9)->first()['priority'] ?? 'low';
+
+            return [
+                'type' => $type,
+                'title' => $first['title'] ?? 'Công việc cần xử lý',
+                'priority' => $highestPriority,
+                'count' => $items->count(),
+                'items' => $items,
+            ];
+        })->sortBy(fn ($group) => sprintf('%d|%s', $priorityRank[$group['priority']] ?? 9, $group['title']))->values();
+
         $notifications = OperationalNotification::query()
             ->visibleTo($user)
             ->latest()->paginate(30, ['*'], 'notification_page');
+        $notificationGroups = collect($notifications->items())
+            ->groupBy(fn ($notification) => ($notification->type ?: 'info') . '|' . $notification->title)
+            ->map(function ($items) {
+                $items = $items->values();
+                return [
+                    'title' => $items->first()->title ?: 'Thông báo',
+                    'count' => $items->count(),
+                    'unread_count' => $items->whereNull('read_at')->count(),
+                    'items' => $items,
+                ];
+            })->values();
 
-        return view('admin.pages.operation-center.index', compact('tasks', 'notifications'));
+        return view('admin.pages.operation-center.index', compact('tasks', 'taskGroups', 'notifications', 'notificationGroups'));
     }
 
     private function scopeFrontDeskBookings($query, $user, string $role): void

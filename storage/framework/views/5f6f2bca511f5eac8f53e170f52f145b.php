@@ -21,21 +21,10 @@
         ];
     }
 
-    if (isset($errors) && $errors->any()) {
-        $validationErrors = collect($errors->all())
-            ->filter(fn ($error) => is_string($error) && trim($error) !== '')
-            ->map(fn ($error) => trim($error))
-            ->unique()
-            ->values();
-
-        if ($validationErrors->isNotEmpty()) {
-            $message = $validationErrors->first();
-            if ($validationErrors->count() > 1) {
-                $message .= ' (Còn ' . ($validationErrors->count() - 1) . ' lỗi khác; xem ngay tại các trường được đánh dấu.)';
-            }
-            $flashMessages[] = ['type' => 'error', 'message' => $message];
-        }
-    }
+    // Validation errors belong to the form that created them. Do not turn the
+    // global Laravel error bag into a site-wide toast, otherwise an error from
+    // one form can appear on an unrelated page/tab. Forms should render their
+    // own validation messages next to the relevant fields or local error box.
 
     $seen = [];
     $flashMessages = array_values(array_filter($flashMessages, function ($item) use (&$seen) {
