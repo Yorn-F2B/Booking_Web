@@ -73,7 +73,6 @@ class BookingCreateController extends Controller
             'check_out_time' => $this->safePrefillTime($request->query('check_out_time')),
             'adult_count' => max(1, (int) $request->query('adult_count', 1)),
             'child_count' => max(0, (int) $request->query('child_count', 0)),
-            'baby_count' => max(0, (int) $request->query('baby_count', 0)),
             'room_quantity' => max(1, min(max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)), (int) $request->query('room_quantity', 1))),
         ];
 
@@ -198,7 +197,6 @@ class BookingCreateController extends Controller
 
             'adult_count' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
             'child_count' => 'nullable|integer|min:0|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
-            'baby_count' => 'nullable|integer|min:0|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
             'room_quantity' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)),
             'prefer_adjacent_rooms' => 'nullable|boolean',
             'room_selection_mode' => 'required|in:automatic,manual',
@@ -251,8 +249,8 @@ class BookingCreateController extends Controller
         ]);
 
         $maxOnlineGuests = max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60));
-        if (((int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0)) > $maxOnlineGuests) {
-            return back()->withInput()->withErrors(['adult_count' => 'Tổng số người lớn, trẻ em và em bé không được vượt quá ' . $maxOnlineGuests . ' người trong một booking.']);
+        if (((int) $data['adult_count'] + (int) ($data['child_count'] ?? 0)) > $maxOnlineGuests) {
+            return back()->withInput()->withErrors(['adult_count' => 'Tổng số người lớn và trẻ em không được vượt quá ' . $maxOnlineGuests . ' người trong một booking.']);
         }
         if ((int) $data['adult_count'] < (int) $data['room_quantity']) {
             return back()->withInput()->withErrors(['adult_count' => 'Mỗi phòng cần ít nhất một người lớn đại diện. Với ' . (int) $data['room_quantity'] . ' phòng cần tối thiểu ' . (int) $data['room_quantity'] . ' người lớn.']);
@@ -263,7 +261,7 @@ class BookingCreateController extends Controller
 
         $this->assertGuestCapacity(
             (int) $data['adult_count'],
-            (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0),
+            (int) ($data['child_count'] ?? 0),
             max(0, (int) $roomCategory->adult_capacity) * max(1, $roomQuantity),
             max(0, (int) $roomCategory->child_capacity) * max(1, $roomQuantity)
         );
@@ -312,7 +310,7 @@ class BookingCreateController extends Controller
             $data['services'] ?? [],
             $nightCount,
             $roomQuantity,
-            max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0))
+            max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0))
         );
         $serviceItemTotal = collect($serviceItems)->sum('total');
 
@@ -528,7 +526,7 @@ class BookingCreateController extends Controller
                     'check_out_at' => $checkOutAt,
                     'night_count' => $nightCount,
                     'room_quantity' => $roomQuantity,
-                    'guest_count' => max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0)),
+                    'guest_count' => max(1, (int) $data['adult_count'] + (int) ($data['child_count'] ?? 0)),
                 ],
                 'admin',
                 $data['promotion_note'] ?? null
@@ -593,7 +591,6 @@ class BookingCreateController extends Controller
                 'policy_snapshot' => app(HotelPolicyService::class)->snapshot(),
                 'adult_count' => $data['adult_count'],
                 'child_count' => $data['child_count'] ?? 0,
-                'baby_count' => $data['baby_count'] ?? 0,
                 'room_quantity' => $roomQuantity,
                 'prefer_adjacent_rooms' => $preferAdjacentRooms,
                 'room_selection_mode' => $roomSelectionMode,
@@ -627,7 +624,6 @@ class BookingCreateController extends Controller
                 $roomsForAllocation,
                 (int) $data['adult_count'],
                 (int) ($data['child_count'] ?? 0),
-                (int) ($data['baby_count'] ?? 0)
             );
             foreach ($roomsForAllocation as $room) {
                 $roomOccupancy = $occupancyAllocation[(int) $room->id];
@@ -636,7 +632,6 @@ class BookingCreateController extends Controller
                     'room_id' => $room->id,
                     'adult_count' => $roomOccupancy['adult_count'],
                     'child_count' => $roomOccupancy['child_count'],
-                    'baby_count' => $roomOccupancy['baby_count'],
                     'price_at_booking' => $room->category->price ?? $roomCategory->price,
                     'surcharge' => 0,
                     'surcharge_reason' => null,
@@ -1999,7 +1994,6 @@ class BookingCreateController extends Controller
 
             'adult_count' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
             'child_count' => 'nullable|integer|min:0|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
-            'baby_count' => 'nullable|integer|min:0|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60)),
             'room_quantity' => 'required|integer|min:1|max:' . max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30)),
             'prefer_adjacent_rooms' => 'nullable|boolean',
 
@@ -2036,8 +2030,8 @@ class BookingCreateController extends Controller
         ]);
 
         $maxOnlineGuests = max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_guests', 60));
-        if (((int) $validated['adult_count'] + (int) ($validated['child_count'] ?? 0) + (int) ($validated['baby_count'] ?? 0)) > $maxOnlineGuests) {
-            return back()->withInput()->withErrors(['adult_count' => 'Tổng số người lớn, trẻ em và em bé không được vượt quá ' . $maxOnlineGuests . ' người trong một booking.']);
+        if (((int) $validated['adult_count'] + (int) ($validated['child_count'] ?? 0)) > $maxOnlineGuests) {
+            return back()->withInput()->withErrors(['adult_count' => 'Tổng số người lớn và trẻ em không được vượt quá ' . $maxOnlineGuests . ' người trong một booking.']);
         }
         if ((int) $validated['adult_count'] < (int) $validated['room_quantity']) {
             return back()->withInput()->withErrors(['adult_count' => 'Mỗi phòng cần ít nhất một người lớn đại diện. Với ' . (int) $validated['room_quantity'] . ' phòng cần tối thiểu ' . (int) $validated['room_quantity'] . ' người lớn.']);
@@ -2081,7 +2075,7 @@ class BookingCreateController extends Controller
 
         $this->assertGuestCapacity(
             (int) $validated['adult_count'],
-            (int) ($validated['child_count'] ?? 0) + (int) ($validated['baby_count'] ?? 0),
+            (int) ($validated['child_count'] ?? 0),
             (int) $rooms->sum(fn ($room) => max(0, (int) ($room->category?->adult_capacity ?? 0))),
             (int) $rooms->sum(fn ($room) => max(0, (int) ($room->category?->child_capacity ?? 0)))
         );
@@ -2147,7 +2141,7 @@ class BookingCreateController extends Controller
             $request->services ?? [],
             $nightCount,
             $roomQuantity,
-            max(1, (int) $request->adult_count + (int) ($request->child_count ?? 0) + (int) ($request->baby_count ?? 0))
+            max(1, (int) $request->adult_count + (int) ($request->child_count ?? 0))
         );
         $serviceItemTotal = collect($serviceItems)->sum('total');
 
@@ -2214,7 +2208,7 @@ class BookingCreateController extends Controller
                     'check_out_at' => $checkOutAt,
                     'night_count' => $nightCount,
                     'room_quantity' => $roomQuantity,
-                    'guest_count' => max(1, (int) $request->adult_count + (int) ($request->child_count ?? 0) + (int) ($request->baby_count ?? 0)),
+                    'guest_count' => max(1, (int) $request->adult_count + (int) ($request->child_count ?? 0)),
                 ],
                 'admin',
                 $request->promotion_note
@@ -2272,7 +2266,6 @@ class BookingCreateController extends Controller
                 'check_out_at' => $checkOutAt,
                 'adult_count' => $request->adult_count,
                 'child_count' => $request->child_count ?? 0,
-                'baby_count' => $request->baby_count ?? 0,
                 'room_quantity' => $roomQuantity,
                 'prefer_adjacent_rooms' => $request->boolean('prefer_adjacent_rooms'),
                 'subtotal_amount' => $subtotalAmount,
@@ -2293,7 +2286,6 @@ class BookingCreateController extends Controller
                 $roomsForAllocation,
                 (int) $request->adult_count,
                 (int) ($request->child_count ?? 0),
-                (int) ($request->baby_count ?? 0)
             );
             foreach ($roomsForAllocation as $room) {
                 $roomOccupancy = $occupancyAllocation[(int) $room->id];
@@ -2302,7 +2294,6 @@ class BookingCreateController extends Controller
                     'room_id' => $room->id,
                     'adult_count' => $roomOccupancy['adult_count'],
                     'child_count' => $roomOccupancy['child_count'],
-                    'baby_count' => $roomOccupancy['baby_count'],
                     'price_at_booking' => $room->category->price ?? $roomCategory->price,
                     'surcharge' => 0,
                     'surcharge_reason' => null,

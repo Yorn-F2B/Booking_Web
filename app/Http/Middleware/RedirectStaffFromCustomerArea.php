@@ -58,6 +58,11 @@ class RedirectStaffFromCustomerArea
             // Admin chat reuses the public attachment download controller;
             // access is still checked against the conversation inside that controller.
             'chat.attachments.download',
+            // CCCD OCR is a shared technical endpoint used by both customer and
+            // admin forms. Staff must be allowed to POST here; otherwise this
+            // middleware redirects the request to an admin HTML page (HTTP 200),
+            // which makes the scanner think Gemini returned an invalid payload.
+            'cccd.scan',
         ];
 
         if (in_array($routeName, $allowedRouteNames, true)) {

@@ -51,6 +51,13 @@ class RoomIssueRequest extends Model
             });
     }
 
+    public function scopeForActiveStay($query)
+    {
+        return $query->whereHas('booking', function ($booking) {
+            $booking->whereIn('status', ['checked_in', 'inspection_requested']);
+        });
+    }
+
     public function scopeWaitingGuestConfirmation($query)
     {
         return $query

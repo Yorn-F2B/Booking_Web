@@ -11,6 +11,7 @@
         'housekeeping_recheck' => 'bg-warning text-dark',
         'completed' => 'bg-success',
     ];
+    $attachmentContextLabels = \App\Models\RoomInspectionAttachment::contextOptions();
 ?>
 
 <div class="mb-3">
@@ -29,6 +30,26 @@
                 <span class="badge <?php echo e($stageClasses[$stage] ?? 'bg-secondary'); ?>"><?php echo e($stageLabels[$stage] ?? $stage); ?></span>
             </summary>
             <div class="compact-panel-body">
+                <?php if($inspection->attachments->isNotEmpty()): ?>
+                    <div class="border rounded p-3 bg-light mb-3">
+                        <div class="fw-semibold mb-2">Ảnh minh chứng buồng phòng</div>
+                        <?php $__currentLoopData = $inspection->attachments->groupBy('context'); $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $context => $attachments): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                            <div class="small text-muted mb-2"><?php echo e($attachmentContextLabels[$context] ?? 'Ảnh minh chứng'); ?></div>
+                            <div class="d-flex flex-wrap gap-2 mb-3">
+                                <?php $__currentLoopData = $attachments; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $attachment): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                    <div style="width:110px">
+                                        <a href="<?php echo e(route('admin.floor-inspection-attachments.show', $attachment)); ?>" target="_blank">
+                                            <img src="<?php echo e(route('admin.floor-inspection-attachments.show', $attachment)); ?>" alt="Ảnh minh chứng" style="width:110px;height:110px;object-fit:cover;border-radius:10px;border:1px solid #ddd;">
+                                        </a>
+                                        <div class="small text-muted mt-1"><?php echo e($attachment->uploader->name ?? 'Buồng phòng'); ?> · <?php echo e($attachment->created_at?->format('d/m H:i')); ?></div>
+                                    </div>
+                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                            </div>
+                        <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                        <div class="small text-muted">Lễ tân có thể mở ảnh để đối chiếu trực tiếp khi trao đổi với khách.</div>
+                    </div>
+                <?php endif; ?>
+
                 <?php if($stage === 'guest_consultation'): ?>
                     <div class="alert alert-info small">
                         <?php if($hasRecheckResult): ?>

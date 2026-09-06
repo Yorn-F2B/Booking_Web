@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Cache;
 use App\Models\Booking;
 use App\Models\BookingCancellationRequest;
 use App\Models\BookingPayment;
+use App\Models\EmailDeliveryLog;
 use App\Models\Room;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +19,6 @@ use App\Models\BookingLog;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Service;
 use App\Models\BookingServiceItem;
-use App\Services\BookingOccupancyFeeService;
 use App\Services\PromotionService;
 use App\Services\BookingPromotionApplicationService;
 use App\Services\BookingCancellationService;
@@ -34,7 +34,6 @@ use App\Support\Realtime;
 
 class BookingController extends Controller
 {
-    private const INFANT_MAX_AGE = 5;
     private const CHILD_MAX_AGE = 17;
     public function index(Request $request)
     {
@@ -209,6 +208,7 @@ class BookingController extends Controller
             'guests.bookingRoom.room.category',
             'guests.guardian.bookingRoom.room',
             'roomInspections.room',
+            'roomInspections.attachments.uploader',
             'roomInspections.items.guestResponder',
             'roomInspections.items.rechecker',
             'roomInspections.items.detector',
@@ -371,6 +371,15 @@ class BookingController extends Controller
         })->values();
         $availablePromotionGroups = $availablePromotions->groupBy('promotion_type');
 
+        // Lịch sử giao thông báo cho khách ngay trong workspace booking. Đây là
+        // bằng chứng vận hành để nhân viên biết email nào đã gửi/thất bại và nội
+        // dung gì đã được thông báo, thay vì phải đoán sau khi toast biến mất.
+        $customerDeliveryLogs = EmailDeliveryLog::query()
+            ->where('booking_id', $booking->id)
+            ->latest('id')
+            ->limit(8)
+            ->get();
+
         return view($view, compact(
             'booking',
             'availableRooms',
@@ -389,6 +398,7 @@ class BookingController extends Controller
             'roomIssueFormAvailableCount',
             'roomIssueFormEmail',
             'canSendRoomIssueForm',
+            'customerDeliveryLogs',
         ));
     }
 
@@ -1006,11 +1016,11 @@ class BookingController extends Controller
                 $roomQuantity = 1;
                 $scopeBookingRoom = $booking->bookingRooms->firstWhere('id', (int) $bookingServiceItem->booking_room_id);
                 $guestCount = $scopeBookingRoom
-                    ? max(1, (int) $scopeBookingRoom->adult_count + (int) $scopeBookingRoom->child_count + (int) ($scopeBookingRoom->baby_count ?? 0))
+                    ? max(1, (int) $scopeBookingRoom->adult_count + (int) $scopeBookingRoom->child_count)
                     : 1;
             } else {
                 $roomQuantity = max(1, (int) $booking->room_quantity);
-                $guestCount = max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0));
+                $guestCount = max(1, (int) $booking->adult_count + (int) $booking->child_count);
             }
             $line = $pricing->calculateLine(
                 $bookingServiceItem->billing_rule_snapshot ?: ($bookingServiceItem->service?->billing_rule ?? Service::BILLING_ONCE),
@@ -1412,94 +1422,121 @@ class BookingController extends Controller
         abort_unless($booking->canBeHandledBy($user), 403, 'Booking này đang được phân cho lễ tân khác hoặc bạn không có quyền xử lý.');
     }
 
-    public function updateOccupancy(Request $request, Booking $booking)
+    public function setBookerAsGroupRepresentative(Request $request, Booking $booking)
     {
         $this->guardCanAccessBooking($booking);
 
         if (!in_array($booking->status, ['pending', 'confirmed', 'checked_in'], true)) {
-            return back()->with('error', 'Không thể thay đổi số khách thực tế ở trạng thái booking hiện tại.');
+            return back()->with('error', 'Chỉ có thể chọn đại diện đoàn trước hoặc trong thời gian lưu trú.');
         }
 
-        $booking->load('bookingRooms.room.category');
-        $roomIds = $booking->bookingRooms->pluck('id')->map(fn ($id) => (int) $id)->all();
-
-        $data = $request->validate([
-            'rooms' => ['required', 'array'],
-            'rooms.*.adult_count' => ['required', 'integer', 'min:1', 'max:50'],
-            'rooms.*.child_count' => ['required', 'integer', 'min:0', 'max:50'],
-            'rooms.*.baby_count' => ['required', 'integer', 'min:0', 'max:50'],
-        ], [
-            'rooms.*.adult_count.min' => 'Mỗi phòng phải có ít nhất 1 người lớn thực tế.',
-        ]);
-
-        $submittedIds = collect(array_keys($data['rooms'] ?? []))->map(fn ($id) => (int) $id)->sort()->values()->all();
-        $expectedIds = collect($roomIds)->sort()->values()->all();
-        if ($submittedIds !== $expectedIds) {
-            return back()->with('error', 'Danh sách phòng đã thay đổi. Vui lòng tải lại trang rồi cập nhật số khách thực tế.');
+        $roomCount = max(1, (int) ($booking->room_quantity ?? $booking->bookingRooms()->count()));
+        if ($roomCount <= 1) {
+            return back()->with('error', 'Booking một phòng không cần đại diện đoàn.');
         }
 
-        DB::transaction(function () use ($booking, $data) {
-            $adultTotal = 0;
-            $childTotal = 0;
-            $babyTotal = 0;
+        $enabled = $request->boolean('enabled', true);
+        if (!$enabled) {
+            $bookerName = trim((string) $booking->booked_customer_name);
+            $bookerDocument = trim((string) $booking->booked_customer_cccd);
 
-            foreach ($booking->bookingRooms as $bookingRoom) {
-                $row = $data['rooms'][(string) $bookingRoom->id] ?? $data['rooms'][$bookingRoom->id] ?? null;
-                if (!$row) {
-                    throw new \RuntimeException('Thiếu số khách thực tế của một phòng.');
+            DB::transaction(function () use ($booking, $bookerName, $bookerDocument) {
+                $booking->guests()->get()
+                    ->filter(function ($guest) use ($bookerName, $bookerDocument) {
+                        $guestDocument = trim((string) ($guest->document_number ?: $guest->cccd));
+                        if ($bookerDocument !== '' && $guestDocument !== '') {
+                            return $guestDocument === $bookerDocument;
+                        }
+
+                        return $bookerName !== ''
+                            && mb_strtolower(trim((string) $guest->full_name)) === mb_strtolower($bookerName);
+                    })
+                    ->filter(fn ($guest) => (bool) $guest->is_booking_representative)
+                    ->each(fn ($guest) => $guest->update([
+                        'is_booking_representative' => false,
+                        'updated_by' => Auth::id(),
+                    ]));
+
+                $this->addBookingLog(
+                    $booking,
+                    'group_representative_unset',
+                    'Bỏ người đặt khỏi vai trò đại diện chung của cả đoàn.'
+                );
+            });
+
+            return back()->with('success', 'Đã bỏ người đặt khỏi vai trò đại diện chung của cả đoàn.');
+        }
+
+        $bookerName = trim((string) $booking->booked_customer_name);
+        $bookerDocument = trim((string) $booking->booked_customer_cccd);
+        $bookerBirthday = $booking->booked_customer_birthday;
+
+        if ($bookerName === '') {
+            return back()->with('error', 'Booking chưa có họ tên người đặt để dùng làm đại diện đoàn.');
+        }
+
+        if ($bookerBirthday && $this->guestTypeFromBirthday((string) $bookerBirthday) !== 'adult') {
+            return back()->with('error', 'Người đại diện đoàn phải từ 18 tuổi.');
+        }
+
+        DB::transaction(function () use ($booking, $bookerName, $bookerDocument, $bookerBirthday) {
+            $matchingGuests = $booking->guests()->get()->filter(function ($guest) use ($bookerName, $bookerDocument) {
+                $guestDocument = trim((string) ($guest->document_number ?: $guest->cccd));
+                if ($bookerDocument !== '' && $guestDocument !== '') {
+                    return $guestDocument === $bookerDocument;
                 }
 
-                $adult = (int) $row['adult_count'];
-                $child = (int) $row['child_count'];
-                $baby = (int) $row['baby_count'];
+                return mb_strtolower(trim((string) $guest->full_name)) === mb_strtolower($bookerName);
+            });
 
-                $bookingRoom->update([
-                    'adult_count' => $adult,
-                    'child_count' => $child,
-                    'baby_count' => $baby,
+            // If this person is already the representative of a room, reuse that
+            // same guest record. Otherwise create a booking-level representative
+            // with booking_room_id = NULL: representative of the whole group, not
+            // of an arbitrary room.
+            $representative = $matchingGuests
+                ->sortByDesc(fn ($guest) => $guest->booking_room_id ? 1 : 0)
+                ->first();
+
+            $booking->guests()->where('is_booking_representative', true)->update([
+                'is_booking_representative' => false,
+                'updated_by' => Auth::id(),
+            ]);
+
+            if ($representative) {
+                $representative->update([
+                    'is_booking_representative' => true,
+                    'updated_by' => Auth::id(),
                 ]);
-
-                $adultTotal += $adult;
-                $childTotal += $child;
-                $babyTotal += $baby;
+            } else {
+                $representative = $booking->guests()->create([
+                    'booking_room_id' => null,
+                    'full_name' => $bookerName,
+                    'guest_type' => 'adult',
+                    'document_type' => $bookerDocument !== '' ? 'cccd' : 'none',
+                    'document_number' => $bookerDocument !== '' ? $bookerDocument : null,
+                    'cccd' => $bookerDocument !== '' ? $bookerDocument : null,
+                    'birthday' => $bookerBirthday,
+                    'gender' => $booking->booked_customer_gender ?: null,
+                    'nationality' => 'Việt Nam',
+                    'address' => $booking->booked_customer_address ?: null,
+                    'is_booking_representative' => true,
+                    'status' => $booking->status === 'checked_in' ? 'checked_in' : 'registered',
+                    'planned_check_in_at' => $booking->check_in_at,
+                    'planned_check_out_at' => $booking->check_out_at,
+                    'actual_check_in_at' => $booking->status === 'checked_in' ? now() : null,
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
             }
 
-            $booking->update([
-                'adult_count' => $adultTotal,
-                'child_count' => $childTotal,
-                'baby_count' => $babyTotal,
-            ]);
+            $this->addBookingLog(
+                $booking,
+                'group_representative_set',
+                'Chọn người đặt ' . $representative->full_name . ' làm đại diện chung của cả đoàn.'
+            );
         });
 
-        $freshBooking = $booking->fresh(['bookingRooms.room.category', 'guests']);
-        app(BookingOccupancyFeeService::class)->reconcile($freshBooking);
-
-        $capacityIssues = $freshBooking->bookingRooms->map(function ($bookingRoom) {
-            $adultCapacity = (int) ($bookingRoom->room?->category?->adult_capacity ?? 0);
-            $childCapacity = (int) ($bookingRoom->room?->category?->child_capacity ?? 0);
-            $adultOver = max(0, (int) $bookingRoom->adult_count - $adultCapacity);
-            $minorOver = max(0, (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0) - $childCapacity);
-            if ($adultOver <= 0 && $minorOver <= 0) {
-                return null;
-            }
-            return 'Phòng ' . ($bookingRoom->room?->room_number ?? '---')
-                . ($adultOver > 0 ? ' vượt ' . $adultOver . ' người lớn' : '')
-                . ($minorOver > 0 ? ($adultOver > 0 ? ' và ' : ' vượt ') . $minorOver . ' trẻ em/em bé' : '');
-        })->filter()->implode('; ');
-
-        $this->addBookingLog(
-            $booking,
-            'occupancy_updated',
-            'Cập nhật số khách thực tế theo phòng: '
-            . (int) $freshBooking->adult_count . ' người lớn / '
-            . (int) $freshBooking->child_count . ' trẻ em / '
-            . (int) ($freshBooking->baby_count ?? 0) . ' em bé.'
-        );
-
-        $response = back()->with('success', 'Đã lưu số khách thực tế theo từng phòng.');
-        return $capacityIssues !== ''
-            ? $response->with('capacity_warning', $capacityIssues . '. Cần xử lý sức chứa/phụ thu trước khi check-in.')
-            : $response;
+        return back()->with('success', 'Đã chọn người đặt làm đại diện chung của cả đoàn.');
     }
 
     public function addGuest(Request $request, Booking $booking)
@@ -1510,8 +1547,11 @@ class BookingController extends Controller
             return back()->with('error', 'Chỉ có thể khai báo người đại diện trước hoặc trong thời gian lưu trú.');
         }
 
-        // Luồng mới chỉ lưu hồ sơ người đại diện của từng phòng, không khai toàn bộ khách.
-        $guestPayloads = [$request->all()];
+        // Có thể lưu một người đại diện hoặc lưu đồng thời đại diện cho nhiều phòng.
+        $guestPayloads = $request->input('guests');
+        if (!is_array($guestPayloads) || $guestPayloads === []) {
+            $guestPayloads = [$request->all()];
+        }
 
         // Ngày sinh là nguồn xác định nhóm tuổi. Không tin giá trị guest_type từ UI,
         // đồng thời phải phân loại trước khi sort để người lớn được tạo trước trẻ cần giám hộ.
@@ -1522,8 +1562,7 @@ class BookingController extends Controller
             return $payload;
         })->all();
 
-        $createdGuests = collect();
-        DB::transaction(function () use ($booking, $guestPayloads, $createdGuests) {
+        DB::transaction(function () use ($booking, $guestPayloads) {
             $hasRepresentative = $booking->guests()->where('is_booking_representative', true)->exists();
             $payloads = collect($guestPayloads)
                 ->sortBy(fn ($payload) => ($payload['guest_type'] ?? 'adult') === 'adult' ? 0 : 1)
@@ -1553,7 +1592,25 @@ class BookingController extends Controller
 
                 $guestRequest = Request::create('/', 'POST', $payload);
                 $guestRequest->setUserResolver(fn () => Auth::user());
-                $data = $this->validateStayingGuest($guestRequest, $booking->fresh(['guests']));
+
+                // Nếu đúng người này đã tồn tại ở cấp booking (thường do đã chọn làm
+                // đại diện đoàn trước), tái sử dụng hồ sơ đó khi gắn vào phòng thay vì
+                // coi CCCD là của "một khách khác" và tạo bản ghi trùng.
+                $documentNumber = trim((string) ($payload['document_number'] ?? ''));
+                $reusableGuest = null;
+                if ($documentNumber !== '') {
+                    $reusableGuest = $booking->guests()
+                        ->whereNull('booking_room_id')
+                        ->where(function ($query) use ($documentNumber) {
+                            $query->where('document_number', $documentNumber)
+                                ->orWhere('cccd', $documentNumber);
+                        })
+                        ->lockForUpdate()
+                        ->first();
+                }
+
+                $freshBooking = $booking->fresh(['guests']);
+                $data = $this->validateStayingGuest($guestRequest, $freshBooking, $reusableGuest);
 
                 $data['cccd'] = $data['document_number'] ?? null;
                 $data['status'] = $booking->status === 'checked_in' ? 'checked_in' : 'registered';
@@ -1563,20 +1620,35 @@ class BookingController extends Controller
                 $data['created_by'] = Auth::id();
                 $data['updated_by'] = Auth::id();
 
-                $guest = $booking->guests()->create($data);
-                $createdGuests->push($guest);
-                $createdByBatchIndex[$batchIndex] = $guest->id;
-
-                if ($booking->status === 'checked_in') {
-                    $this->syncBookingGuestCountsAndRoomStatus($booking, $guest->booking_room_id);
+                // Chọn đại diện đoàn mới là thao tác chuyển vai trò: luôn bảo đảm chỉ còn đúng 1 người.
+                if (!empty($data['is_booking_representative'])) {
+                    $booking->guests()->where('is_booking_representative', true)->update([
+                        'is_booking_representative' => false,
+                        'updated_by' => Auth::id(),
+                    ]);
                 }
+
+                if ($reusableGuest) {
+                    $fromBookingRoomId = $reusableGuest->booking_room_id;
+                    // Giữ vai trò đại diện đoàn nếu hồ sơ này đã được chọn trước đó,
+                    // trừ khi request chủ động chọn một đại diện đoàn khác.
+                    if ($reusableGuest->is_booking_representative && empty($data['is_booking_representative'])) {
+                        $data['is_booking_representative'] = true;
+                    }
+                    $reusableGuest->update($data);
+                    $guest = $reusableGuest->fresh();
+                } else {
+                    $fromBookingRoomId = null;
+                    $guest = $booking->guests()->create($data);
+                }
+                $createdByBatchIndex[$batchIndex] = $guest->id;
 
                 \App\Models\BookingGuestRoomHistory::create([
                     'booking_guest_id' => $guest->id,
-                    'from_booking_room_id' => null,
+                    'from_booking_room_id' => $fromBookingRoomId,
                     'to_booking_room_id' => $guest->booking_room_id,
                     'started_at' => $guest->actual_check_in_at ?: now(),
-                    'reason' => 'Khai báo phòng lưu trú ban đầu.',
+                    'reason' => $reusableGuest ? 'Gắn hồ sơ đại diện đoàn vào phòng lưu trú.' : 'Khai báo phòng lưu trú ban đầu.',
                     'changed_by' => Auth::id(),
                 ]);
 
@@ -1584,21 +1656,13 @@ class BookingController extends Controller
                     $booking,
                     'guest_added',
                     'Thêm người đại diện phòng: ' . $guest->full_name
-                    . ' · ' . ($guest->guest_type === 'adult' ? 'Người lớn' : ($guest->guest_type === 'child' ? 'Trẻ em' : 'Em bé'))
+                    . ' · ' . ($guest->guest_type === 'adult' ? 'Người lớn' : 'Trẻ em')
                     . ' · Phòng ' . ($guest->bookingRoom?->room?->room_number ?? 'chưa xác định')
                 );
             }
         });
 
-        $freshBooking = $booking->fresh(['guests', 'bookingRooms.room.category']);
-        app(BookingOccupancyFeeService::class)->reconcile($freshBooking);
-
-        $capacityWarnings = $createdGuests
-            ->map(fn ($guest) => $this->stayingGuestCapacityWarning($freshBooking, (int) $guest->booking_room_id))
-            ->filter()->unique()->implode(' ');
-
-        $response = back()->with('success', 'Đã lưu người đại diện phòng.');
-        return $capacityWarnings !== '' ? $response->with('capacity_warning', $capacityWarnings) : $response;
+        return back()->with('success', count($guestPayloads) > 1 ? 'Đã lưu đại diện cho các phòng.' : 'Đã lưu người đại diện phòng.');
     }
 
     public function updateGuest(Request $request, Booking $booking, \App\Models\BookingGuest $guest)
@@ -1637,6 +1701,19 @@ class BookingController extends Controller
 
             $data['cccd'] = $data['document_number'] ?? null;
             $data['updated_by'] = Auth::id();
+
+            // Nếu chọn người này làm đại diện đoàn, chuyển vai trò trong cùng transaction.
+            // Query update không phát observer từng người nên tránh gửi email trùng cho đại diện cũ.
+            if (!empty($data['is_booking_representative'])) {
+                $booking->guests()
+                    ->where('id', '!=', $guest->id)
+                    ->where('is_booking_representative', true)
+                    ->update([
+                        'is_booking_representative' => false,
+                        'updated_by' => Auth::id(),
+                    ]);
+            }
+
             $guest->update($data);
 
             if (max(1, (int) ($booking->room_quantity ?? 1)) > 1
@@ -1658,13 +1735,6 @@ class BookingController extends Controller
                 $replacementRepresentative->update(['is_booking_representative' => true, 'updated_by' => Auth::id()]);
             }
 
-            if ($booking->status === 'checked_in') {
-                $this->syncBookingGuestCountsAndRoomStatus($booking, $guest->booking_room_id);
-                if ((int) $oldBookingRoomId !== (int) $guest->booking_room_id) {
-                    $this->syncBookingGuestCountsAndRoomStatus($booking, $oldBookingRoomId);
-                }
-            }
-
             if ((int) $oldBookingRoomId !== (int) $guest->booking_room_id) {
                 \App\Models\BookingGuestRoomHistory::where('booking_guest_id', $guest->id)
                     ->whereNull('ended_at')
@@ -1683,16 +1753,7 @@ class BookingController extends Controller
             $this->addBookingLog($booking, 'guest_updated', 'Cập nhật hồ sơ lưu trú: ' . $guest->full_name . '.');
         });
 
-        $freshBooking = $booking->fresh(['guests', 'bookingRooms.room.category']);
-        app(BookingOccupancyFeeService::class)->reconcile($freshBooking);
-        $warnings = collect([$oldBookingRoomId, (int) $data['booking_room_id']])
-            ->unique()
-            ->map(fn ($bookingRoomId) => $this->stayingGuestCapacityWarning($freshBooking, (int) $bookingRoomId))
-            ->filter()
-            ->implode(' ');
-
-        $response = back()->with('success', 'Đã cập nhật hồ sơ khách lưu trú.');
-        return $warnings !== '' ? $response->with('capacity_warning', $warnings) : $response;
+        return back()->with('success', 'Đã cập nhật người đại diện phòng.');
     }
 
     public function removeGuest(Booking $booking, \App\Models\BookingGuest $guest)
@@ -1750,15 +1811,9 @@ class BookingController extends Controller
             $lockedGuest->delete();
         });
 
-        if ($booking->status === 'checked_in') {
-            $this->syncBookingGuestCountsAndRoomStatus($booking, $bookingRoomId);
-        }
+        $this->addBookingLog($booking, 'guest_removed', 'Xóa hồ sơ người đại diện phòng: ' . $guestName);
 
-        app(BookingOccupancyFeeService::class)->reconcile($booking->fresh(['guests', 'bookingRooms.room.category']));
-
-        $this->addBookingLog($booking, 'guest_removed', 'Xóa hồ sơ lưu trú: ' . $guestName);
-
-        return back()->with('success', 'Đã xóa hồ sơ lưu trú.');
+        return back()->with('success', 'Đã xóa hồ sơ người đại diện phòng.');
     }
 
     private function validateStayingGuest(Request $request, Booking $booking, ?\App\Models\BookingGuest $guest = null): array
@@ -1766,7 +1821,7 @@ class BookingController extends Controller
         $data = $request->validate([
             'full_name' => ['required', 'string', 'max:255'],
             // Nhóm tuổi được server tự suy ra từ ngày sinh; field này chỉ giữ để tương thích UI cũ.
-            'guest_type' => ['nullable', 'in:adult,child,infant'],
+            'guest_type' => ['nullable', 'in:adult,child'],
             'document_type' => ['nullable', 'in:cccd,passport,birth_certificate,personal_id,other,none'],
             'document_number' => ['nullable', 'string', 'max:50'],
             'birthday' => ['required', 'date', 'before_or_equal:today'],
@@ -1781,11 +1836,11 @@ class BookingController extends Controller
             'no_document_acknowledged' => ['nullable', 'boolean'],
             'no_document_reason' => ['nullable', 'string', 'max:500'],
         ], [
-            'full_name.required' => 'Vui lòng nhập họ và tên khách lưu trú.',
+            'full_name.required' => 'Vui lòng nhập họ và tên người đại diện phòng.',
             'birthday.required' => 'Vui lòng nhập ngày sinh.',
             'gender.required' => 'Vui lòng chọn giới tính.',
             'nationality.required' => 'Vui lòng nhập quốc tịch.',
-            'booking_room_id.required' => 'Mỗi khách phải được gán vào một phòng cụ thể.',
+            'booking_room_id.required' => 'Người đại diện phải được gán vào một phòng cụ thể.',
         ]);
 
         if (!$booking->bookingRooms()->whereKey($data['booking_room_id'])->exists()) {
@@ -1809,27 +1864,14 @@ class BookingController extends Controller
         $data['guest_type'] = $this->guestTypeFromBirthday((string) $data['birthday']);
         if ($data['guest_type'] !== 'adult') {
             throw \Illuminate\Validation\ValidationException::withMessages([
-                'birthday' => 'Người đại diện phòng phải là người lớn (từ 18 tuổi). Không cần khai hồ sơ trẻ em/em bé tại đây.',
+                'birthday' => 'Người đại diện phòng phải là người lớn (từ 18 tuổi). Không cần khai hồ sơ trẻ em tại đây.',
             ]);
         }
 
-        if ($request->boolean('is_booking_representative')) {
-            if ($data['guest_type'] !== 'adult') {
-                throw \Illuminate\Validation\ValidationException::withMessages([
-                    'is_booking_representative' => 'Người đại diện đoàn phải là khách người lớn.',
-                ]);
-            }
-
-            $otherRepresentativeExists = $booking->guests()
-                ->where('is_booking_representative', true)
-                ->when($guest, fn ($query) => $query->where('id', '!=', $guest->id))
-                ->exists();
-
-            if ($otherRepresentativeExists) {
-                throw \Illuminate\Validation\ValidationException::withMessages([
-                    'is_booking_representative' => 'Booking đã có người đại diện đoàn. Muốn đổi đại diện, hãy bỏ vai trò của người hiện tại trước rồi chọn người mới.',
-                ]);
-            }
+        if ($request->boolean('is_booking_representative') && $data['guest_type'] !== 'adult') {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'is_booking_representative' => 'Người đại diện đoàn phải là khách người lớn.',
+            ]);
         }
 
         $documentNumber = trim((string) ($data['document_number'] ?? ''));
@@ -1911,9 +1953,7 @@ class BookingController extends Controller
     {
         $age = Carbon::parse($birthday, 'Asia/Ho_Chi_Minh')->startOfDay()->age;
 
-        return $age <= self::INFANT_MAX_AGE
-            ? 'infant'
-            : ($age <= self::CHILD_MAX_AGE ? 'child' : 'adult');
+        return $age <= self::CHILD_MAX_AGE ? 'child' : 'adult';
     }
 
     private function hasValidStayingGuestDocument(?string $documentType, ?string $documentNumber): bool
@@ -1932,7 +1972,7 @@ class BookingController extends Controller
                 'booking',
                 null,
                 max(1, $booking->bookingRooms->count() ?: (int) $booking->room_quantity),
-                max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0)),
+                max(1, (int) $booking->adult_count + (int) $booking->child_count),
             ];
         }
 
@@ -1943,58 +1983,9 @@ class BookingController extends Controller
             ]);
         }
 
-        $guestCount = max(1, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0));
+        $guestCount = max(1, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count);
 
         return ['room', $bookingRoom, 1, max(1, $guestCount)];
-    }
-
-    private function stayingGuestCapacityWarning(Booking $booking, int $bookingRoomId): ?string
-    {
-        $bookingRoom = $booking->bookingRooms->firstWhere('id', $bookingRoomId);
-        if (!$bookingRoom) {
-            return null;
-        }
-
-        $adultCount = max(0, (int) $bookingRoom->adult_count);
-        $minorCount = max(0, (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0));
-        $adultCapacity = (int) ($bookingRoom->room?->category?->adult_capacity ?? 0);
-        $childCapacity = (int) ($bookingRoom->room?->category?->child_capacity ?? 0);
-
-        $adultOver = max(0, $adultCount - $adultCapacity);
-        $minorOver = max(0, $minorCount - $childCapacity);
-        if ($adultOver === 0 && $minorOver === 0) {
-            return null;
-        }
-
-        $roomNumber = $bookingRoom->room?->room_number ?? '---';
-        $parts = [];
-        if ($adultOver > 0) {
-            $parts[] = 'vượt ' . $adultOver . ' người lớn';
-        }
-        if ($minorOver > 0) {
-            $parts[] = 'vượt ' . $minorOver . ' trẻ em/em bé';
-        }
-
-        return 'Đã lưu hồ sơ nhưng phòng ' . $roomNumber . ' đang ' . implode(' và ', $parts)
-            . ' so với sức chứa (' . $adultCapacity . ' NL / ' . $childCapacity . ' TE/EB). '
-            . 'Khi check-in phải chọn xử lý vượt sức chứa: thu phụ phí, thêm phòng hoặc đổi hạng/phân lại khách.';
-    }
-
-    private function syncBookingGuestCountsAndRoomStatus(Booking $booking, ?int $affectedBookingRoomId = null): void
-    {
-        // Hồ sơ booking_guests chỉ dùng để lưu người đại diện/khách cần khai báo.
-        // Số người thực tế phải giữ ở booking và booking_rooms, tuyệt đối không ghi đè
-        // bằng số lượng hồ sơ CCCD đã nhập.
-        $booking->load(['bookingRooms.room']);
-
-        foreach ($booking->bookingRooms as $bookingRoom) {
-            if ($booking->status === 'checked_in' && $bookingRoom->room) {
-                $actualPeople = max(0, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0));
-                $bookingRoom->room->update([
-                    'status' => $actualPeople > 0 ? 'occupied' : 'reserved',
-                ]);
-            }
-        }
     }
 
     private function repriceAfterServiceChange(Booking $booking): array

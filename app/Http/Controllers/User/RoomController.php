@@ -28,7 +28,6 @@ class RoomController extends Controller
             || $request->filled('check_out_date')
             || $request->filled('adult_count')
             || $request->filled('child_count')
-            || $request->filled('baby_count')
             || $request->filled('room_category_id');
 
         $guestCountRule = $hasSearchAttempt ? 'required' : 'nullable';
@@ -38,7 +37,6 @@ class RoomController extends Controller
             'check_out_date' => 'nullable|required_with:check_in_date|date|after:check_in_date',
             'adult_count' => $guestCountRule . '|integer|min:1|max:' . $maxAdultCapacity,
             'child_count' => $guestCountRule . '|integer|min:0|max:' . $maxChildCapacity,
-            'baby_count' => $guestCountRule . '|integer|min:0|max:' . $maxChildCapacity,
             'room_category_id' => 'nullable|exists:room_categories,id',
         ], [
             'check_in_date.required_with' => 'Vui lòng chọn ngày nhận phòng.',
@@ -56,10 +54,6 @@ class RoomController extends Controller
             'child_count.integer' => 'Số trẻ em không hợp lệ.',
             'child_count.min' => 'Số trẻ em không được âm.',
             'child_count.max' => 'Số trẻ em vượt quá giới hạn hiện có là ' . $maxChildCapacity . '.',
-            'baby_count.required' => 'Vui lòng chọn số em bé. Nếu không có em bé, hãy chọn 0.',
-            'baby_count.integer' => 'Số em bé không hợp lệ.',
-            'baby_count.min' => 'Số em bé không được âm.',
-            'baby_count.max' => 'Số em bé vượt quá giới hạn hiện có là ' . $maxChildCapacity . '.',
             'room_category_id.exists' => 'Hạng phòng không tồn tại.',
         ]);
 
@@ -71,9 +65,9 @@ class RoomController extends Controller
         }
 
         $data = $validator->validated();
-        if ($hasSearchAttempt && ((int) ($data['adult_count'] ?? 0) + (int) ($data['child_count'] ?? 0) + (int) ($data['baby_count'] ?? 0)) > $maxOnlineGuests) {
+        if ($hasSearchAttempt && ((int) ($data['adult_count'] ?? 0) + (int) ($data['child_count'] ?? 0)) > $maxOnlineGuests) {
             return redirect()->route('rooms')->withErrors([
-                'adult_count' => 'Tổng số người lớn, trẻ em và em bé không được vượt quá ' . $maxOnlineGuests . ' người trong một lần đặt.',
+                'adult_count' => 'Tổng số người lớn và trẻ em không được vượt quá ' . $maxOnlineGuests . ' người trong một lần đặt.',
             ])->withInput();
         }
 
@@ -92,7 +86,6 @@ class RoomController extends Controller
             || $request->filled('check_out_date')
             || $request->filled('adult_count')
             || $request->filled('child_count')
-            || $request->filled('baby_count')
             || $request->filled('room_category_id');
 
         $hasDateFilter = $checkInDate && $checkOutDate;
@@ -101,8 +94,7 @@ class RoomController extends Controller
             && !empty($data['adult_count'])
             && array_key_exists('child_count', $data)
             && $data['child_count'] !== null
-            && array_key_exists('baby_count', $data)
-            && $data['baby_count'] !== null;
+;
 
         $availableRoomCondition = function ($query) use ($checkInAt, $checkOutAt) {
             if ($checkInAt && $checkOutAt) {
@@ -170,7 +162,6 @@ class RoomController extends Controller
                 $checkOutAt,
                 (int) $data['adult_count'],
                 (int) ($data['child_count'] ?? 0),
-                (int) ($data['baby_count'] ?? 0),
                 !empty($data['room_category_id']) ? (int) $data['room_category_id'] : null
             );
         }
@@ -186,7 +177,6 @@ class RoomController extends Controller
                 'check_out_time' => $this->standardCheckOutLabel(),
                 'adult_count' => $data['adult_count'] ?? null,
                 'child_count' => $data['child_count'] ?? null,
-                'baby_count' => $data['baby_count'] ?? null,
                 'room_category_id' => $data['room_category_id'] ?? null,
             ],
             'hasFilter' => $hasFilter,
@@ -244,7 +234,6 @@ class RoomController extends Controller
             'check_out_date' => 'required|date_format:Y-m-d|after:check_in_date',
             'adult_count' => 'required|integer|min:1|max:' . $maxGuests,
             'child_count' => 'nullable|integer|min:0|max:' . $maxGuests,
-            'baby_count' => 'nullable|integer|min:0|max:' . $maxGuests,
             'room_quantity' => 'nullable|integer|min:1|max:' . $maxRooms,
         ]);
 
@@ -258,10 +247,9 @@ class RoomController extends Controller
         $data = $validator->validated();
         $adults = (int) $data['adult_count'];
         $children = (int) ($data['child_count'] ?? 0);
-        $babies = (int) ($data['baby_count'] ?? 0);
-        if (($adults + $children + $babies) > $maxGuests) {
+        if (($adults + $children) > $maxGuests) {
             return response()->json([
-                'message' => 'Tổng số người lớn, trẻ em và em bé không được vượt quá ' . $maxGuests . ' người.',
+                'message' => 'Tổng số người lớn và trẻ em không được vượt quá ' . $maxGuests . ' người.',
             ], 422);
         }
 
@@ -274,7 +262,7 @@ class RoomController extends Controller
         $adultCapacity = max(1, (int) $roomCategory->adult_capacity);
         $childCapacity = max(0, (int) $roomCategory->child_capacity);
         $roomsForAdults = (int) ceil($adults / $adultCapacity);
-        $minorCount = $children + $babies;
+        $minorCount = $children;
         $roomsForChildren = $minorCount === 0
             ? 1
             : ($childCapacity > 0 ? (int) ceil($minorCount / $childCapacity) : PHP_INT_MAX);
@@ -289,11 +277,11 @@ class RoomController extends Controller
             && $requestedRooms >= $minimumRooms
             && $requestedRooms <= $maxBookableRooms
             && $adults <= $adultCapacity * $requestedRooms
-            && ($children + $babies) <= $childCapacity * $requestedRooms
+            && $children <= $childCapacity * $requestedRooms
         );
 
         if (!$capacityPossible) {
-            $message = $childCapacity < 1 && ($children + $babies) > 0
+            $message = $childCapacity < 1 && $children > 0
                 ? 'Hạng phòng này không phù hợp với số khách đã chọn.'
                 : 'Số khách không thể phân vào hạng phòng này.';
         } else {

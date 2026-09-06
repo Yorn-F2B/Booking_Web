@@ -88,4 +88,10 @@ class RoomInspection extends Model
         return $this->hasMany(RoomInspectionRevision::class)->orderByDesc('version')->orderByDesc('id');
     }
 
+    public function attachments()
+    {
+        return $this->hasMany(RoomInspectionAttachment::class)->orderBy('created_at')->orderBy('id');
+    }
+
 }
+

@@ -16,6 +16,7 @@
         data-auth-user-role="<?php echo e(auth()->user()->role); ?>"
     <?php endif; ?>>
     <?php echo $__env->make('partials.flash-toasts', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+    <?php echo $__env->make('partials.global-validation-errors', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
     <div class="admin-sidebar-overlay" id="adminSidebarOverlay"></div>
 
     
@@ -65,6 +66,8 @@
         <?php endif; ?>
     <?php endif; ?>
 
+    <script src="<?php echo e(asset('assets/js/form-validation-hints.js')); ?>?v=<?php echo e(filemtime(public_path('assets/js/form-validation-hints.js'))); ?>"></script>
+    <?php echo $__env->yieldPushContent('scripts'); ?>
 </body>
 
 </html>

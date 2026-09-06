@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Booking;
 use App\Models\BookingPayment;
 use App\Models\CustomerRequest;
-use App\Models\EmailDeliveryLog;
 use App\Models\Room;
 use App\Models\RoomInspection;
 use App\Models\RoomIssueRequest;
@@ -82,17 +81,34 @@ class OperationCenterService
             $this->scopeFrontDeskBookings($pending, $user, $role);
             $count += $pending->count();
 
-            // Một booking chỉ là một việc thanh toán dù có nhiều lần VNPay
-            // failed/pending; tránh badge và danh sách bắt lễ tân xử lý trùng cùng đơn.
-            $paymentExceptionBookings = Booking::query()
-                ->whereHas('payments', function ($q) use ($now) {
-                    $q->where(function ($exception) use ($now) {
-                        $exception->where(fn ($x) => $x->where('status', 'pending')->where('created_at', '<=', $now->copy()->subMinutes(15)))
-                            ->orWhere(fn ($x) => $x->where('status', 'failed')->where('updated_at', '>=', $now->copy()->subDay()));
-                    });
+            // Badge phải đếm đúng cùng logic với Trung tâm công việc:
+            // chỉ còn lỗi thanh toán nếu booking vẫn đang hoạt động và lần thanh toán mới nhất
+            // vẫn là pending/failed. Một lần failed cũ không được giữ badge nếu khách đã trả lại thành công.
+            $paymentExceptionFilter = function ($q) use ($now) {
+                $q->where(function ($exception) use ($now) {
+                    $exception->where(fn ($x) => $x->where('status', 'pending')->where('created_at', '<=', $now->copy()->subMinutes(15)))
+                        ->orWhere(fn ($x) => $x->where('status', 'failed')->where('updated_at', '>=', $now->copy()->subDay()));
                 });
+            };
+            $paymentExceptionBookings = Booking::query()
+                ->whereNotIn('status', ['cancelled', 'canceled', 'checked_out', 'completed'])
+                ->where(fn ($q) => $q->whereNull('payment_status')->orWhere('payment_status', '!=', 'paid'))
+                ->whereHas('payments', $paymentExceptionFilter)
+                ->with(['payments' => fn ($q) => $q->latest('updated_at')]);
             $this->scopeFrontDeskBookings($paymentExceptionBookings, $user, $role);
-            $count += $paymentExceptionBookings->count();
+            $count += $paymentExceptionBookings->get()->filter(function ($booking) use ($now) {
+                $payment = $booking->payments->sortByDesc('updated_at')->first();
+                if (!$payment || $payment->status === 'success') {
+                    return false;
+                }
+                if ($payment->status === 'pending' && $payment->created_at?->gt($now->copy()->subMinutes(15))) {
+                    return false;
+                }
+                if ($payment->status === 'failed' && $payment->updated_at?->lt($now->copy()->subDay())) {
+                    return false;
+                }
+                return in_array($payment->status, ['pending', 'failed'], true);
+            })->count();
 
         }
 
@@ -108,8 +124,14 @@ class OperationCenterService
                 ->where('status', 'pending')
                 ->count();
 
-            $count += RoomIssueRequest::query()->needsManagerAction()->count();
-            $count += EmailDeliveryLog::query()->unresolvedFailures()->count();
+            // Một group_uuid là một sự cố nghiệp vụ. Trang Trung tâm công việc cũng
+            // gom theo group_uuid, vì vậy badge không được đếm từng row trong cùng một nhóm.
+            $count += RoomIssueRequest::query()
+                ->forActiveStay()
+                ->needsManagerAction()
+                ->select('group_uuid')
+                ->distinct()
+                ->count('group_uuid');
             $count += Room::query()
                 ->where('status', 'maintenance')
                 ->whereNotNull('status_until')
@@ -123,6 +145,7 @@ class OperationCenterService
             $count += $cleaningRooms->count();
 
             $verification = RoomIssueRequest::query()
+                ->forActiveStay()
                 ->where('status', 'pending')
                 ->where('workflow_status', 'awaiting_housekeeping');
             HousekeepingWorkScope::applyToIssues($verification, $user);
@@ -138,7 +161,7 @@ class OperationCenterService
                 });
             });
             HousekeepingWorkScope::applyToInspections($inspections, $user);
-            $count += $inspections->count();
+            $count += $inspections->distinct()->count('booking_id');
 
             $repairs = RoomIssueRequest::query()
                 ->whereIn('status', ['approved', 'repair_only'])

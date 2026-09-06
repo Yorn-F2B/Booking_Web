@@ -135,7 +135,7 @@
                                     </tr>
                                     <tr>
                                         <td style="padding:12px 14px;color:#64748b;font-size:13px;border-top:1px solid #eef2f7;">Số khách / số phòng</td>
-                                        <td style="padding:12px 14px;text-align:right;font-weight:700;border-top:1px solid #eef2f7;"><?php echo e($booking->adult_count); ?> NL / <?php echo e($booking->child_count); ?> TE / <?php echo e($booking->baby_count ?? 0); ?> EB · <?php echo e($booking->room_quantity); ?> phòng</td>
+                                        <td style="padding:12px 14px;text-align:right;font-weight:700;border-top:1px solid #eef2f7;"><?php echo e($booking->adult_count); ?> NL / <?php echo e($booking->child_count); ?> TE · <?php echo e($booking->room_quantity); ?> phòng</td>
                                     </tr>
                                 </table>
                             </div>

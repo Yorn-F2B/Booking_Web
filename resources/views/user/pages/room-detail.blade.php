@@ -380,22 +380,17 @@
                                         $maxBookingRooms = max(1, (int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_rooms', 30));
                                     @endphp
                                     <div class="row g-2 mb-2">
-                                        <div class="col-3">
+                                        <div class="col-md-4">
                                             <label class="form-label small" for="detail_adult_count">Người lớn</label>
                                             <input type="number" id="detail_adult_count" name="adult_count" class="form-control" min="1" max="{{ $maxBookingGuests }}" value="{{ old('adult_count', 2) }}" required>
                                         </div>
 
-                                        <div class="col-3">
+                                        <div class="col-md-4">
                                             <label class="form-label small" for="detail_child_count">Trẻ em</label>
                                             <input type="number" id="detail_child_count" name="child_count" class="form-control" min="0" max="{{ $maxBookingGuests }}" value="{{ old('child_count', 0) }}">
                                         </div>
 
-                                        <div class="col-3">
-                                            <label class="form-label small" for="detail_baby_count">Em bé</label>
-                                            <input type="number" id="detail_baby_count" name="baby_count" class="form-control" min="0" max="{{ $maxBookingGuests }}" value="{{ old('baby_count', 0) }}">
-                                        </div>
-
-                                        <div class="col-3">
+                                        <div class="col-md-4">
                                             <label class="form-label small" for="detail_room_quantity">Số phòng</label>
                                             <input type="number" id="detail_room_quantity" name="room_quantity" class="form-control" min="1" max="{{ $maxBookingRooms }}" value="{{ old('room_quantity', 1) }}" required>
                                         </div>
@@ -425,7 +420,6 @@
                                         const checkOut = document.getElementById('detail_check_out_date');
                                         const adultInput = document.getElementById('detail_adult_count');
                                         const childInput = document.getElementById('detail_child_count');
-                                        const babyInput = document.getElementById('detail_baby_count');
                                         const roomQuantityInput = document.getElementById('detail_room_quantity');
                                         const roomQuantityHint = document.getElementById('detail_room_quantity_hint');
                                         const availabilityStatus = document.getElementById('detail_availability_status');
@@ -447,14 +441,13 @@
                                             return {
                                                 adults: Math.max(1, parseInt(adultInput?.value || '1', 10)),
                                                 children: Math.max(0, parseInt(childInput?.value || '0', 10)),
-                                                babies: Math.max(0, parseInt(babyInput?.value || '0', 10)),
                                                 rooms: Math.max(1, parseInt(roomQuantityInput?.value || '1', 10)),
                                             };
                                         }
 
-                                        function minimumRoomsForGuests(adults, children, babies) {
+                                        function minimumRoomsForGuests(adults, children) {
                                             const roomsForAdults = Math.ceil(adults / adultCapacityPerRoom);
-                                            const minors = children + babies;
+                                            const minors = children;
                                             if (minors > 0 && childCapacityPerRoom < 1) {
                                                 return Number.POSITIVE_INFINITY;
                                             }
@@ -463,7 +456,7 @@
                                         }
 
                                         function currentAvailabilityKey() {
-                                            return [checkIn?.value || '', checkOut?.value || '', adultInput?.value || '', childInput?.value || '0', babyInput?.value || '0'].join('|');
+                                            return [checkIn?.value || '', checkOut?.value || '', adultInput?.value || '', childInput?.value || '0'].join('|');
                                         }
 
                                         function setStatus(message, type) {
@@ -474,20 +467,20 @@
 
                                         function refreshRoomQuantityHint() {
                                             if (!adultInput || !childInput || !roomQuantityInput || !roomQuantityHint) return false;
-                                            const { adults, children, babies, rooms } = values();
-                                            const totalGuests = adults + children + babies;
-                                            const minimumRooms = minimumRoomsForGuests(adults, children, babies);
+                                            const { adults, children, rooms } = values();
+                                            const totalGuests = adults + children;
+                                            const minimumRooms = minimumRoomsForGuests(adults, children);
                                             let error = null;
 
                                             if (totalGuests > maxBookingGuests) {
                                                 error = `Tổng số khách không được vượt quá ${maxBookingGuests} người.`;
                                             } else if (!Number.isFinite(minimumRooms) || minimumRooms > maxBookingRooms) {
-                                                error = childCapacityPerRoom < 1 && (children + babies) > 0
-                                                    ? 'Hạng phòng này không nhận trẻ em/em bé theo sức chứa đã cấu hình. Vui lòng chọn hạng khác.'
+                                                error = childCapacityPerRoom < 1 && children > 0
+                                                    ? 'Hạng phòng này không nhận trẻ em theo sức chứa đã cấu hình. Vui lòng chọn hạng khác.'
                                                     : 'Số khách vượt giới hạn số phòng có thể đặt trong một booking.';
                                             } else if (rooms > adults) {
                                                 error = `${rooms} phòng cần tối thiểu ${rooms} người lớn đại diện.`;
-                                            } else if (rooms < minimumRooms || adults > adultCapacityPerRoom * rooms || (children + babies) > childCapacityPerRoom * rooms) {
+                                            } else if (rooms < minimumRooms || adults > adultCapacityPerRoom * rooms || children > childCapacityPerRoom * rooms) {
                                                 error = `Cần tối thiểu ${minimumRooms} phòng để đủ sức chứa cho đoàn khách.`;
                                             } else if (availabilityData && availabilityKey === currentAvailabilityKey() && (!availabilityData.capacity_possible || !availabilityData.inventory_enough)) {
                                                 error = availabilityData.message || 'Hạng phòng này không đủ sức chứa hoặc không còn đủ phòng trong khoảng đã chọn.';
@@ -525,8 +518,8 @@
                                                 return;
                                             }
 
-                                            const { adults, children, babies } = values();
-                                            if (!refreshRoomQuantityHint() && adults + children + babies > maxBookingGuests) {
+                                            const { adults, children } = values();
+                                            if (!refreshRoomQuantityHint() && adults + children > maxBookingGuests) {
                                                 return;
                                             }
 
@@ -540,7 +533,6 @@
                                                 check_out_date: checkOut.value,
                                                 adult_count: String(adults),
                                                 child_count: String(children),
-                                                baby_count: String(babies),
                                             });
                                             setStatus('Đang kiểm tra số phòng trống...', 'neutral');
 
@@ -624,7 +616,7 @@
                                             });
                                         }
 
-                                        [adultInput, childInput, babyInput].forEach(function (input) {
+                                        [adultInput, childInput].forEach(function (input) {
                                             input?.addEventListener('input', function () {
                                                 availabilityData = null;
                                                 availabilityKey = null;

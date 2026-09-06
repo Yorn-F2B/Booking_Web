@@ -135,67 +135,53 @@
                             </div>
 
                             @if ($isWaiting)
-                                @if ($issue->guest_selected_resolution_type)
-                                    <div class="alert alert-light border py-2 small">
-                                        Lựa chọn lần trước đang được đánh dấu sẵn; khách vẫn có thể chuyển sang phương án còn lại.
-                                    </div>
-                                @endif
+                                @php
+                                    $issueOptions = collect($availableProposals->get($issue->id, []));
+                                    if (!$issueOptions->has($selectedChoice)) {
+                                        $selectedChoice = $issueOptions->has($proposedType)
+                                            ? $proposedType
+                                            : $issueOptions->keys()->first();
+                                    }
+                                @endphp
 
-                                @if (in_array($proposedType, ['same_category', 'upgrade_category'], true) && $issue->proposedRoom)
-                                    <label class="option-row">
-                                        <input
-                                            class="form-check-input"
-                                            type="radio"
-                                            name="items[{{ $issue->id }}][choice]"
-                                            value="{{ $proposedType }}"
-                                            @checked($selectedChoice === $proposedType)
-                                            required
-                                        >
-                                        <span class="fw-bold d-block">
-                                            {{ $labels[$proposedType] }} sang phòng {{ $issue->proposedRoom->room_number }}
-                                        </span>
-                                        <span class="small text-muted">
-                                            {{ $issue->proposedRoom->category?->name ?? '---' }}.
-                                            @if ($proposedType === 'upgrade_category')
-                                                Khách sạn chịu phần chênh lệch do sự cố.
-                                            @endif
-                                        </span>
-                                    </label>
+                                <div class="alert alert-light border py-2 small">
+                                    Quản lý ưu tiên <strong>{{ $labels[$proposedType] ?? 'phương án hiện tại' }}</strong>, nhưng lễ tân được cho khách chọn bất kỳ phương án nào dưới đây còn khả thi ở thời điểm này.
+                                </div>
 
-                                    @if ($issue->housekeeping_can_repair_in_room)
+                                @forelse (['same_category', 'upgrade_category', 'repair_only'] as $optionType)
+                                    @php $option = $issueOptions->get($optionType); @endphp
+                                    @if ($option)
+                                        @php $optionRoom = $option['room'] ?? null; @endphp
                                         <label class="option-row">
                                             <input
                                                 class="form-check-input"
                                                 type="radio"
                                                 name="items[{{ $issue->id }}][choice]"
-                                                value="repair_only"
-                                                @checked($selectedChoice === 'repair_only')
+                                                value="{{ $optionType }}:{{ $optionRoom?->id ?? 0 }}"
+                                                @checked($selectedChoice === $optionType)
                                                 required
                                             >
-                                            <span class="fw-bold d-block">Giữ nguyên phòng và sửa gấp</span>
+                                            <span class="fw-bold d-block">
+                                                {{ $labels[$optionType] ?? $optionType }}
+                                                @if ($optionRoom)
+                                                    → phòng {{ $optionRoom->room_number }}
+                                                @endif
+                                            </span>
                                             <span class="small text-muted">
-                                                Chỉ áp dụng vì buồng phòng đã xác nhận có thể sửa ngay tại phòng.
+                                                @if ($optionRoom)
+                                                    {{ $optionRoom->category?->name ?? '---' }}.
+                                                    @if ($optionType === 'upgrade_category')
+                                                        Khách sạn chịu phần chênh lệch do sự cố.
+                                                    @endif
+                                                @else
+                                                    {{ $option['description'] ?? 'Giữ nguyên phòng hiện tại và xử lý gấp.' }}
+                                                @endif
                                             </span>
                                         </label>
                                     @endif
-                                @elseif ($issue->housekeeping_can_repair_in_room)
-                                    <label class="option-row">
-                                        <input
-                                            class="form-check-input"
-                                            type="radio"
-                                            name="items[{{ $issue->id }}][choice]"
-                                            value="repair_only"
-                                            checked
-                                            required
-                                        >
-                                        <span class="fw-bold d-block">Giữ nguyên phòng và sửa gấp</span>
-                                        <span class="small text-muted">Buồng phòng xác nhận có thể xử lý ngay tại phòng.</span>
-                                    </label>
-                                @else
-                                    <div class="alert alert-danger mb-0">
-                                        Sự cố đã được xác nhận nhưng không thể sửa ngay tại phòng. Hiện chưa có phòng thay thế hợp lệ; hãy quay lại màn quản lý để lập lại phương án.
-                                    </div>
-                                @endif
+                                @empty
+                                    <div class="alert alert-warning mb-0">Hiện không còn phương án hợp lệ.</div>
+                                @endforelse
                             @elseif ($issue->guest_selected_resolution_type)
                                 <div class="choice-summary">
                                     <div class="small text-muted">Khách đã chọn</div>
@@ -248,11 +234,9 @@
                                 Ghi nhận các lựa chọn của khách
                             </button>
 
-                            @if ($issues->contains(fn ($issue) => $issue->housekeeping_can_repair_in_room))
-                                <div class="small text-muted mt-2">
-                                    Chỉ các phòng được buồng phòng xác nhận có thể sửa tại chỗ mới có lựa chọn giữ nguyên phòng.
-                                </div>
-                            @endif
+                            <div class="small text-muted mt-2">
+                                Nếu không còn phòng thay thế phù hợp, hệ thống vẫn cho phương án giữ nguyên phòng và sửa gấp để lễ tân trao đổi với khách.
+                            </div>
                         </div>
                     @elseif ($leader->workflow_status === 'guest_accepted')
                         <div class="settings-section">

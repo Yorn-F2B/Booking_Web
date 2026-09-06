@@ -47,7 +47,8 @@
     }
 
     function show(message, type, options) {
-        const text = normalizeText(message);
+        const displayText = String(message || '').trim();
+        const text = normalizeText(displayText);
         if (!text || !document.body) return null;
 
         type = ['success', 'error', 'warning', 'info'].includes(type) ? type : 'info';
@@ -86,7 +87,9 @@
 
         const messageNode = document.createElement('p');
         messageNode.className = 'app-toast-message';
-        messageNode.textContent = text;
+        // Giữ xuống dòng của panel giao thông báo (email / web / khách / nội dung)
+        // để nhân viên đọc nhanh; normalizeText chỉ dùng cho chống trùng.
+        messageNode.textContent = displayText;
 
         let action = null;
         if (options.actionLabel && typeof options.onAction === 'function') {
@@ -150,7 +153,7 @@
             toast.classList.add('is-visible');
         });
 
-        removeMatchingInlineAlerts(text);
+        removeMatchingInlineAlerts(displayText);
         return toast;
     }
 
@@ -163,7 +166,12 @@
         if (!items.length) return;
 
         items.forEach(function (item) {
-            show(item.textContent, item.dataset.type || 'info');
+            const options = {};
+            if (item.dataset.title) options.title = item.dataset.title;
+            if (item.dataset.duration) options.duration = Number(item.dataset.duration);
+            if (item.dataset.dedupeKey) options.dedupeKey = item.dataset.dedupeKey;
+
+            show(item.textContent, item.dataset.type || 'info', options);
             item.remove();
         });
 

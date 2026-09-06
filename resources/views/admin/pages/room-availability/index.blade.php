@@ -86,20 +86,16 @@
                                     required>
                             </div>
 
-                            <div class="col-md-1">
+                            <div class="col-sm-6 col-lg-2">
                                 <label class="form-label">Người lớn</label>
                                 <input type="number" name="adult_count" class="form-control" min="1" max="{{ (int) ($uiData['max_online_guests'] ?? 60) }}" value="{{ old('adult_count', $searchData['adult_count'] ?? 2) }}" required>
                             </div>
-                            <div class="col-md-1">
+                            <div class="col-sm-6 col-lg-2">
                                 <label class="form-label">Trẻ em</label>
                                 <input type="number" name="child_count" class="form-control" min="0" max="{{ (int) ($uiData['max_online_guests'] ?? 60) }}" value="{{ old('child_count', $searchData['child_count'] ?? 0) }}" required>
                             </div>
-                            <div class="col-md-1">
-                                <label class="form-label">Em bé</label>
-                                <input type="number" name="baby_count" class="form-control" min="0" max="{{ (int) ($uiData['max_online_guests'] ?? 60) }}" value="{{ old('baby_count', $searchData['baby_count'] ?? 0) }}" required>
-                            </div>
-                            <div class="col-md-1">
-                                <button class="btn btn-primary w-100">Kiểm tra</button>
+                            <div class="col-lg-12">
+                                <button class="btn btn-primary">Kiểm tra</button>
                             </div>
                         </div>
                     </form>
@@ -152,14 +148,14 @@
                 @if(($searchData['recommendations'] ?? collect())->isNotEmpty())
                     <div class="card shadow-sm border-0 mb-4"><div class="card-body">
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                            <div><h4 class="mb-1">Phương án cho {{ $searchData['adult_count'] + $searchData['child_count'] + ($searchData['baby_count'] ?? 0) }} khách</h4><div class="small text-muted">Chỉ gợi ý phương án còn đủ phòng thật trong toàn bộ khoảng đã tra cứu.</div></div>
+                            <div><h4 class="mb-1">Phương án cho {{ $searchData['adult_count'] + $searchData['child_count'] }} khách</h4><div class="small text-muted">Chỉ gợi ý phương án còn đủ phòng thật trong toàn bộ khoảng đã tra cứu.</div></div>
                         </div>
                         <div class="row g-3">
                             @foreach($searchData['recommendations'] as $option)
                                 @php
                                     $recommendedCreateParams = [
                                         'room_category_id'=>$option['room_category_id'], 'room_quantity'=>$option['room_quantity'],
-                                        'adult_count'=>$searchData['adult_count'], 'child_count'=>$searchData['child_count'], 'baby_count'=>$searchData['baby_count'] ?? 0,
+                                        'adult_count'=>$searchData['adult_count'], 'child_count'=>$searchData['child_count'],
                                         'booking_type'=>$searchData['quick_booking_type'] ?? 'overnight', 'booking_mode'=>$searchData['quick_booking_mode'] ?? 'advance',
                                         'check_in_date'=>$searchData['check_in_date'], 'check_in_time'=>$searchData['check_in_time'],
                                         'check_out_date'=>$searchData['check_out_date'], 'check_out_time'=>$searchData['check_out_time'],
@@ -195,7 +191,6 @@
                                     'check_out_time' => $searchData['check_out_time'],
                                     'adult_count' => $searchData['adult_count'],
                                     'child_count' => $searchData['child_count'],
-                                    'baby_count' => $searchData['baby_count'] ?? 0,
                                     'room_quantity' => $matchingRecommendation['room_quantity'] ?? 1,
                                 ];
                             @endphp

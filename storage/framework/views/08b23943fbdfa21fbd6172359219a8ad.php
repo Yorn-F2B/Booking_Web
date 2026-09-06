@@ -1,4 +1,4 @@
-<?php if (! $__env->hasRenderedOnce('f07134ee-c03d-4a59-a382-aa4de1601097')): $__env->markAsRenderedOnce('f07134ee-c03d-4a59-a382-aa4de1601097'); ?>
+<?php if (! $__env->hasRenderedOnce('100f3ec6-1a04-4e75-a1f3-70d76cdc2c51')): $__env->markAsRenderedOnce('100f3ec6-1a04-4e75-a1f3-70d76cdc2c51'); ?>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 (function () {
@@ -25,29 +25,75 @@
         return (value || '').replace(/\r/g, '').replace(/[ \t]+/g, ' ').trim();
     }
 
-    function setValue(selector, value) {
+    function resolveElement(input, selector) {
+        if (!selector) return null;
+        try {
+            const localRoot = input?.closest('[data-guest-form], form');
+            const local = localRoot?.querySelector(selector);
+            if (local) return local;
+            return document.querySelector(selector);
+        } catch (error) {
+            console.warn('Selector CCCD không hợp lệ:', selector, error);
+            return null;
+        }
+    }
+
+    function normalizeDateValue(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+
+        let match = raw.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})(?:[T\s].*)?$/);
+        if (match) {
+            return `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
+        }
+
+        match = raw.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+        if (match) {
+            return `${match[3]}-${String(match[2]).padStart(2, '0')}-${String(match[1]).padStart(2, '0')}`;
+        }
+
+        return raw;
+    }
+
+    function isDateTarget(el, selector) {
+        const key = `${selector || ''} ${el?.name || ''} ${el?.id || ''}`.toLowerCase();
+        return Boolean(el?._flatpickr)
+            || el?.getAttribute?.('type') === 'date'
+            || /(birthday|birth_date|date_of_birth|ngay_sinh|scanned_birthday)/.test(key);
+    }
+
+    function setValue(selector, value, input = null) {
         if (!selector || value === undefined || value === null || value === '') return;
-        const el = document.querySelector(selector);
+        const el = resolveElement(input, selector);
         if (!el) return;
 
-        // Flatpickr đổi input ngày gốc thành type="hidden" khi dùng altInput,
-        // nên không được kiểm tra input[type="date"]. Chỉ cần có _flatpickr.
-        if (el._flatpickr && /^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
-            el._flatpickr.setDate(String(value), true, 'Y-m-d');
-            if (el._flatpickr.altInput && el._flatpickr.selectedDates[0]) {
-                el._flatpickr.altInput.value = el._flatpickr.formatDate(
-                    el._flatpickr.selectedDates[0],
-                    el._flatpickr.config.altFormat || 'd/m/Y'
-                );
+        const dateTarget = isDateTarget(el, selector);
+        const normalizedValue = dateTarget ? normalizeDateValue(value) : String(value);
+        if (normalizedValue === '') return;
+
+        if (el._flatpickr && /^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
+            const fp = el._flatpickr;
+
+            // setDate có thể từ chối ngày nằm ngoài min/max (đặc biệt ô ngày sinh
+            // đại diện phòng giới hạn >= 18 tuổi). OCR vẫn phải HIỂN THỊ đúng ngày
+            // đã đọc để lễ tân kiểm tra; validation của form sẽ tự báo nếu không đủ tuổi.
+            fp.setDate(normalizedValue, false, 'Y-m-d');
+            el.value = normalizedValue;
+
+            if (fp.altInput) {
+                const [year, month, day] = normalizedValue.split('-');
+                fp.altInput.value = `${day}/${month}/${year}`;
+                fp.altInput.dispatchEvent(new Event('input', { bubbles: true }));
+                fp.altInput.dispatchEvent(new Event('change', { bubbles: true }));
             }
         } else {
-            el.value = value;
+            el.value = normalizedValue;
         }
 
         // Báo cho các đoạn validate/đồng bộ khác biết dữ liệu đã được thay đổi.
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        el.dispatchEvent(new CustomEvent('project-date-change', { bubbles: true, detail: { value: String(value) } }));
+        el.dispatchEvent(new CustomEvent('project-date-change', { bubbles: true, detail: { value: normalizedValue } }));
     }
 
 
@@ -243,17 +289,17 @@
     }
 
     function applyData(input, data, sourceLabel) {
-        setValue(input.dataset.targetCccd, data.cccd);
-        setValue(input.dataset.targetFullName, data.fullName);
-        setValue(input.dataset.targetFirstName, data.firstName);
-        setValue(input.dataset.targetLastName, data.lastName);
-        setValue(input.dataset.targetBirthday, data.birthday);
-        setValue(input.dataset.targetGender, data.gender);
-        setValue(input.dataset.targetAddress, data.address);
-        setValue(input.dataset.targetNationality, data.nationality);
-        setValue(input.dataset.targetPlaceOfOrigin, data.placeOfOrigin);
-        setValue(input.dataset.targetExpiryDate, data.expiryDate);
-        const status = input.dataset.status ? document.querySelector(input.dataset.status) : null;
+        setValue(input.dataset.targetCccd, data.cccd, input);
+        setValue(input.dataset.targetFullName, data.fullName, input);
+        setValue(input.dataset.targetFirstName, data.firstName, input);
+        setValue(input.dataset.targetLastName, data.lastName, input);
+        setValue(input.dataset.targetBirthday, data.birthday, input);
+        setValue(input.dataset.targetGender, data.gender, input);
+        setValue(input.dataset.targetAddress, data.address, input);
+        setValue(input.dataset.targetNationality, data.nationality, input);
+        setValue(input.dataset.targetPlaceOfOrigin, data.placeOfOrigin, input);
+        setValue(input.dataset.targetExpiryDate, data.expiryDate, input);
+        const status = input.dataset.status ? resolveElement(input, input.dataset.status) : null;
         syncCheckInSubmitState();
 
         const checkInCccd = document.getElementById('checkInCccd');
@@ -290,7 +336,7 @@
                 try { sessionStorage.removeItem(storageKey(input)); } catch(e) {}
                 return;
             }
-            try { const raw=sessionStorage.getItem(storageKey(input)); if(!raw) return; const saved=JSON.parse(raw); if(saved.dataUrl){ const dt=new DataTransfer(); dt.items.add(dataUrlToFile(saved.dataUrl,saved.name)); input.files=dt.files; } if(saved.data){ const d=saved.data; setValue(input.dataset.targetCccd,d.cccd); if(saved.source === 'qr' || saved.source === 'gemini'){ setValue(input.dataset.targetFullName,d.fullName); setValue(input.dataset.targetFirstName,d.firstName); setValue(input.dataset.targetLastName,d.lastName); setValue(input.dataset.targetBirthday,d.birthday); setValue(input.dataset.targetGender,d.gender); setValue(input.dataset.targetAddress,d.address); setValue(input.dataset.targetNationality,d.nationality); setValue(input.dataset.targetPlaceOfOrigin,d.placeOfOrigin); setValue(input.dataset.targetExpiryDate,d.expiryDate); } const status=input.dataset.status?document.querySelector(input.dataset.status):null; if(status) status.textContent=saved.source === 'qr' ? 'Đã khôi phục thông tin từ QR CCCD.' : (saved.source === 'gemini' ? 'Đã khôi phục thông tin Gemini vừa quét.' : 'Đã khôi phục số CCCD vừa quét; các thông tin khác được giữ nguyên.'); } } catch(e){}
+            try { const raw=sessionStorage.getItem(storageKey(input)); if(!raw) return; const saved=JSON.parse(raw); if(saved.dataUrl){ const dt=new DataTransfer(); dt.items.add(dataUrlToFile(saved.dataUrl,saved.name)); input.files=dt.files; } if(saved.data){ const d=saved.data; setValue(input.dataset.targetCccd,d.cccd,input); if(saved.source === 'qr' || saved.source === 'gemini'){ setValue(input.dataset.targetFullName,d.fullName,input); setValue(input.dataset.targetFirstName,d.firstName,input); setValue(input.dataset.targetLastName,d.lastName,input); setValue(input.dataset.targetBirthday,d.birthday,input); setValue(input.dataset.targetGender,d.gender,input); setValue(input.dataset.targetAddress,d.address,input); setValue(input.dataset.targetNationality,d.nationality,input); setValue(input.dataset.targetPlaceOfOrigin,d.placeOfOrigin,input); setValue(input.dataset.targetExpiryDate,d.expiryDate,input); } const status=input.dataset.status?resolveElement(input, input.dataset.status):null; if(status) status.textContent=saved.source === 'qr' ? 'Đã khôi phục thông tin từ QR CCCD.' : (saved.source === 'gemini' ? 'Đã khôi phục thông tin Gemini vừa quét.' : 'Đã khôi phục số CCCD vừa quét; các thông tin khác được giữ nguyên.'); } } catch(e){}
         });
     });
 
@@ -307,13 +353,45 @@
         syncCheckInSubmitState();
     });
 
+    async function prepareUploadImage(file) {
+        const maxBytes = 4.5 * 1024 * 1024;
+        const maxDimension = 2200;
+        if (!file || !file.type?.startsWith('image/')) return file;
+
+        try {
+            const bitmap = await createImageBitmap(file);
+            const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+            if (file.size <= maxBytes && scale >= 1) {
+                bitmap.close?.();
+                return file;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            bitmap.close?.();
+
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+            if (!blob) return file;
+            return new File([blob], (file.name || 'cccd').replace(/\.[^.]+$/, '') + '.jpg', {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+            });
+        } catch (error) {
+            console.warn('Không thể tối ưu ảnh CCCD trước khi gửi, dùng ảnh gốc.', error);
+            return file;
+        }
+    }
+
     document.addEventListener('change', async function (event) {
         const input = event.target.closest('.js-cccd-image');
         if (!input || !input.files || !input.files[0]) return;
         const scanSide = input.dataset.scanSide || 'ocr';
 
-        const button = input.dataset.button ? document.querySelector(input.dataset.button) : null;
-        const status = input.dataset.status ? document.querySelector(input.dataset.status) : null;
+        const button = input.dataset.button ? resolveElement(input, input.dataset.button) : null;
+        const status = input.dataset.status ? resolveElement(input, input.dataset.status) : null;
         const oldText = button ? button.innerHTML : '';
 
         try {
@@ -376,14 +454,16 @@
             const geminiProgress = startGeminiProgress(status);
 
             try {
+                const uploadImage = await prepareUploadImage(input.files[0]);
                 const formData = new FormData();
-                formData.append('image', input.files[0]);
+                formData.append('image', uploadImage, uploadImage.name || 'cccd.jpg');
                 formData.append('required_fields', input.dataset.requiredFields || '');
 
                 const aiResponse = await fetch(aiScanUrl, {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
                         'X-CSRF-TOKEN': csrfToken,
                     },
                     body: formData,
@@ -392,7 +472,14 @@
 
                 const aiPayload = await aiResponse.json().catch(() => ({}));
                 if (!aiResponse.ok || !aiPayload.ok) {
-                    throw new Error(aiPayload.message || 'Gemini chưa nhận diện được ảnh.');
+                    const httpMessage = aiResponse.status === 419
+                        ? 'Phiên đăng nhập đã hết hạn. Hãy tải lại trang rồi quét lại CCCD.'
+                        : aiResponse.status === 429
+                            ? 'Bạn quét CCCD quá nhanh. Chờ vài giây rồi thử lại.'
+                            : aiResponse.status === 413
+                                ? 'Ảnh CCCD quá lớn để tải lên.'
+                                : null;
+                    throw new Error(aiPayload.message || httpMessage || `Không quét được CCCD (HTTP ${aiResponse.status}).`);
                 }
 
                 geminiProgress.success();
@@ -460,7 +547,11 @@
                 if (status) status.textContent = `${aiMessage} Đang thử OCR dự phòng trên thiết bị...`;
             }
 
-            const result = await Tesseract.recognize(input.files[0], 'vie+eng', {
+            if (!window.Tesseract || typeof window.Tesseract.recognize !== 'function') {
+                throw new Error('Bộ đọc CCCD dự phòng chưa tải được. Hãy kiểm tra mạng rồi thử lại.');
+            }
+
+            const result = await window.Tesseract.recognize(input.files[0], 'vie+eng', {
                 logger: progress => {
                     if (status && progress.status === 'recognizing text') {
                         status.textContent = `Đang nhận diện: ${Math.round((progress.progress || 0) * 100)}%`;

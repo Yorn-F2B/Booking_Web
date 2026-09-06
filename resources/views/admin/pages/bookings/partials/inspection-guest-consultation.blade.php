@@ -11,6 +11,7 @@
         'housekeeping_recheck' => 'bg-warning text-dark',
         'completed' => 'bg-success',
     ];
+    $attachmentContextLabels = \App\Models\RoomInspectionAttachment::contextOptions();
 @endphp
 
 <div class="mb-3">
@@ -29,6 +30,26 @@
                 <span class="badge {{ $stageClasses[$stage] ?? 'bg-secondary' }}">{{ $stageLabels[$stage] ?? $stage }}</span>
             </summary>
             <div class="compact-panel-body">
+                @if ($inspection->attachments->isNotEmpty())
+                    <div class="border rounded p-3 bg-light mb-3">
+                        <div class="fw-semibold mb-2">Ảnh minh chứng buồng phòng</div>
+                        @foreach ($inspection->attachments->groupBy('context') as $context => $attachments)
+                            <div class="small text-muted mb-2">{{ $attachmentContextLabels[$context] ?? 'Ảnh minh chứng' }}</div>
+                            <div class="d-flex flex-wrap gap-2 mb-3">
+                                @foreach ($attachments as $attachment)
+                                    <div style="width:110px">
+                                        <a href="{{ route('admin.floor-inspection-attachments.show', $attachment) }}" target="_blank">
+                                            <img src="{{ route('admin.floor-inspection-attachments.show', $attachment) }}" alt="Ảnh minh chứng" style="width:110px;height:110px;object-fit:cover;border-radius:10px;border:1px solid #ddd;">
+                                        </a>
+                                        <div class="small text-muted mt-1">{{ $attachment->uploader->name ?? 'Buồng phòng' }} · {{ $attachment->created_at?->format('d/m H:i') }}</div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endforeach
+                        <div class="small text-muted">Lễ tân có thể mở ảnh để đối chiếu trực tiếp khi trao đổi với khách.</div>
+                    </div>
+                @endif
+
                 @if ($stage === 'guest_consultation')
                     <div class="alert alert-info small">
                         @if ($hasRecheckResult)

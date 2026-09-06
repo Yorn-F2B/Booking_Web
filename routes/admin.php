@@ -89,6 +89,11 @@ Route::middleware('role:super_admin,manager,receptionist_lead,receptionist,house
         ->name('admin.room-issue-attachments.show');
 });
 
+Route::middleware('role:super_admin,manager,receptionist_lead,receptionist,housekeeping_supervisor,housekeeping')->group(function () {
+    Route::get('floor-inspection-attachments/{attachment}', [\App\Http\Controllers\Admin\FloorInspectionController::class, 'attachment'])
+        ->name('admin.floor-inspection-attachments.show');
+});
+
 Route::middleware('role:super_admin,manager,housekeeping_supervisor,housekeeping')->group(function () {
     Route::get('floor-inspections', [\App\Http\Controllers\Admin\FloorInspectionController::class, 'index'])
         ->name('admin.floor-inspections.index');

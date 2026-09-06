@@ -34,20 +34,38 @@ class EmailDeliveryService
             'attempts' => 1,
         ]);
 
+        $notificationTitle = $subject ?: 'Thông báo từ khách sạn';
+        $notificationMessage = 'Khách sạn vừa có cập nhật mới dành cho bạn.';
+        $notificationType = 'info';
+        $customerUserId = 0;
+
+        if ($booking) {
+            $booking->loadMissing(['customer', 'payments', 'bookingRooms.room.category', 'roomCategory']);
+            $customerUserId = (int) ($booking->customer?->user_id ?? 0);
+            [$notificationTitle, $notificationMessage, $notificationType] = $this->customerNotificationContent(
+                $mailType,
+                $booking,
+                $mail
+            );
+        }
+
+        // Lưu luôn nội dung nghiệp vụ để phía admin có thể mở lại lịch sử giao
+        // thông báo của booking sau khi toast tức thời đã biến mất.
+        $log->update([
+            'subject' => $notificationTitle,
+            'meta' => [
+                'notification_title' => $notificationTitle,
+                'notification_message' => $notificationMessage,
+                'notification_type' => $notificationType,
+                'mail_type' => $mailType,
+            ],
+        ]);
+
         try {
             Mail::to($recipient)->send($mail);
             $log->update(['status' => 'sent', 'sent_at' => now('Asia/Ho_Chi_Minh')]);
 
             if ($booking) {
-                $booking->loadMissing(['customer', 'payments', 'bookingRooms.room.category', 'roomCategory']);
-                $customerUserId = (int) ($booking->customer?->user_id ?? 0);
-
-                [$notificationTitle, $notificationMessage, $notificationType] = $this->customerNotificationContent(
-                    $mailType,
-                    $booking,
-                    $mail
-                );
-
                 if ($customerUserId > 0) {
                     app(OperationalNotificationService::class)->toUser(
                         $customerUserId,
@@ -63,18 +81,16 @@ class EmailDeliveryService
                                 'email_already_sent' => true,
                             ],
                         ],
-                        false // email nghiệp vụ gốc vừa được gửi thành công, không gửi trùng
+                        false // email nghiệp vụ gốc vừa gửi thành công, không gửi trùng
                     );
                 } else {
-                    // Booking tại quầy/khách vãng lai có email nhưng không có tài khoản:
-                    // không có trang thông báo web để gắn user_id, nhưng phía admin vẫn phải
-                    // thấy rõ email nào vừa được gửi và nội dung là gì.
                     app(OperationalNotificationService::class)->auditEmailOnly(
                         $booking,
                         $recipient,
                         $notificationTitle,
                         $notificationMessage,
-                        'sent'
+                        'sent',
+                        false
                     );
                 }
             }
@@ -85,30 +101,48 @@ class EmailDeliveryService
                 'error_message' => mb_substr($e->getMessage(), 0, 2000),
             ]);
 
-            app(OperationalNotificationService::class)->toRoles(
-                ['super_admin', 'manager', 'receptionist_lead', 'receptionist'],
-                'Không gửi được email cho khách',
-                'Email ' . $recipient . ' gửi thất bại' . ($booking ? ' cho booking ' . $booking->booking_code : '') . '. Hãy kiểm tra địa chỉ hoặc liên hệ khách bằng kênh khác.',
-                $booking ? route('admin.bookings.show', $booking) : null,
-                'danger',
-                ['booking_id' => $booking?->id]
-            );
-
             if ($booking) {
-                $booking->loadMissing('customer');
-                $customerUserId = (int) ($booking->customer?->user_id ?? 0);
+                $hasWebNotification = false;
 
+                // Email lỗi không được làm mất thông báo web của sự kiện nghiệp vụ.
+                // Tạo thông báo web bằng đúng nội dung sự kiện, nhưng chặn audit tự động
+                // để bên admin chỉ nhận một kết quả giao nhận chính xác: email = failed.
                 if ($customerUserId > 0) {
                     app(OperationalNotificationService::class)->toUser(
                         $customerUserId,
-                        'Không gửi được email cho booking ' . $booking->booking_code,
-                        'Hệ thống chưa gửi được email tới ' . $recipient . '. Thông tin booking vẫn được lưu đầy đủ trong tài khoản của bạn. Vui lòng kiểm tra lại địa chỉ email hoặc liên hệ lễ tân nếu cần hỗ trợ.',
+                        $notificationTitle,
+                        $notificationMessage,
                         url('/booking-history/' . $booking->id),
-                        'warning',
-                        ['booking_id' => $booking->id, 'meta' => ['mail_type' => $mailType]],
-                        false // tránh lặp vô hạn khi chính kênh email đang lỗi
+                        $notificationType,
+                        [
+                            'booking_id' => $booking->id,
+                            'meta' => [
+                                'mail_type' => $mailType,
+                                'email_recipient' => $recipient,
+                                'suppress_admin_audit' => true,
+                            ],
+                        ],
+                        false
                     );
+                    $hasWebNotification = true;
                 }
+
+                app(OperationalNotificationService::class)->auditEmailOnly(
+                    $booking,
+                    $recipient,
+                    $notificationTitle,
+                    $notificationMessage,
+                    'failed',
+                    $hasWebNotification
+                );
+            } else {
+                app(OperationalNotificationService::class)->toRoles(
+                    ['super_admin', 'manager', 'receptionist_lead', 'receptionist'],
+                    'Không gửi được email cho khách',
+                    'Email ' . $recipient . ' gửi thất bại. Hãy kiểm tra địa chỉ hoặc cấu hình gửi mail.',
+                    null,
+                    'warning'
+                );
             }
 
             throw $e;

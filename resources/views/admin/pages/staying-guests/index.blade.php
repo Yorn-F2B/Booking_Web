@@ -14,7 +14,7 @@
             <div class="admin-page-head">
                 <div>
                     <h2>Khách đang lưu trú</h2>
-                    <p>Mỗi booking hiển thị số khách thực tế và người đại diện của từng phòng</p>
+                    <p>Mỗi phòng chỉ quản lý một người đại diện; booking nhiều phòng có thêm một đại diện cả đoàn</p>
                 </div>
             </div>
 
@@ -40,9 +40,8 @@
                             <tr>
                                 <th>Phòng</th>
                                 <th>Mã Booking</th>
-                                <th>Khách đại diện</th>
-                                <th>Thông tin liên hệ</th>
-                                <th>SL Khách</th>
+                                <th>Người đại diện phòng</th>
+                                <th>Liên hệ booking</th>
                                 <th>Nhận phòng</th>
                                 <th>Dự kiến trả phòng</th>
                                 <th class="text-end">Thao tác</th>
@@ -64,36 +63,23 @@
                                         </a>
                                     </td>
                                     <td>
-                                        @if($booking->customer)
-                                            @if(in_array(auth()->user()->role ?? null, ['super_admin', 'manager'], true))
-                                                <a href="{{ route('admin.customers.show', $booking->customer->id) }}" class="fw-bold">
-                                                    {{ $booking->customer->full_name }}
-                                                </a>
-                                            @else
-                                                <span class="fw-bold">{{ $booking->customer->full_name }}</span>
-                                            @endif
-                                            @php
-                                                $roomRepresentatives = $booking->bookingRooms->map(function ($bookingRoom) use ($booking) {
-                                                    return $booking->guests->where('booking_room_id', $bookingRoom->id)
-                                                        ->first(fn ($guest) => $guest->guest_type === 'adult');
-                                                })->filter();
-                                                $groupRepresentative = $booking->guests->firstWhere('is_booking_representative', true);
-                                            @endphp
-                                            @if($roomRepresentatives->isNotEmpty())
-                                                <div class="mt-2 small text-muted">
-                                                    <div class="fw-bold mb-1">Đại diện phòng:</div>
-                                                    <ul class="mb-0 ps-3">
-                                                    @foreach($roomRepresentatives as $guest)
-                                                        <li>
-                                                            P.{{ $guest->bookingRoom?->room?->room_number ?? '---' }} · {{ $guest->full_name }}
-                                                            @if($guest->is_booking_representative)<strong class="text-primary"> · đại diện đoàn</strong>@endif
-                                                        </li>
-                                                    @endforeach
-                                                    </ul>
-                                                </div>
-                                            @endif
+                                        @php
+                                            $roomRepresentatives = $booking->bookingRooms->map(function ($bookingRoom) use ($booking) {
+                                                return $booking->guests->where('booking_room_id', $bookingRoom->id)
+                                                    ->first(fn ($guest) => $guest->guest_type === 'adult');
+                                            })->filter();
+                                        @endphp
+                                        @if($roomRepresentatives->isNotEmpty())
+                                            <ul class="mb-0 ps-3 small">
+                                                @foreach($roomRepresentatives as $guest)
+                                                    <li>
+                                                        <strong>P.{{ $guest->bookingRoom?->room?->room_number ?? '---' }}</strong> · {{ $guest->full_name }}
+                                                        @if($guest->is_booking_representative)<span class="text-primary fw-semibold"> · đại diện đoàn</span>@endif
+                                                    </li>
+                                                @endforeach
+                                            </ul>
                                         @else
-                                            <span class="text-muted">Chưa có thông tin</span>
+                                            <span class="text-warning">Chưa có người đại diện</span>
                                         @endif
                                     </td>
                                     <td>
@@ -102,15 +88,6 @@
                                             <div class="small text-muted"><i class="bx bx-id-card me-1"></i>{{ $booking->customer->cccd ?? '-' }}</div>
                                         @else
                                             -
-                                        @endif
-                                    </td>
-                                    <td>
-                                        {{ (int) $booking->adult_count }} NL
-                                        @if((int) $booking->child_count > 0)
-                                            / {{ (int) $booking->child_count }} TE
-                                        @endif
-                                        @if((int) ($booking->baby_count ?? 0) > 0)
-                                            / {{ (int) ($booking->baby_count ?? 0) }} EB
                                         @endif
                                     </td>
                                     <td>
@@ -129,7 +106,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="8" class="text-center text-muted py-4">
+                                    <td colspan="7" class="text-center text-muted py-4">
                                         Hiện tại không có phòng nào đang có khách lưu trú.
                                     </td>
                                 </tr>

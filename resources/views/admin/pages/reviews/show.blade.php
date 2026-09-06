@@ -39,7 +39,7 @@
                             <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
                                 <div>
                                     <span class="badge {{ $review->status_badge_class }} mb-2">{{ $review->status_label }}</span>
-                                    <h3 class="h5 fw-bold mb-1">{{ $review->title ?: 'Đánh giá kỳ lưu trú' }}</h3>
+                                    <h3 class="h5 fw-bold mb-1">Đánh giá khách sạn</h3>
                                     <div class="text-warning fs-5">{{ $review->star_text }} <span class="text-muted small">{{ number_format((float) $review->rating, 1) }}/5</span></div>
                                 </div>
                                 <div class="text-end small text-muted">
@@ -52,12 +52,9 @@
 
                             <div class="row g-2 mb-4 small">
                                 @foreach ([
-                                    ['Sạch sẽ', $review->cleanliness_rating],
-                                    ['Chất lượng / tiện nghi phòng', $review->room_quality_rating],
-                                    ['Nhân viên', $review->staff_rating],
                                     ['Dịch vụ', $review->service_rating],
-                                    ['Thoải mái', $review->comfort_rating],
-                                    ['Giá trị', $review->value_rating],
+                                    ['Nhân viên', $review->staff_rating],
+                                    ['Chất lượng phòng', $review->room_quality_rating],
                                 ] as [$label, $value])
                                     <div class="col-6 col-md-4">
                                         <div class="border rounded-3 p-2 text-center h-100">

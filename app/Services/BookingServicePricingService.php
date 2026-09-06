@@ -327,7 +327,7 @@ class BookingServicePricingService
 
         $bookingRoom = $booking->bookingRooms->firstWhere('id', (int) $item->booking_room_id);
         $guestCount = $bookingRoom
-            ? max(1, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0))
+            ? max(1, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count)
             : 1;
 
         return [1, $guestCount];

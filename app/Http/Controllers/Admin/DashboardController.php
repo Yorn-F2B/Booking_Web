@@ -158,7 +158,7 @@ class DashboardController extends Controller
         $receivableBookings = (int) ($receivableRow->booking_count ?? 0);
 
         $activeGuests = (int) Booking::query()->where('status', 'checked_in')
-            ->sum(DB::raw('COALESCE(adult_count,0) + COALESCE(child_count,0) + COALESCE(baby_count,0)'));
+            ->sum(DB::raw('COALESCE(adult_count,0) + COALESCE(child_count,0)'));
         $activeStays = (int) Booking::query()->where('status', 'checked_in')->count();
 
         $periodLabel = $from->format('d/m/Y') === $to->format('d/m/Y')
@@ -211,7 +211,7 @@ class DashboardController extends Controller
             'new_bookings' => ['Booking mới', 'Tất cả booking được tạo trong kỳ.'],
             'receivables' => ['Công nợ liên quan kỳ', 'Phần giá trị phải thu (ưu tiên final_total, nếu chưa chốt thì estimated_total) còn thiếu sau khi trừ tổng payment thành công của booking đã xác nhận/đang ở/đã trả và giao với kỳ; booking pending không được coi là công nợ.'],
             'occupancy' => ['Chi tiết công suất phòng', 'Mỗi dòng là số phòng-ngày thực tế một phòng được booking hợp lệ sử dụng trong khoảng đang xem. Công suất = tổng phòng-ngày sử dụng / tổng số phòng × số ngày.'],
-            'active_stays' => ['Khách đang lưu trú', 'Các booking đang checked-in tại thời điểm hiện tại; số lượng khách gồm người lớn, trẻ em và em bé trên booking.'],
+            'active_stays' => ['Khách đang lưu trú', 'Các booking đang checked-in tại thời điểm hiện tại; số lượng khách gồm người lớn và trẻ em trên booking.'],
             'booking_source' => ['Booking theo kênh tiếp nhận', 'Danh sách đầy đủ các booking được tạo trong kỳ thuộc đúng kênh đã chọn.'],
             'surcharges' => ['Phụ thu và phí phát sinh', 'Từng khoản phụ thu đã xác nhận trong kỳ, ghi rõ booking, tên khoản và số tiền.'],
             'payment_provider' => ['Tiền thu theo phương thức', 'Từng giao dịch thanh toán thành công trong kỳ thuộc phương thức đã chọn.'],
@@ -298,7 +298,7 @@ class DashboardController extends Controller
                 .number_format($rate, 1, ',', '.').'%.'.($metric === 'category_occupancy' ? ' Chỉ tính hạng phòng đã chọn.' : '');
         } elseif ($metric === 'active_stays') {
             $rows = Booking::query()->where('status', 'checked_in')->latest('actual_check_in')->get()->map(function ($booking) {
-                $guests = (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0);
+                $guests = (int) $booking->adult_count + (int) $booking->child_count;
                 return ['booking'=>$booking->booking_code,'customer'=>$booking->booked_customer_name,'kind'=>'Đang ở đến '.optional($booking->check_out_at)->format('d/m/Y H:i'),'amount'=>$guests,'time'=>$booking->actual_check_in ?: $booking->check_in_at,'url'=>route('admin.bookings.show',$booking)];
             });
             $total=(float)$rows->sum('amount');

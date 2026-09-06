@@ -21,7 +21,6 @@
             <select class="form-select form-select-sm js-guest-type" name="guests[{{ $index }}][guest_type]" required>
                 <option value="adult">Người lớn</option>
                 <option value="child">Trẻ em</option>
-                <option value="infant">Em bé</option>
             </select>
             <div class="form-text js-age-message">Tự xác định theo ngày sinh.</div>
         </div>

@@ -29,9 +29,11 @@ class RoomIssueRequestController extends Controller
             $status = 'waiting';
         }
 
-        $query = RoomIssueRequest::query()->with([
-            'booking.customer', 'currentRoom.category', 'attachments', 'housekeepingVerifier',
-        ]);
+        $query = RoomIssueRequest::query()
+            ->forActiveStay()
+            ->with([
+                'booking.customer', 'currentRoom.category', 'attachments', 'housekeepingVerifier',
+            ]);
 
         if ($status === 'waiting') {
             $query->where('status', 'pending')->where('workflow_status', 'awaiting_housekeeping');
@@ -61,6 +63,7 @@ class RoomIssueRequestController extends Controller
         $roomIssueRequest->load([
             'booking.customer', 'currentRoom.category', 'attachments', 'housekeepingVerifier',
         ]);
+        abort_unless(in_array($roomIssueRequest->booking?->status, ['checked_in', 'inspection_requested'], true), 404);
         $this->guardCanHandleIssue($roomIssueRequest);
 
         abort_unless(
@@ -76,6 +79,7 @@ class RoomIssueRequestController extends Controller
     {
         $this->guardHousekeepingVerifier();
         $roomIssueRequest->loadMissing(['booking', 'currentRoom']);
+        abort_unless(in_array($roomIssueRequest->booking?->status, ['checked_in', 'inspection_requested'], true), 404);
         $this->guardCanHandleIssue($roomIssueRequest);
 
         $data = $request->validate([
@@ -141,6 +145,7 @@ class RoomIssueRequestController extends Controller
         $search = trim((string) $request->query('search', ''));
 
         $representativeIds = RoomIssueRequest::query()
+            ->forActiveStay()
             ->selectRaw('MIN(id)')
             ->when(in_array($status, ['pending', 'waiting_guest'], true), fn ($q) => $q->where('status', 'pending'))
             ->groupBy('group_uuid');
@@ -317,13 +322,15 @@ class RoomIssueRequestController extends Controller
 
 
     /**
-     * Bước xác minh sự cố bắt buộc thuộc bộ phận buồng phòng.
-     * Quản lý/Super Admin có thể xem kết quả để điều phối nhưng không được
-     * tự thay buồng phòng kết luận, tránh bỏ qua bước kiểm tra thực tế.
+     * Route kiểm tra sự cố cho phép quản lý/super admin và bộ phận buồng phòng.
+     * Submit phải dùng cùng tập quyền với màn hình; trước đây trang mở được nhưng
+     * POST/PATCH lại chặn manager/super_admin nên nhấn xác nhận trả về 403.
      */
     private function guardHousekeepingVerifier(): void
     {
-        abort_unless(in_array(Auth::user()?->role, ['housekeeping_supervisor', 'housekeeping'], true), 403);
+        abort_unless(in_array(Auth::user()?->role, [
+            'super_admin', 'manager', 'housekeeping_supervisor', 'housekeeping',
+        ], true), 403);
     }
 
     private function guardHousekeeping(): void

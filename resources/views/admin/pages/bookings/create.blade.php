@@ -726,16 +726,6 @@
                                     @enderror
                                 </div>
 
-                                <div class="col-md-2">
-                                    <label class="form-label">Em bé</label>
-                                    <input type="number" name="baby_count" id="babyCount"
-                                        class="form-control @error('baby_count') is-invalid @enderror"
-                                        value="{{ old('baby_count', $bookingPrefill['baby_count'] ?? 0) }}" min="0" max="{{ (int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_guests', 60) }}">
-
-                                    @error('baby_count')
-                                        <div class="invalid-feedback">{{ $message }}</div>
-                                    @enderror
-                                </div>
 
                                 <div class="col-md-2">
                                     <label class="form-label">Số phòng <span class="text-danger">*</span></label>
@@ -1619,12 +1609,10 @@
             function getCurrentGuestCount() {
                 const adultInput = document.getElementById('adultCount');
                 const childInput = document.getElementById('childCount');
-                const babyInput = document.getElementById('babyCount');
                 const adults = Math.max(1, parseInt(adultInput?.value || 1));
                 const children = Math.max(0, parseInt(childInput?.value || 0));
-                const babies = Math.max(0, parseInt(babyInput?.value || 0));
 
-                return Math.max(1, adults + children + babies);
+                return Math.max(1, adults + children);
             }
 
             function getCurrentServiceNightCount() {

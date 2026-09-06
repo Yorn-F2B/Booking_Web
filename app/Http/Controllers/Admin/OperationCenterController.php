@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\BookingPayment;
 use App\Models\CustomerRequest;
-use App\Models\EmailDeliveryLog;
 use App\Models\OperationalNotification;
 use App\Models\Room;
 use App\Models\RoomInspection;
@@ -105,8 +104,9 @@ class OperationCenterController extends Controller
                 'detail' => $b->booking_code, 'url' => route('admin.bookings.show', $b), 'time' => $b->created_at,
             ]));
 
-            // Một booking chỉ xuất hiện một task thanh toán, lấy ngoại lệ mới nhất.
-            // Nếu khách thử VNPay 3 lần thất bại thì lễ tân vẫn chỉ cần mở 1 đơn để xử lý.
+            // Một booking chỉ xuất hiện khi *trạng thái thanh toán hiện tại* vẫn còn vấn đề.
+            // Không bám vào một lần failed cũ: nếu khách đã thanh toán lại thành công hoặc
+            // booking đã hủy/hoàn tất thì task phải biến mất khỏi Trung tâm công việc.
             $paymentExceptionFilter = function ($q) use ($now) {
                 $q->where(function ($exception) use ($now) {
                     $exception->where(fn ($x) => $x->where('status', 'pending')->where('created_at', '<=', $now->copy()->subMinutes(15)))
@@ -114,19 +114,30 @@ class OperationCenterController extends Controller
                 });
             };
             $paymentExceptionBookings = Booking::query()
+                ->whereNotIn('status', ['cancelled', 'canceled', 'checked_out', 'completed'])
+                ->where(fn ($q) => $q->whereNull('payment_status')->orWhere('payment_status', '!=', 'paid'))
                 ->whereHas('payments', $paymentExceptionFilter)
-                ->with(['payments' => function ($q) use ($paymentExceptionFilter) {
-                    $paymentExceptionFilter($q);
-                    $q->latest('updated_at');
-                }])
+                ->with(['payments' => fn ($q) => $q->latest('updated_at')])
                 ->withMax(['payments as payment_exception_at' => $paymentExceptionFilter], 'updated_at');
             $this->scopeFrontDeskBookings($paymentExceptionBookings, $user, $role);
             $paymentExceptionBookings->orderByDesc('payment_exception_at')->get()
-                ->each(function ($booking) use ($tasks) {
-                    $payment = $booking->payments->first();
-                    if (!$payment) {
+                ->each(function ($booking) use ($tasks, $now) {
+                    // Lấy lần thanh toán mới nhất của booking, không phải lần lỗi mới nhất.
+                    // Nếu lần mới nhất đã success thì lỗi cũ đã được xử lý và không còn là task.
+                    $payment = $booking->payments->sortByDesc('updated_at')->first();
+                    if (!$payment || $payment->status === 'success') {
                         return;
                     }
+                    if ($payment->status === 'pending' && $payment->created_at?->gt($now->copy()->subMinutes(15))) {
+                        return;
+                    }
+                    if ($payment->status === 'failed' && $payment->updated_at?->lt($now->copy()->subDay())) {
+                        return;
+                    }
+                    if (!in_array($payment->status, ['pending', 'failed'], true)) {
+                        return;
+                    }
+
                     $tasks->push([
                         'priority' => $payment->status === 'failed' ? 'high' : 'medium',
                         'type' => 'payment_exception',
@@ -158,17 +169,17 @@ class OperationCenterController extends Controller
                 'url' => $r->booking ? route('admin.bookings.show', $r->booking) : route('admin.customer-requests.show', $r), 'time' => $r->created_at,
             ]));
 
-            RoomIssueRequest::query()->needsManagerAction()->with('booking')->get()->each(fn ($r) => $tasks->push([
+            // Một nhóm sự cố chỉ là một công việc quản lý. Khi nhóm đã duyệt/đóng,
+            // scope needsManagerAction không còn trả ra bản ghi nào nên task mất ngay ở lần refresh kế tiếp.
+            $managerIssueIds = RoomIssueRequest::query()
+                ->forActiveStay()
+                ->needsManagerAction()
+                ->selectRaw('MIN(id)')
+                ->groupBy('group_uuid');
+            RoomIssueRequest::query()->whereIn('id', $managerIssueIds)->with('booking')->get()->each(fn ($r) => $tasks->push([
                 'priority' => 'high', 'type' => 'room_issue', 'title' => 'Sự cố phòng cần quyết định',
                 'detail' => $r->booking?->booking_code ?? ('Sự cố #' . $r->id),
                 'url' => route('admin.room-issues.show', $r), 'time' => $r->created_at,
-            ]));
-
-            EmailDeliveryLog::query()->unresolvedFailures()->latest('failed_at')->get()->each(fn ($e) => $tasks->push([
-                'priority' => 'high', 'type' => 'email_failed', 'title' => 'Email gửi khách thất bại',
-                'detail' => $e->recipient . ' · ' . $e->mail_type,
-                'url' => $e->booking_id ? route('admin.bookings.show', $e->booking_id) : route('admin.email-logs.index'),
-                'time' => $e->failed_at ?: $e->updated_at,
             ]));
 
             Room::query()
@@ -202,7 +213,10 @@ class OperationCenterController extends Controller
                 ]);
             });
 
-            $verification = RoomIssueRequest::query()->where('status', 'pending')->where('workflow_status', 'awaiting_housekeeping');
+            $verification = RoomIssueRequest::query()
+                ->forActiveStay()
+                ->where('status', 'pending')
+                ->where('workflow_status', 'awaiting_housekeeping');
             HousekeepingWorkScope::applyToIssues($verification, $user);
             $verification->with('currentRoom')->orderBy('created_at')->get()->each(fn ($issue) => $tasks->push([
                 'priority' => 'high', 'type' => 'issue_verification', 'title' => 'Cần xác minh sự cố phòng',
@@ -238,36 +252,37 @@ class OperationCenterController extends Controller
         $priorityRank = ['high' => 0, 'medium' => 1, 'low' => 2];
         $tasks = $tasks->sortBy(fn ($t) => sprintf('%d|%s', $priorityRank[$t['priority']] ?? 9, (string) ($t['time'] ?? '')))->values();
 
-        $taskGroups = $tasks->groupBy('type')->map(function ($items, $type) use ($priorityRank) {
-            $items = $items->values();
-            $first = $items->first();
-            $highestPriority = $items->sortBy(fn ($item) => $priorityRank[$item['priority']] ?? 9)->first()['priority'] ?? 'low';
+        $makeGroups = function ($items) use ($priorityRank) {
+            return $items->groupBy('type')->map(function ($groupItems, $type) use ($priorityRank) {
+                $groupItems = $groupItems->values();
+                $first = $groupItems->first();
+                $highestPriority = $groupItems->sortBy(fn ($item) => $priorityRank[$item['priority']] ?? 9)->first()['priority'] ?? 'low';
 
-            return [
-                'type' => $type,
-                'title' => $first['title'] ?? 'Công việc cần xử lý',
-                'priority' => $highestPriority,
-                'count' => $items->count(),
-                'items' => $items,
-            ];
-        })->sortBy(fn ($group) => sprintf('%d|%s', $priorityRank[$group['priority']] ?? 9, $group['title']))->values();
-
-        $notifications = OperationalNotification::query()
-            ->visibleTo($user)
-            ->latest()->paginate(30, ['*'], 'notification_page');
-        $notificationGroups = collect($notifications->items())
-            ->groupBy(fn ($notification) => ($notification->type ?: 'info') . '|' . $notification->title)
-            ->map(function ($items) {
-                $items = $items->values();
                 return [
-                    'title' => $items->first()->title ?: 'Thông báo',
-                    'count' => $items->count(),
-                    'unread_count' => $items->whereNull('read_at')->count(),
-                    'items' => $items,
+                    'type' => $type,
+                    'title' => $first['title'] ?? 'Công việc cần xử lý',
+                    'priority' => $highestPriority,
+                    'count' => $groupItems->count(),
+                    'items' => $groupItems,
                 ];
-            })->values();
+            })->sortBy(fn ($group) => sprintf('%d|%s', $priorityRank[$group['priority']] ?? 9, $group['title']))->values();
+        };
 
-        return view('admin.pages.operation-center.index', compact('tasks', 'taskGroups', 'notifications', 'notificationGroups'));
+        // Trung tâm công việc chỉ hiển thị công việc vận hành.
+        // Kết quả gửi email/web cho khách được phản hồi ngay bằng toast ở góc phải
+        // và lưu trong EmailDeliveryLog, không chen vào danh sách công việc.
+        $urgentTasks = $tasks->where('priority', 'high')->values();
+        $normalTasks = $tasks->where('priority', '!=', 'high')->values();
+        $urgentTaskGroups = $makeGroups($urgentTasks);
+        $normalTaskGroups = $makeGroups($normalTasks);
+
+        return view('admin.pages.operation-center.index', compact(
+            'tasks',
+            'urgentTasks',
+            'normalTasks',
+            'urgentTaskGroups',
+            'normalTaskGroups'
+        ));
     }
 
     private function scopeFrontDeskBookings($query, $user, string $role): void

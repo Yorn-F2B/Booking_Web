@@ -10,26 +10,21 @@ use Illuminate\Support\Collection;
 
 class RoomIssueProposalService
 {
-    public const HOLD_MINUTES = 30; // fallback
+    public const HOLD_MINUTES = 30;
 
-    /**
-     * Tạo hoặc làm mới phương án cho toàn bộ nhóm sự cố.
-     *
-     * Phương án đổi phòng đã được giữ còn hiệu lực sẽ được giữ nguyên và gia hạn.
-     * Khi buồng phòng xác nhận không thể sửa ngay tại phòng, hệ thống bắt buộc phải
-     * tìm phòng thay thế; không được tự rơi về phương án giữ nguyên phòng.
-     */
     public function prepareGroup(
         Booking $booking,
         Collection $issues,
         ?int $actorId,
         string $workflowStatus,
-        bool $resetGuestResponse = true
+        bool $resetGuestResponse = true,
+        array $preferences = []
     ): array {
         $booking->loadMissing(['bookingRooms.room.category']);
 
         $now = now('Asia/Ho_Chi_Minh');
-        $holdMinutes = max(5, (int) app(HotelPolicyService::class)->forBooking($booking, 'room_issue.proposal_hold_minutes', self::HOLD_MINUTES));
+        $holdMinutes = max(5, (int) app(HotelPolicyService::class)
+            ->forBooking($booking, 'room_issue.proposal_hold_minutes', self::HOLD_MINUTES));
         $expiresAt = $now->copy()->addMinutes($holdMinutes);
         $usedTargetRoomIds = [];
         $items = [];
@@ -40,50 +35,39 @@ class RoomIssueProposalService
                 ->firstOrFail();
             $issue->loadMissing(['currentRoom.category', 'currentCategory', 'proposedRoom.category']);
 
-            $proposal = $this->existingHeldProposal($issue, $now, $usedTargetRoomIds);
+            $available = $this->resolveAvailableProposals($issue, $booking, $usedTargetRoomIds);
+            $requested = (string) ($preferences[$issue->id] ?? 'auto');
+
+            if ($requested === 'auto') {
+                $proposal = $available['same_category']
+                    ?? $available['upgrade_category']
+                    ?? $available['repair_only']
+                    ?? null;
+            } else {
+                $proposal = $available[$requested] ?? null;
+            }
 
             if (!$proposal) {
-                $this->releaseIssueHolds($issue, $now, 'Phương án cũ hết hiệu lực, hệ thống tự chọn lại');
-                $proposal = $this->resolveAutomaticProposal($issue, $booking, $usedTargetRoomIds);
-            }
-
-            if (($proposal['type'] ?? null) === 'replacement_required') {
                 throw new \RuntimeException(
-                    'Phòng ' . ($issue->currentRoom?->room_number ?? $issue->current_room_id)
-                    . ': buồng phòng xác nhận có lỗi và không thể sửa ngay tại phòng, nhưng hiện chưa có phòng thay thế phù hợp. '
-                    . 'Không thể đóng yêu cầu hoặc gửi phương án giữ nguyên phòng.'
+                    'Phương án đã chọn cho phòng ' . ($issue->currentRoom?->room_number ?? $issue->current_room_id)
+                    . ' không còn khả dụng. Vui lòng tải lại trang và chọn phương án khác.'
                 );
             }
+
+            $this->releaseIssueHolds($issue, $now, 'Quản lý tạo/cập nhật phương án mới');
 
             $targetRoom = $proposal['room'];
             if ($targetRoom) {
                 $usedTargetRoomIds[] = (int) $targetRoom->id;
-
-                $hold = RoomIssueRoomHold::where('group_uuid', $issue->group_uuid)
-                    ->where('room_issue_request_id', $issue->id)
-                    ->where('room_id', $targetRoom->id)
-                    ->whereNull('released_at')
-                    ->lockForUpdate()
-                    ->first();
-
-                if ($hold) {
-                    $hold->update([
-                        'expires_at' => $expiresAt,
-                        'release_reason' => null,
-                    ]);
-                } else {
-                    RoomIssueRoomHold::create([
-                        'group_uuid' => $issue->group_uuid,
-                        'room_issue_request_id' => $issue->id,
-                        'booking_id' => $booking->id,
-                        'room_id' => $targetRoom->id,
-                        'held_by' => $actorId,
-                        'held_at' => $now,
-                        'expires_at' => $expiresAt,
-                    ]);
-                }
-            } else {
-                $this->releaseIssueHolds($issue, $now, 'Không có phòng thay thế để tiếp tục giữ');
+                RoomIssueRoomHold::create([
+                    'group_uuid' => $issue->group_uuid,
+                    'room_issue_request_id' => $issue->id,
+                    'booking_id' => $booking->id,
+                    'room_id' => $targetRoom->id,
+                    'held_by' => $actorId,
+                    'held_at' => $now,
+                    'expires_at' => $expiresAt,
+                ]);
             }
 
             $updates = [
@@ -91,31 +75,16 @@ class RoomIssueProposalService
                 'proposed_resolution_type' => $proposal['type'],
                 'proposed_room_id' => $targetRoom?->id,
                 'proposed_room_category_id' => $targetRoom?->room_category_id,
-                'proposal_note' => null,
+                'proposal_note' => $proposal['description'] ?? null,
                 'proposal_created_by' => $actorId,
                 'proposal_created_at' => $now,
                 'proposal_expires_at' => $targetRoom ? $expiresAt : null,
             ];
 
             if ($resetGuestResponse) {
-                $preservedGuestChoice = $issue->guest_selected_resolution_type;
-                $allowedGuestChoices = [];
-                if ($issue->housekeeping_can_repair_in_room) {
-                    $allowedGuestChoices[] = 'repair_only';
-                }
-                if ($targetRoom && in_array($proposal['type'], ['same_category', 'upgrade_category'], true)) {
-                    $allowedGuestChoices[] = $proposal['type'];
-                }
-
-                if (!in_array($preservedGuestChoice, $allowedGuestChoices, true)) {
-                    $preservedGuestChoice = null;
-                }
-
                 $updates += [
                     'guest_response' => null,
-                    // Giữ lựa chọn trước đó làm mặc định khi gửi lại, nhưng vẫn giữ
-                    // toàn bộ phương án khả dụng để khách có thể đổi ý.
-                    'guest_selected_resolution_type' => $preservedGuestChoice,
+                    'guest_selected_resolution_type' => null,
                     'guest_responded_by' => null,
                     'guest_responded_at' => null,
                 ];
@@ -139,7 +108,11 @@ class RoomIssueProposalService
         ];
     }
 
-    public function resolveAutomaticProposal(
+    /**
+     * Trả về toàn bộ phương án thực sự khả thi ở thời điểm hiện tại.
+     * Một sự cố có thể đồng thời có: đổi cùng hạng, nâng hạng, và ở lại sửa gấp.
+     */
+    public function resolveAvailableProposals(
         RoomIssueRequest $issue,
         Booking $booking,
         array $usedTargetRoomIds = []
@@ -154,108 +127,79 @@ class RoomIssueProposalService
 
         $from = now('Asia/Ho_Chi_Minh');
         $to = $booking->check_out_at;
+        $options = [];
 
-        if (!$to) {
-            return $issue->housekeeping_can_repair_in_room
-                ? $this->repairOnlyProposal('Booking không có thời gian trả phòng hợp lệ để giữ phòng thay thế.')
-                : $this->replacementRequiredProposal('Booking không có thời gian trả phòng hợp lệ để tìm phòng thay thế.');
+        if ($to) {
+            $sameCategoryRoom = Room::with('category')
+                ->where('room_category_id', $issue->current_room_category_id)
+                ->whereNotIn('id', $excludedRoomIds)
+                ->bookableForPeriod($from, $to, $booking->id)
+                ->orderBy('floor_number')
+                ->orderBy('room_number')
+                ->first();
+
+            if ($sameCategoryRoom) {
+                $options['same_category'] = [
+                    'type' => 'same_category',
+                    'room' => $sameCategoryRoom,
+                    'label' => 'Đổi phòng cùng hạng',
+                    'description' => 'Còn phòng ' . $sameCategoryRoom->room_number . ' cùng hạng '
+                        . ($sameCategoryRoom->category?->name ?? '---') . '.',
+                ];
+            }
+
+            $currentPrice = (float) (
+                $issue->currentCategory?->price
+                ?? $issue->currentRoom?->category?->price
+                ?? 0
+            );
+
+            $upgradeRoom = Room::with('category')
+                ->whereNotIn('id', $excludedRoomIds)
+                ->whereHas('category', fn ($query) => $query
+                    ->where('status', 'active')
+                    ->where('price', '>', $currentPrice))
+                ->bookableForPeriod($from, $to, $booking->id)
+                ->get()
+                ->sortBy(fn ($room) => [
+                    (float) ($room->category?->price ?? PHP_INT_MAX),
+                    (int) $room->floor_number,
+                    (string) $room->room_number,
+                ])
+                ->first();
+
+            if ($upgradeRoom) {
+                $options['upgrade_category'] = [
+                    'type' => 'upgrade_category',
+                    'room' => $upgradeRoom,
+                    'label' => 'Nâng hạng miễn phí',
+                    'description' => 'Còn phòng ' . $upgradeRoom->room_number . ' thuộc hạng '
+                        . ($upgradeRoom->category?->name ?? '---') . '. Khách sạn chịu phần chênh lệch do sự cố.',
+                ];
+            }
         }
 
-        $sameCategoryRoom = Room::with('category')
-            ->where('room_category_id', $issue->current_room_category_id)
-            ->whereNotIn('id', $excludedRoomIds)
-            ->bookableForPeriod($from, $to, $booking->id)
-            ->orderBy('floor_number')
-            ->orderBy('room_number')
-            ->first();
-
-        if ($sameCategoryRoom) {
-            return [
-                'type' => 'same_category',
-                'room' => $sameCategoryRoom,
-                'label' => 'Đổi phòng cùng hạng',
-                'description' => 'Còn phòng ' . $sameCategoryRoom->room_number . ' cùng hạng '
-                    . ($sameCategoryRoom->category?->name ?? '---') . '.',
-            ];
-        }
-
-        $currentPrice = (float) (
-            $issue->currentCategory?->price
-            ?? $issue->currentRoom?->category?->price
-            ?? 0
-        );
-
-        $upgradeRoom = Room::with('category')
-            ->whereNotIn('id', $excludedRoomIds)
-            ->whereHas('category', fn ($query) => $query
-                ->where('status', 'active')
-                ->where('price', '>', $currentPrice))
-            ->bookableForPeriod($from, $to, $booking->id)
-            ->get()
-            ->sortBy(fn ($room) => [
-                (float) ($room->category?->price ?? PHP_INT_MAX),
-                (int) $room->floor_number,
-                (string) $room->room_number,
-            ])
-            ->first();
-
-        if ($upgradeRoom) {
-            return [
-                'type' => 'upgrade_category',
-                'room' => $upgradeRoom,
-                'label' => 'Nâng hạng miễn phí',
-                'description' => 'Hết phòng cùng hạng; còn phòng ' . $upgradeRoom->room_number
-                    . ' thuộc hạng ' . ($upgradeRoom->category?->name ?? '---') . '.',
-            ];
-        }
-
-        if ($issue->housekeeping_can_repair_in_room) {
-            return $this->repairOnlyProposal(
-                'Không còn phòng cùng hạng hoặc hạng cao hơn phù hợp; buồng phòng xác nhận có thể sửa ngay tại phòng.'
+        if ($issue->housekeeping_can_repair_in_room || empty($options)) {
+            $options['repair_only'] = $this->repairOnlyProposal(
+                $issue->housekeeping_can_repair_in_room
+                    ? 'Buồng phòng xác nhận có thể giữ khách ở phòng hiện tại và sửa gấp.'
+                    : 'Không còn phòng cùng hạng hoặc hạng cao hơn phù hợp; tạm giữ khách ở phòng hiện tại và xử lý khẩn.'
             );
         }
 
-        return $this->replacementRequiredProposal(
-            'Không còn phòng cùng hạng hoặc hạng cao hơn phù hợp đến hết thời gian lưu trú. Khách bắt buộc phải chuyển vì sự cố không thể sửa ngay tại phòng.'
-        );
+        return $options;
     }
 
-    private function existingHeldProposal(
+    public function resolveAutomaticProposal(
         RoomIssueRequest $issue,
-        $now,
-        array $usedTargetRoomIds
-    ): ?array {
-        if (!in_array($issue->proposed_resolution_type, ['same_category', 'upgrade_category'], true)
-            || !$issue->proposed_room_id
-            || in_array((int) $issue->proposed_room_id, array_map('intval', $usedTargetRoomIds), true)) {
-            return null;
-        }
+        Booking $booking,
+        array $usedTargetRoomIds = []
+    ): array {
+        $available = $this->resolveAvailableProposals($issue, $booking, $usedTargetRoomIds);
 
-        $hold = RoomIssueRoomHold::where('group_uuid', $issue->group_uuid)
-            ->where('room_issue_request_id', $issue->id)
-            ->where('room_id', $issue->proposed_room_id)
-            ->whereNull('released_at')
-            ->where('expires_at', '>', $now)
-            ->lockForUpdate()
-            ->first();
-
-        if (!$hold) {
-            return null;
-        }
-
-        $room = Room::with('category')->find($issue->proposed_room_id);
-        if (!$room) {
-            return null;
-        }
-
-        return [
-            'type' => $issue->proposed_resolution_type,
-            'room' => $room,
-            'label' => $issue->proposed_resolution_type === 'same_category'
-                ? 'Đổi phòng cùng hạng'
-                : 'Nâng hạng miễn phí',
-            'description' => 'Giữ nguyên phương án phòng đã được hệ thống khóa trước đó.',
-        ];
+        return $available['same_category']
+            ?? $available['upgrade_category']
+            ?? $available['repair_only'];
     }
 
     private function releaseIssueHolds(RoomIssueRequest $issue, $now, string $reason): void
@@ -275,16 +219,6 @@ class RoomIssueProposalService
             'type' => 'repair_only',
             'room' => null,
             'label' => 'Giữ nguyên phòng, sửa gấp',
-            'description' => $description,
-        ];
-    }
-
-    private function replacementRequiredProposal(string $description): array
-    {
-        return [
-            'type' => 'replacement_required',
-            'room' => null,
-            'label' => 'Bắt buộc chuyển phòng',
             'description' => $description,
         ];
     }

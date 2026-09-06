@@ -46,30 +46,40 @@ class HotelReviewController extends Controller
                 ->with('error', 'Chỉ có thể đánh giá sau khi đơn phòng đã hoàn tất/trả phòng.');
         }
 
-        if ($booking->hotelReview()->exists()) {
-            return redirect()
-                ->route('bookings.show', $booking)
-                ->with('error', 'Mỗi đơn phòng chỉ được đánh giá một lần.');
-        }
-
         $data = $this->validatedReviewData($request);
-        app(ReviewContentFilter::class)->assertClean($data['title'] ?? null, $data['comment']);
+        app(ReviewContentFilter::class)->assertClean($data['comment']);
+        $averageRating = (int) round((
+            $data['service_rating'] + $data['staff_rating'] + $data['room_quality_rating']
+        ) / 3);
 
-        DB::transaction(function () use ($data, $booking, $customer) {
+        $result = DB::transaction(function () use ($data, $booking, $customer, $averageRating) {
+            // Khóa booking để hai POST gần như đồng thời không thể cùng tạo 2 review.
+            Booking::query()->whereKey($booking->id)->lockForUpdate()->firstOrFail();
+
+            $existing = HotelReview::query()->where('booking_id', $booking->id)->first();
+            if ($existing) {
+                $sameSubmission = (int) $existing->service_rating === (int) $data['service_rating']
+                    && (int) $existing->staff_rating === (int) $data['staff_rating']
+                    && (int) $existing->location_rating === (int) $data['room_quality_rating']
+                    && trim((string) $existing->comment) === trim((string) $data['comment']);
+
+                return $sameSubmission ? 'duplicate_same' : 'already_exists';
+            }
+
             HotelReview::create([
                 'booking_id' => $booking->id,
                 'user_id' => Auth::id(),
                 'customer_id' => $customer->id,
                 'room_category_id' => $booking->room_category_id,
-                'rating' => $data['rating'],
-                'cleanliness_rating' => $data['cleanliness_rating'],
+                'rating' => $averageRating,
+                'cleanliness_rating' => null,
                 'service_rating' => $data['service_rating'],
-                // Giữ location_rating làm cột tương thích lịch sử cho tiêu chí chất lượng/tiện nghi phòng.
+                // Giữ location_rating làm cột tương thích lịch sử cho tiêu chí chất lượng phòng.
                 'location_rating' => $data['room_quality_rating'],
                 'staff_rating' => $data['staff_rating'],
-                'comfort_rating' => $data['comfort_rating'],
-                'value_rating' => $data['value_rating'],
-                'title' => $data['title'] ?? null,
+                'comfort_rating' => null,
+                'value_rating' => null,
+                'title' => null,
                 'comment' => $data['comment'],
                 'status' => HotelReview::STATUS_APPROVED,
                 'approved_at' => now('Asia/Ho_Chi_Minh'),
@@ -79,13 +89,23 @@ class HotelReviewController extends Controller
                 'booking_id' => $booking->id,
                 'user_id' => Auth::id(),
                 'action' => 'review_submitted',
-                'description' => 'Khách gửi đánh giá khách sạn ' . $data['rating'] . '/5 sao. Đánh giá được hiển thị tự động sau khi vượt qua bộ lọc từ cấm.',
+                'description' => 'Khách gửi đánh giá khách sạn ' . $averageRating . '/5 sao (trung bình dịch vụ, nhân viên và chất lượng phòng). Đánh giá được hiển thị tự động sau khi vượt qua bộ lọc từ cấm.',
             ]);
+
+            return 'created';
         });
+
+        if ($result === 'already_exists') {
+            return redirect()
+                ->route('bookings.show', $booking)
+                ->with('error', 'Đơn phòng này đã có đánh giá khác. Hãy dùng nút Chỉnh sửa đánh giá.');
+        }
 
         return redirect()
             ->route('bookings.show', $booking)
-            ->with('success', 'Đã đăng đánh giá. Nội dung đã vượt qua bộ lọc từ cấm và được hiển thị ngay.');
+            ->with('success', $result === 'duplicate_same'
+                ? 'Đánh giá đã được lưu thành công.'
+                : 'Đã đăng đánh giá. Nội dung đã vượt qua bộ lọc từ cấm và được hiển thị ngay.');
     }
 
     public function edit(HotelReview $hotelReview)
@@ -107,19 +127,22 @@ class HotelReviewController extends Controller
         $this->authorizeReviewOwner($hotelReview, $customer);
 
         $data = $this->validatedReviewData($request);
-        app(ReviewContentFilter::class)->assertClean($data['title'] ?? null, $data['comment']);
+        app(ReviewContentFilter::class)->assertClean($data['comment']);
+        $averageRating = (int) round((
+            $data['service_rating'] + $data['staff_rating'] + $data['room_quality_rating']
+        ) / 3);
 
-        DB::transaction(function () use ($data, $hotelReview) {
+        DB::transaction(function () use ($data, $hotelReview, $averageRating) {
             $hotelReview->update([
-                'rating' => $data['rating'],
-                'cleanliness_rating' => $data['cleanliness_rating'],
+                'rating' => $averageRating,
+                'cleanliness_rating' => null,
                 'service_rating' => $data['service_rating'],
-                // Giữ location_rating làm cột tương thích lịch sử cho tiêu chí chất lượng/tiện nghi phòng.
+                // Giữ location_rating làm cột tương thích lịch sử cho tiêu chí chất lượng phòng.
                 'location_rating' => $data['room_quality_rating'],
                 'staff_rating' => $data['staff_rating'],
-                'comfort_rating' => $data['comfort_rating'],
-                'value_rating' => $data['value_rating'],
-                'title' => $data['title'] ?? null,
+                'comfort_rating' => null,
+                'value_rating' => null,
+                'title' => null,
                 'comment' => $data['comment'],
                 'status' => HotelReview::STATUS_APPROVED,
                 'approved_by' => null,
@@ -191,26 +214,26 @@ class HotelReviewController extends Controller
     private function validatedReviewData(Request $request): array
     {
         return $request->validate([
-            'rating' => 'required|integer|min:1|max:5',
-            'cleanliness_rating' => 'required|integer|min:1|max:5',
-            'room_quality_rating' => 'required|integer|min:1|max:5',
-            'staff_rating' => 'required|integer|min:1|max:5',
-            'service_rating' => 'required|integer|min:1|max:5',
-            'comfort_rating' => 'required|integer|min:1|max:5',
-            'value_rating' => 'required|integer|min:1|max:5',
-            'title' => 'nullable|string|max:150',
-            'comment' => 'required|string|min:10|max:1500',
+            'room_quality_rating' => ['required', 'integer', 'min:1', 'max:5'],
+            'staff_rating' => ['required', 'integer', 'min:1', 'max:5'],
+            'service_rating' => ['required', 'integer', 'min:1', 'max:5'],
+            'comment' => ['required', 'string', 'min:10', 'max:1500'],
         ], [
-            'rating.required' => 'Vui lòng chọn điểm đánh giá tổng thể.',
-            'rating.min' => 'Điểm đánh giá phải từ 1 đến 5 sao.',
-            'rating.max' => 'Điểm đánh giá phải từ 1 đến 5 sao.',
-            '*.integer' => 'Điểm đánh giá không hợp lệ.',
-            '*.min' => 'Điểm đánh giá phải từ 1 đến 5 sao.',
-            '*.max' => 'Điểm đánh giá phải từ 1 đến 5 sao.',
+            'room_quality_rating.required' => 'Vui lòng đánh giá chất lượng phòng.',
+            'staff_rating.required' => 'Vui lòng đánh giá nhân viên.',
+            'service_rating.required' => 'Vui lòng đánh giá dịch vụ.',
+            'room_quality_rating.integer' => 'Điểm chất lượng phòng không hợp lệ.',
+            'staff_rating.integer' => 'Điểm nhân viên không hợp lệ.',
+            'service_rating.integer' => 'Điểm dịch vụ không hợp lệ.',
+            'room_quality_rating.min' => 'Điểm chất lượng phòng phải từ 1 đến 5 sao.',
+            'room_quality_rating.max' => 'Điểm chất lượng phòng phải từ 1 đến 5 sao.',
+            'staff_rating.min' => 'Điểm nhân viên phải từ 1 đến 5 sao.',
+            'staff_rating.max' => 'Điểm nhân viên phải từ 1 đến 5 sao.',
+            'service_rating.min' => 'Điểm dịch vụ phải từ 1 đến 5 sao.',
+            'service_rating.max' => 'Điểm dịch vụ phải từ 1 đến 5 sao.',
             'comment.required' => 'Vui lòng nhập nội dung đánh giá.',
-            'comment.min' => 'Nội dung đánh giá nên có ít nhất 10 ký tự.',
+            'comment.min' => 'Nội dung đánh giá phải có ít nhất 10 ký tự.',
             'comment.max' => 'Nội dung đánh giá không vượt quá 1500 ký tự.',
-            'title.max' => 'Tiêu đề không vượt quá 150 ký tự.',
         ]);
     }
 }

@@ -6,12 +6,18 @@ use App\Http\Controllers\Controller;
 use App\Mail\CustomerRequestFormMail;
 use App\Models\Booking;
 use App\Models\CustomerRequest;
+use App\Models\BookingServiceItem;
+use App\Models\Service;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 use App\Support\Realtime;
+use App\Services\StayPricingPolicyService;
+use App\Services\BookingRepricingService;
+use App\Services\BookingFinancialService;
 
 class CustomerRequestController extends Controller
 {
@@ -61,31 +67,123 @@ class CustomerRequestController extends Controller
             'version' => ['required', 'integer', 'min:1'],
         ]);
         $this->guardLatestAcknowledged($customerRequest, (int) $data['version']);
-        $booking = $customerRequest->booking;
-        $cutoff = Carbon::parse($booking->check_in_date . ' ' . $booking->lateArrivalCutoffTime(), 'Asia/Ho_Chi_Minh');
-        $arrival = Carbon::parse($customerRequest->expected_arrival_at, 'Asia/Ho_Chi_Minh');
 
-        $customerRequest->update([
-            'status' => 'approved',
-            'admin_note' => $data['admin_note'] ?? null,
-            'reviewed_by' => Auth::id(),
-            'reviewed_at' => now(),
-        ]);
+        $booking = $customerRequest->booking()->with(['bookingRooms', 'roomCategory'])->firstOrFail();
+        if (!in_array($booking->status, ['pending', 'confirmed'], true) || $booking->actual_check_in) {
+            return back()->with('error', 'Booking không còn ở trạng thái có thể duyệt yêu cầu đến muộn.');
+        }
+        if (!$booking->usesLateArrivalNoShowPolicy()) {
+            return back()->with('error', 'Booking này không áp dụng giờ G/đến muộn (ví dụ đơn ở ngay, theo giờ hoặc vừa đổi lịch từ ngày tương lai về hôm nay).');
+        }
 
-        $booking->update([
-            'late_arrival_hours' => max(0, $cutoff->diffInMinutes($arrival, false) / 60),
-            'late_arrival_policy' => '[LATE_ARRIVAL_REQUEST_APPROVED] ' . $customerRequest->reason,
-            'late_arrival_confirmed_at' => now(),
-            'late_arrival_confirmed_by' => Auth::id(),
-        ]);
+        $timezone = 'Asia/Ho_Chi_Minh';
+        $cutoff = Carbon::parse($booking->check_in_date . ' ' . $booking->lateArrivalCutoffTime(), $timezone);
+        $arrival = Carbon::parse($customerRequest->expected_arrival_at, $timezone);
+        $checkOut = Carbon::parse($booking->check_out_at, $timezone);
 
-        $booking->logs()->create([
-            'user_id' => Auth::id(),
-            'action' => 'late_arrival_request_approved',
-            'description' => 'Đã duyệt yêu cầu đến sau giờ G. Dự kiến đến: ' . $arrival->format('d/m/Y H:i') . '.',
-        ]);
+        if ($arrival->lessThanOrEqualTo($cutoff)) {
+            return back()->with('error', 'Giờ khách dự kiến đến phải sau giờ G ' . $cutoff->format('H:i d/m/Y') . '.');
+        }
+        if ($arrival->greaterThanOrEqualTo($checkOut)) {
+            return back()->with('error', 'Giờ khách dự kiến đến phải trước giờ trả phòng của booking.');
+        }
 
-        return back()->with('success', 'Đã duyệt yêu cầu đến sau giờ G.');
+        $oneNightTotal = (float) $booking->bookingRooms->sum('price_at_booking');
+        if ($oneNightTotal <= 0) {
+            $oneNightTotal = (float) ($booking->roomCategory->price ?? 0) * max(1, (int) $booking->room_quantity);
+        }
+
+        $latePolicy = app(StayPricingPolicyService::class)->lateArrival($arrival, $oneNightTotal, $cutoff, $booking);
+        $feeAmount = (float) ($latePolicy['amount'] ?? 0);
+        $hoursAfterCutoff = (float) ($latePolicy['hours_after_cutoff'] ?? 0);
+        $holdUntil = $arrival->copy()->addMinutes($booking->lateArrivalGraceMinutes())->min($checkOut);
+        $now = now($timezone);
+
+        try {
+            DB::transaction(function () use ($customerRequest, $booking, $data, $arrival, $cutoff, $holdUntil, $latePolicy, $feeAmount, $hoursAfterCutoff, $now, $oneNightTotal) {
+                $service = Service::query()
+                    ->where('name', 'Phụ thu khách đến muộn')
+                    ->orWhere('type', 'policy_violation_fee')
+                    ->orderByRaw("CASE WHEN name = 'Phụ thu khách đến muộn' THEN 0 ELSE 1 END")
+                    ->first();
+
+                if (!$service) {
+                    throw new \RuntimeException('Chưa cấu hình dịch vụ Phụ thu khách đến muộn trong danh mục dịch vụ.');
+                }
+
+                BookingServiceItem::updateOrCreate(
+                    ['booking_id' => $booking->id, 'type' => 'late_arrival_fee'],
+                    [
+                        'service_id' => $service->id,
+                        'name' => 'Phụ thu khách đến muộn',
+                        'unit_price' => $feeAmount,
+                        'quantity' => 1,
+                        'used_quantity' => 1,
+                        'billing_status' => 'confirmed',
+                        'confirmed_by' => Auth::id(),
+                        'confirmed_at' => $now,
+                        'confirm_note' => (string) ($latePolicy['policy_text'] ?? ''),
+                        'total' => $feeAmount,
+                        'note' => 'Giờ G: ' . $cutoff->format('d/m/Y H:i')
+                            . '. Khách dự kiến đến: ' . $arrival->format('d/m/Y H:i')
+                            . '. Giữ phòng đến: ' . $holdUntil->format('d/m/Y H:i') . '.',
+                    ]
+                );
+
+                $booking->update([
+                    'late_arrival_fee' => $feeAmount,
+                    'late_arrival_hours' => $hoursAfterCutoff,
+                    'late_arrival_confirmed_at' => $now,
+                    'late_arrival_confirmed_by' => Auth::id(),
+                    'late_arrival_policy' => '[LATE_ARRIVAL_REQUEST_APPROVED] Khách dự kiến đến '
+                        . $arrival->format('d/m/Y H:i') . '; giữ phòng đến '
+                        . $holdUntil->format('d/m/Y H:i') . '. '
+                        . (string) ($latePolicy['policy_text'] ?? '')
+                        . ' Phụ thu: ' . number_format($feeAmount, 0, ',', '.') . 'đ.',
+                ]);
+
+                $customerRequest->update([
+                    'status' => 'approved',
+                    'admin_note' => $data['admin_note'] ?? null,
+                    'reviewed_by' => Auth::id(),
+                    'reviewed_at' => $now,
+                ]);
+
+                // Đồng bộ phụ thu vào tổng booking ngay khi duyệt. Nếu không làm bước này,
+                // check-in sau giờ G nhìn thấy "đã duyệt" nhưng lại thiếu khoản phí confirmed.
+                $freshBooking = $booking->fresh(['bookingRooms.room.category', 'roomCategory', 'serviceItems.service', 'bookingPromotions', 'payments', 'customer', 'guests', 'roomInspections.items']);
+                $preview = app(BookingRepricingService::class)->preview(
+                    $freshBooking,
+                    Carbon::parse($freshBooking->check_in_at, 'Asia/Ho_Chi_Minh'),
+                    Carbon::parse($freshBooking->check_out_at, 'Asia/Ho_Chi_Minh'),
+                    $oneNightTotal,
+                    (float) ($freshBooking->roomCategory->price ?? 0)
+                );
+                app(BookingRepricingService::class)->apply($freshBooking, $preview);
+
+                $freshBooking->refresh();
+                $freshBooking->update([
+                    'final_total' => app(BookingFinancialService::class)->currentTotal($freshBooking),
+                ]);
+
+                $freshBooking->logs()->create([
+                    'user_id' => Auth::id(),
+                    'action' => 'late_arrival_request_approved',
+                    'description' => 'Đã duyệt yêu cầu đến sau giờ G. Dự kiến đến: '
+                        . $arrival->format('d/m/Y H:i') . '. Giữ phòng đến: '
+                        . $holdUntil->format('d/m/Y H:i') . '. Phụ thu: '
+                        . number_format($feeAmount, 0, ',', '.') . 'đ.',
+                ]);
+            });
+        } catch (\Throwable $e) {
+            return back()->with('error', 'Không thể duyệt yêu cầu đến muộn: ' . $e->getMessage());
+        }
+
+        Realtime::booking($booking->fresh(), 'late_arrival_approved', false);
+
+        return back()->with('success', 'Đã duyệt yêu cầu đến sau giờ G, giữ phòng đến '
+            . $holdUntil->format('H:i d/m/Y') . ' và ghi nhận phụ thu '
+            . number_format($feeAmount, 0, ',', '.') . 'đ.');
     }
 
     public function reject(Request $request, CustomerRequest $customerRequest)
@@ -123,7 +221,9 @@ class CustomerRequestController extends Controller
     {
         $this->guardCanAccessBooking($booking);
         abort_unless(in_array($booking->status, ['pending', 'confirmed'], true), 422, 'Booking hiện không thể gửi form đến muộn.');
-
+        if (!$booking->usesLateArrivalNoShowPolicy()) {
+            return back()->with('error', 'Booking này không áp dụng giờ G/đến muộn nên không cần gửi form đến muộn.');
+        }
 
         $hasPending = $booking->customerRequests()
             ->where('type', 'late_arrival')

@@ -196,10 +196,6 @@
                                         <td>{{ $booking->child_count }}</td>
                                     </tr>
 
-                                    <tr>
-                                        <th>Số em bé</th>
-                                        <td>{{ $booking->baby_count ?? 0 }}</td>
-                                    </tr>
 
                                     <tr>
                                         <th>Số phòng đặt</th>

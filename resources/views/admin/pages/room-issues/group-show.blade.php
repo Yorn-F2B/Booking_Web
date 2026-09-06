@@ -49,6 +49,7 @@
             'housekeeping_verified',
             'proposal_ready',
             'guest_requested_change',
+            'waiting_guest_confirmation',
         ], true));
 @endphp
 
@@ -317,11 +318,11 @@
                                     </div>
                                 @elseif (($preview['type'] ?? null) === 'repair_only')
                                     <div class="mt-2">
-                                        Buồng phòng xác nhận có thể xử lý ngay tại phòng hiện tại.
-                                    </div>
-                                @elseif (($preview['type'] ?? null) === 'replacement_required')
-                                    <div class="alert alert-danger py-2 mt-2 mb-0">
-                                        <strong>Bắt buộc chuyển phòng.</strong> Hiện chưa có phòng thay thế phù hợp; không được đóng yêu cầu hoặc giữ khách ở phòng lỗi.
+                                        @if($issue->housekeeping_can_repair_in_room)
+                                            Buồng phòng xác nhận có thể xử lý ngay tại phòng hiện tại.
+                                        @else
+                                            Không còn phòng thay thế phù hợp. Giữ nguyên phòng hiện tại và yêu cầu sửa gấp để lễ tân trao đổi với khách.
+                                        @endif
                                     </div>
                                 @endif
 
@@ -376,7 +377,7 @@
                     </div>
                 @endforeach
 
-                @if ($canRebuildProposal)
+                <?php if ($canRebuildProposal): ?>
                     <form
                         id="roomIssueProposalForm"
                         method="POST"
@@ -388,50 +389,66 @@
 
                         <h5 class="fw-bold mb-2">Lập phương án sau khi buồng phòng xác minh</h5>
                         <p class="small text-muted mb-3">
-                            Hệ thống chỉ giữ phòng thay thế sau khi quản lý gửi phương án. Phương án sửa tại phòng chỉ xuất hiện khi buồng phòng xác nhận có thể sửa ngay tại chỗ.
+                            Hệ thống ưu tiên đổi cùng hạng, sau đó nâng hạng. Nếu không còn phòng thay thế phù hợp, phương án cuối cùng là giữ nguyên phòng và sửa gấp để lễ tân trao đổi với khách.
                         </p>
 
                         <div class="d-grid gap-2 mb-3">
-                            @foreach ($activeIssues as $issue)
-                                @if ($issue->workflow_status !== 'housekeeping_not_found')
+                            <?php foreach ($activeIssues as $issue): ?>
+                                <?php if ($issue->workflow_status !== 'housekeeping_not_found'): ?>
                                     <div class="border rounded-3 p-3">
                                         <div class="fw-semibold mb-2">Phòng {{ $issue->currentRoom?->room_number ?? '---' }}</div>
-                                        <select class="form-select form-select-sm" name="resolution_preference[{{ $issue->id }}]">
-                                            <option value="auto" @selected(old('resolution_preference.' . $issue->id, 'auto') === 'auto')>
-                                                Hệ thống tự tìm phương án hợp lệ
+                                        <?php
+                                            $issueOptions = collect($availableProposals->get($issue->id, []));
+                                            $defaultPreference = $issue->workflow_status === 'waiting_guest_confirmation'
+                                                ? ($issue->proposed_resolution_type ?: 'auto')
+                                                : 'auto';
+                                            $selectedPreference = old('resolution_preference.' . $issue->id, $defaultPreference);
+                                        ?>
+                                        <select class="form-select form-select-sm" name="resolution_preference[{{ $issue->id }}]" required>
+                                            <option value="auto" @selected($selectedPreference === 'auto')>
+                                                Tự ưu tiên: cùng hạng → nâng hạng → sửa tại phòng
                                             </option>
-                                            @if ($issue->housekeeping_can_repair_in_room)
-                                                <option value="repair_only" @selected(old('resolution_preference.' . $issue->id) === 'repair_only')>Giữ phòng hiện tại và sửa ngay tại phòng</option>
-                                            @endif
+                                            <?php foreach (['same_category', 'upgrade_category', 'repair_only'] as $optionType): ?>
+                                                <?php $option = $issueOptions->get($optionType); ?>
+                                                <?php if ($option): ?>
+                                                    <option value="{{ $optionType }}" @selected($selectedPreference === $optionType)>
+                                                        {{ $resolutionLabels[$optionType] ?? $optionType }}
+                                                        @if (($option['room'] ?? null))
+                                                            → phòng {{ $option['room']->room_number }} · {{ $option['room']->category?->name ?? '---' }}
+                                                        @endif
+                                                    </option>
+                                                <?php endif; ?>
+                                            <?php endforeach; ?>
                                         </select>
+                                        <div class="small text-muted mt-2">
+                                            Chỉ các phương án đang khả thi mới được hiển thị. Quản lý có thể chủ động chọn nâng hạng dù vẫn còn phòng cùng hạng.
+                                        </div>
                                     </div>
-                                @endif
-                            @endforeach
+                                <?php endif; ?>
+                            <?php endforeach; ?>
                         </div>
 
-                        @if ($selectedPromotionCodesByIssue->flatten()->isNotEmpty())
+                        <?php if ($selectedPromotionCodesByIssue->flatten()->isNotEmpty()): ?>
                             <div class="alert alert-info py-2">
                                 <strong>Mã bù đắp đang được giữ theo từng phòng:</strong>
                                 <div class="small mt-1">
-                                    @foreach ($issues as $issue)
-                                        @php
-                                            $codes = $selectedPromotionCodesByIssue->get((int) $issue->id, collect());
-                                        @endphp
+                                    <?php foreach ($issues as $issue): ?>
+                                        <?php $codes = $selectedPromotionCodesByIssue->get((int) $issue->id, collect()); ?>
                                         <div>
                                             Phòng {{ $issue->currentRoom?->room_number ?? '---' }}:
                                             {{ $codes->isEmpty() ? 'không chọn mã' : $codes->implode(', ') }}
                                         </div>
-                                    @endforeach
+                                    <?php endforeach; ?>
                                 </div>
                             </div>
-                        @endif
+                        <?php endif; ?>
 
                         <button class="btn btn-primary w-100 mt-2">
                             <i class="bx bx-send me-1"></i>
                             Tạo/ cập nhật phương án và gửi lễ tân
                         </button>
                     </form>
-                @endif
+                <?php endif; ?>
             </div>
 
             <div class="col-xl-4">

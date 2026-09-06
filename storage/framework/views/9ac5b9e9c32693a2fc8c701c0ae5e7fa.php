@@ -1,4 +1,4 @@
-<?php if (! $__env->hasRenderedOnce('0f096b0f-af34-4f15-9ecc-fd4c61e14222')): $__env->markAsRenderedOnce('0f096b0f-af34-4f15-9ecc-fd4c61e14222'); ?>
+<?php if (! $__env->hasRenderedOnce('b01b0984-db3b-4eeb-9548-aa9b721a0732')): $__env->markAsRenderedOnce('b01b0984-db3b-4eeb-9548-aa9b721a0732'); ?>
 <style>
     .shared-camera-overlay[hidden]{display:none!important}
     .shared-camera-overlay{position:fixed;inset:0;z-index:2147482500;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(3,12,26,.82);backdrop-filter:blur(2px)}

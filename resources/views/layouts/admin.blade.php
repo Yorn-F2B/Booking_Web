@@ -16,6 +16,7 @@
         data-auth-user-role="{{ auth()->user()->role }}"
     @endauth>
     @include('partials.flash-toasts')
+    @include('partials.global-validation-errors')
     <div class="admin-sidebar-overlay" id="adminSidebarOverlay"></div>
 
     {{-- Header --}}
@@ -65,6 +66,8 @@
         @endif
     @endauth
 
+    <script src="{{ asset('assets/js/form-validation-hints.js') }}?v={{ filemtime(public_path('assets/js/form-validation-hints.js')) }}"></script>
+    @stack('scripts')
 </body>
 
 </html>

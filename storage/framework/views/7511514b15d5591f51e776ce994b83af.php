@@ -200,10 +200,6 @@
                                         <td><?php echo e($booking->child_count); ?></td>
                                     </tr>
 
-                                    <tr>
-                                        <th>Số em bé</th>
-                                        <td><?php echo e($booking->baby_count ?? 0); ?></td>
-                                    </tr>
 
                                     <tr>
                                         <th>Số phòng đặt</th>
@@ -1072,7 +1068,7 @@
         });
     </script>
 
-<?php if (! $__env->hasRenderedOnce('2e1c6bfe-c535-47e5-94a7-6f86f2c49725')): $__env->markAsRenderedOnce('2e1c6bfe-c535-47e5-94a7-6f86f2c49725'); ?>
+<?php if (! $__env->hasRenderedOnce('bc989036-8bc5-46c2-bb9a-9c5159c88ae1')): $__env->markAsRenderedOnce('bc989036-8bc5-46c2-bb9a-9c5159c88ae1'); ?>
 <div class="modal fade" id="cancelBookingPolicyModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow">
     <div class="modal-header">

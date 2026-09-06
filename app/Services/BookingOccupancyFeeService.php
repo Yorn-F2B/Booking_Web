@@ -8,27 +8,25 @@ use App\Models\BookingServiceItem;
 class BookingOccupancyFeeService
 {
     /**
-     * Đồng bộ phụ thu vượt sức chứa đã tạo lúc check-in với phân bổ khách hiện tại.
-     * - Phòng hết vượt: gỡ phụ thu của loại khách tương ứng.
-     * - Phòng vẫn vượt nhưng số lượng giảm/tăng: cập nhật quantity và total.
-     * - Không tự tạo khoản mới vì lễ tân phải chọn loại phụ thu và xác nhận giá.
+     * Đồng bộ phụ thu vượt sức chứa với số khách thực tế đang lưu trên booking.
+     * Phụ thu check-in được tính theo TỔNG sức chứa của toàn booking, không yêu
+     * cầu lễ tân phân khách thủ công cho từng phòng.
      */
     public function reconcile(Booking $booking): array
     {
         $booking->loadMissing(['bookingRooms.room.category', 'serviceItems']);
 
-        $capacityMap = [];
-        foreach ($booking->bookingRooms as $bookingRoom) {
-            // booking_rooms mới là nguồn số người thực tế. booking_guests chỉ lưu
-            // hồ sơ đại diện/giấy tờ nên không được dùng để tính vượt sức chứa.
-            $adultCount = max(0, (int) $bookingRoom->adult_count);
-            $minorCount = max(0, (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0));
+        $adultCapacity = (int) $booking->bookingRooms->sum(
+            fn ($bookingRoom) => max(0, (int) ($bookingRoom->room?->category?->adult_capacity ?? 0))
+        );
+        $minorCapacity = (int) $booking->bookingRooms->sum(
+            fn ($bookingRoom) => max(0, (int) ($bookingRoom->room?->category?->child_capacity ?? 0))
+        );
 
-            $capacityMap[(int) $bookingRoom->id] = [
-                'adult' => max(0, $adultCount - (int) ($bookingRoom->room?->category?->adult_capacity ?? 0)),
-                'minor' => max(0, $minorCount - (int) ($bookingRoom->room?->category?->child_capacity ?? 0)),
-            ];
-        }
+        $required = [
+            'adult' => max(0, (int) $booking->adult_count - $adultCapacity),
+            'minor' => max(0, (int) $booking->child_count - $minorCapacity),
+        ];
 
         $removedTotal = 0.0;
         $updatedTotalDifference = 0.0;
@@ -41,20 +39,17 @@ class BookingOccupancyFeeService
             ->orderBy('id')
             ->get()
             ->groupBy(function (BookingServiceItem $item) {
-                $type = str_contains((string) $item->note, '[capacity_type:minor]') ? 'minor' : 'adult';
-                return (int) $item->booking_room_id . '|' . $type;
+                return str_contains((string) $item->note, '[capacity_type:minor]') ? 'minor' : 'adult';
             });
 
-        foreach ($items as $groupKey => $groupItems) {
-            [$bookingRoomId, $guestType] = explode('|', $groupKey, 2);
-            $bookingRoomId = (int) $bookingRoomId;
-            $requiredQuantity = (int) ($capacityMap[$bookingRoomId][$guestType] ?? 0);
-            $remaining = $requiredQuantity;
+        foreach (['adult', 'minor'] as $guestType) {
+            $groupItems = $items->get($guestType, collect());
+            $remaining = (int) $required[$guestType];
 
             foreach ($groupItems as $item) {
                 $oldTotal = (float) $item->total;
 
-                if ($remaining <= 0 || !isset($capacityMap[$bookingRoomId])) {
+                if ($remaining <= 0) {
                     $removedTotal += $oldTotal;
                     $item->delete();
                     continue;
@@ -75,12 +70,11 @@ class BookingOccupancyFeeService
                 }
             }
 
-            if ($requiredQuantity === 0) {
-                $label = $guestType === 'adult' ? 'người lớn' : 'trẻ em/em bé';
-                $messages[] = 'Đã gỡ phụ thu ' . $label . ' vì phòng không còn vượt sức chứa.';
+            $label = $guestType === 'adult' ? 'người lớn' : 'trẻ em';
+            if ((int) $required[$guestType] === 0 && $groupItems->isNotEmpty()) {
+                $messages[] = 'Đã gỡ phụ thu ' . $label . ' vì tổng booking không còn vượt sức chứa.';
             } elseif ($remaining > 0) {
-                $label = $guestType === 'adult' ? 'người lớn' : 'trẻ em/em bé';
-                $messages[] = 'Phòng vẫn vượt thêm ' . $remaining . ' ' . $label
+                $messages[] = 'Booking vẫn vượt thêm ' . $remaining . ' ' . $label
                     . ' chưa có phụ thu; lễ tân cần xác nhận khoản mới.';
             }
         }

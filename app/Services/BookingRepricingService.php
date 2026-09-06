@@ -42,7 +42,7 @@ class BookingRepricingService
 
         $newNightCount = max(1, $newCheckInAt->copy()->startOfDay()->diffInDays($newCheckOutAt->copy()->startOfDay()));
         $newRoomQuantity = max(1, $booking->bookingRooms->count());
-        $newGuestCount = max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0));
+        $newGuestCount = max(1, (int) $booking->adult_count + (int) $booking->child_count);
         if ($booking->booking_type === 'hourly') {
             $durationMinutes = max(1, $newCheckInAt->diffInMinutes($newCheckOutAt));
             $hourly = app(StayPricingPolicyService::class)->shortStay(
@@ -217,7 +217,7 @@ class BookingRepricingService
             $booking,
             (int) $new['night_count'],
             (int) $new['room_quantity'],
-            max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0)),
+            max(1, (int) $booking->adult_count + (int) $booking->child_count),
             $preview['excluded_service_item_ids'] ?? []
         );
 
@@ -520,7 +520,7 @@ class BookingRepricingService
         $roomTotal = max(0, round($roomPrice * $newNightCount + (float) $bookingRoom->surcharge, 0));
         // Không dùng số hồ sơ CCCD để repricing. Một phòng có thể có 4 khách
         // nhưng chỉ cần 1 hồ sơ đại diện; occupancy thật nằm ở booking_rooms.
-        $roomGuestCount = max(1, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count + (int) ($bookingRoom->baby_count ?? 0));
+        $roomGuestCount = max(1, (int) $bookingRoom->adult_count + (int) $bookingRoom->child_count);
 
         return array_merge($baseContext, [
             'subtotal_amount' => $roomTotal + $roomServiceTotal,

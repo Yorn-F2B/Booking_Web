@@ -89,6 +89,7 @@
 
     $pendingRoomIssueCount = $canManageRoomIssues
         ? \App\Models\RoomIssueRequest::query()
+            ->forActiveStay()
             ->needsManagerAction()
             ->distinct()
             ->count('group_uuid')
@@ -104,6 +105,7 @@
         $pendingHousekeepingCount = $cleaningQuery->count();
 
         $verificationQuery = \App\Models\RoomIssueRequest::query()
+            ->forActiveStay()
             ->where('status', 'pending')
             ->where('workflow_status', 'awaiting_housekeeping');
         \App\Support\HousekeepingWorkScope::applyToIssues($verificationQuery, $currentUser);
@@ -120,7 +122,7 @@
                 });
             });
         \App\Support\HousekeepingWorkScope::applyToInspections($inspectionQuery, $currentUser);
-        $pendingFloorInspectionCount = $inspectionQuery->count();
+        $pendingFloorInspectionCount = $inspectionQuery->distinct()->count('booking_id');
 
         $repairQuery = \App\Models\RoomIssueRequest::query()
             ->whereIn('status', ['approved', 'repair_only'])

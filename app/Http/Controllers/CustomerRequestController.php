@@ -244,5 +244,10 @@ class CustomerRequestController extends Controller
     private function guardCanRequestLateArrival(Booking $booking): void
     {
         abort_unless(in_array($booking->status, ['pending', 'confirmed'], true), 422, 'Booking hiện không thể gửi yêu cầu đến sau giờ G.');
+        abort_unless(
+            $booking->usesLateArrivalNoShowPolicy(),
+            422,
+            'Booking này không áp dụng giờ G/đến muộn nên không cần gửi yêu cầu đến muộn.'
+        );
     }
 }

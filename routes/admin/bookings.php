@@ -75,9 +75,6 @@ Route::post('bookings/{booking}/room-operation/discard-preview', [BookingLifecyc
 |--------------------------------------------------------------------------
 */
 
-Route::patch('bookings/{booking}/occupancy', [BookingController::class, 'updateOccupancy'])
-    ->name('admin.bookings.occupancy.update');
-
 Route::patch('bookings/{booking}/check-in', [BookingLifecycleController::class, 'checkIn'])
     ->name('admin.bookings.check-in');
 
@@ -175,6 +172,9 @@ Route::post('bookings/{booking}/send-room-issue-form', [BookingController::class
 
 Route::post('bookings/{booking}/guests', [BookingController::class, 'addGuest'])
     ->name('admin.bookings.guests.store');
+
+Route::post('bookings/{booking}/booker-group-representative', [BookingController::class, 'setBookerAsGroupRepresentative'])
+    ->name('admin.bookings.booker-group-representative');
 
 Route::patch('bookings/{booking}/guests/{guest}', [BookingController::class, 'updateGuest'])
     ->name('admin.bookings.guests.update');

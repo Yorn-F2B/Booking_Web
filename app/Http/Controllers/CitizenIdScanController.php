@@ -11,7 +11,7 @@ class CitizenIdScanController extends Controller
     public function __invoke(Request $request, GeminiCitizenIdService $service): JsonResponse
     {
         $validated = $request->validate([
-            'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
             'required_fields' => ['nullable', 'string', 'max:255'],
         ]);
 

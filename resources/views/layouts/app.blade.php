@@ -16,6 +16,7 @@
     </head>
     <body class="font-sans antialiased">
         @include('partials.flash-toasts')
+    @include('partials.global-validation-errors')
 
         <div class="min-h-screen bg-gray-100">
             @include('layouts.navigation')
@@ -32,5 +33,6 @@
                 {{ $slot }}
             </main>
         </div>
-    </body>
+        <script src="{{ asset('assets/js/form-validation-hints.js') }}?v={{ filemtime(public_path('assets/js/form-validation-hints.js')) }}"></script>
+</body>
 </html>

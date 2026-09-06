@@ -40,6 +40,7 @@ use App\Models\User;
 use App\Observers\AppRealtimeObserver;
 use App\Observers\BookingObserver;
 use App\Observers\BookingRoomChangeObserver;
+use App\Observers\BookingRelatedNotificationObserver;
 use App\Observers\ChatMessageObserver;
 use App\Observers\CustomerRequestObserver;
 use App\Observers\RoomIssueRequestObserver;
@@ -64,6 +65,11 @@ class AppServiceProvider extends ServiceProvider
 
         Booking::observe(BookingObserver::class);
         BookingRoomChange::observe(BookingRoomChangeObserver::class);
+        BookingPayment::observe(BookingRelatedNotificationObserver::class);
+        BookingRoom::observe(BookingRelatedNotificationObserver::class);
+        BookingCancellationRequest::observe(BookingRelatedNotificationObserver::class);
+        BookingServiceItem::observe(BookingRelatedNotificationObserver::class);
+        BookingGuest::observe(BookingRelatedNotificationObserver::class);
         Room::observe(RoomObserver::class);
         RoomInspection::observe(RoomInspectionObserver::class);
         ChatMessage::observe(ChatMessageObserver::class);

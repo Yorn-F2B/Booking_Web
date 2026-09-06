@@ -95,7 +95,7 @@ Route::get('/', function () {
 })->name('home');
 
 Route::post('/cccd/scan', CitizenIdScanController::class)
-    ->middleware('throttle:20,1')
+    ->middleware('throttle:60,1')
     ->name('cccd.scan');
 
 /*

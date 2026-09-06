@@ -12,7 +12,7 @@ class BookingRoomOccupancyAllocator
 
     /**
      * Tự sửa dữ liệu booking_rooms legacy khi tổng phân bổ không còn khớp
-     * adult_count/child_count/baby_count của booking. Chỉ thay số người, không đổi phòng.
+     * adult_count/child_count của booking. Chỉ thay số người, không đổi phòng.
      */
     public function synchronizeBooking(Booking $booking): bool
     {
@@ -23,12 +23,10 @@ class BookingRoomOccupancyAllocator
 
         $expectedAdults = max(0, (int) $booking->adult_count);
         $expectedChildren = max(0, (int) $booking->child_count);
-        $expectedBabies = max(0, (int) ($booking->baby_count ?? 0));
         $currentAdults = (int) $booking->bookingRooms->sum('adult_count');
         $currentChildren = (int) $booking->bookingRooms->sum('child_count');
-        $currentBabies = (int) $booking->bookingRooms->sum('baby_count');
 
-        if ($currentAdults === $expectedAdults && $currentChildren === $expectedChildren && $currentBabies === $expectedBabies) {
+        if ($currentAdults === $expectedAdults && $currentChildren === $expectedChildren) {
             return false;
         }
 
@@ -65,8 +63,7 @@ class BookingRoomOccupancyAllocator
         $allocation = $this->allocate(
             $rooms,
             max(0, (int) $booking->adult_count),
-            max(0, (int) $booking->child_count),
-            max(0, (int) ($booking->baby_count ?? 0))
+            max(0, (int) $booking->child_count)
         );
 
         DB::transaction(function () use ($booking, $allocation) {
@@ -78,7 +75,6 @@ class BookingRoomOccupancyAllocator
                 $bookingRoom->update([
                     'adult_count' => $counts['adult_count'],
                     'child_count' => $counts['child_count'],
-                    'baby_count' => $counts['baby_count'],
                 ]);
             }
         });
@@ -94,15 +90,14 @@ class BookingRoomOccupancyAllocator
      * allocator luôn giữ tối thiểu một người lớn cho mỗi phòng trước khi phân
      * phần người lớn còn lại.
      *
-     * @return array<int,array{adult_count:int,child_count:int,baby_count:int}>
+     * @return array<int,array{adult_count:int,child_count:int}>
      */
-    public function allocate(Collection $rooms, int $adults, int $children = 0, int $babies = 0): array
+    public function allocate(Collection $rooms, int $adults, int $children = 0): array
     {
         $rooms = $rooms->values();
         $roomCount = $rooms->count();
         $adults = max(0, $adults);
         $children = max(0, $children);
-        $babies = max(0, $babies);
 
         if ($roomCount < 1) {
             throw ValidationException::withMessages([
@@ -126,10 +121,10 @@ class BookingRoomOccupancyAllocator
                     . $adultCapacity . ' người lớn).',
             ]);
         }
-        if (($children + $babies) > $childCapacity) {
+        if ($children > $childCapacity) {
             throw ValidationException::withMessages([
-                'child_count' => 'Tổng số trẻ em và em bé vượt sức chứa của các phòng đã chọn (tối đa '
-                    . $childCapacity . ' trẻ em/em bé).',
+                'child_count' => 'Số trẻ em vượt sức chứa của các phòng đã chọn (tối đa '
+                    . $childCapacity . ' trẻ em).',
             ]);
         }
 
@@ -142,7 +137,7 @@ class BookingRoomOccupancyAllocator
                         . ' thuộc hạng không có sức chứa người lớn hợp lệ.',
                 ]);
             }
-            $allocation[(int) $room->id] = ['adult_count' => 1, 'child_count' => 0, 'baby_count' => 0];
+            $allocation[(int) $room->id] = ['adult_count' => 1, 'child_count' => 0];
         }
 
         $remainingAdults = $adults - $roomCount;
@@ -165,26 +160,12 @@ class BookingRoomOccupancyAllocator
             }
             $roomId = (int) $room->id;
             $childCap = max(0, (int) ($room->category?->child_capacity ?? 0));
-            $usedMinorSlots = $allocation[$roomId]['child_count'] + $allocation[$roomId]['baby_count'];
-            $add = min($remainingChildren, max(0, $childCap - $usedMinorSlots));
+            $add = min($remainingChildren, max(0, $childCap - $allocation[$roomId]['child_count']));
             $allocation[$roomId]['child_count'] += $add;
             $remainingChildren -= $add;
         }
 
-        $remainingBabies = $babies;
-        foreach ($rooms as $room) {
-            if ($remainingBabies <= 0) {
-                break;
-            }
-            $roomId = (int) $room->id;
-            $childCap = max(0, (int) ($room->category?->child_capacity ?? 0));
-            $usedMinorSlots = $allocation[$roomId]['child_count'] + $allocation[$roomId]['baby_count'];
-            $add = min($remainingBabies, max(0, $childCap - $usedMinorSlots));
-            $allocation[$roomId]['baby_count'] += $add;
-            $remainingBabies -= $add;
-        }
-
-        if ($remainingAdults > 0 || $remainingChildren > 0 || $remainingBabies > 0) {
+        if ($remainingAdults > 0 || $remainingChildren > 0) {
             throw ValidationException::withMessages([
                 'room_ids' => 'Không thể phân hết số khách vào các phòng đã chọn. Vui lòng chọn lại phòng/hạng phòng.',
             ]);
@@ -192,4 +173,87 @@ class BookingRoomOccupancyAllocator
 
         return $allocation;
     }
+    /**
+     * Phân số khách thực tế khi check-in. Khác allocate(): phương thức này vẫn
+     * cho phép vượt tổng sức chứa để hệ thống có thể ghi nhận khách thực tế và
+     * tính phụ thu. Phần vượt chỉ được dồn sau khi đã lấp hết sức chứa chuẩn.
+     */
+    public function rebalanceBookingAllowOverflow(
+        Booking $booking,
+        int $adults,
+        int $children = 0
+    ): void {
+        $booking->load('bookingRooms.room.category');
+        if ($booking->bookingRooms->isEmpty()) {
+            return;
+        }
+
+        $rooms = $booking->bookingRooms->pluck('room')->filter()->values();
+        if ($rooms->count() !== $booking->bookingRooms->count()) {
+            throw ValidationException::withMessages([
+                'room_ids' => 'Booking có phân phòng không hợp lệ hoặc phòng đã bị xóa. Vui lòng kiểm tra lại phân phòng.',
+            ]);
+        }
+
+        $roomCount = $rooms->count();
+        $adults = max(0, $adults);
+        $children = max(0, $children);
+
+        if ($adults < $roomCount) {
+            throw ValidationException::withMessages([
+                'actual_adult_count' => 'Mỗi phòng cần ít nhất một người lớn đại diện. Với '
+                    . $roomCount . ' phòng cần tối thiểu ' . $roomCount . ' người lớn thực tế.',
+            ]);
+        }
+
+        $allocation = [];
+        foreach ($rooms as $room) {
+            $allocation[(int) $room->id] = [
+                'adult_count' => 1,
+                'child_count' => 0,
+            ];
+        }
+
+        $remainingAdults = $adults - $roomCount;
+        foreach ($rooms as $room) {
+            if ($remainingAdults <= 0) break;
+            $id = (int) $room->id;
+            $cap = max(1, (int) ($room->category?->adult_capacity ?? 1));
+            $free = max(0, $cap - $allocation[$id]['adult_count']);
+            $add = min($remainingAdults, $free);
+            $allocation[$id]['adult_count'] += $add;
+            $remainingAdults -= $add;
+        }
+        if ($remainingAdults > 0) {
+            // Phần vượt được dồn vào phòng cuối để giữ tổng chính xác; phụ thu
+            // vẫn tính theo tổng booking chứ không yêu cầu lễ tân phân khách tay.
+            $lastRoomId = (int) $rooms->last()->id;
+            $allocation[$lastRoomId]['adult_count'] += $remainingAdults;
+        }
+
+        $remainingChildren = $children;
+        foreach ($rooms as $room) {
+            if ($remainingChildren <= 0) break;
+            $id = (int) $room->id;
+            $cap = max(0, (int) ($room->category?->child_capacity ?? 0));
+            $add = min($remainingChildren, max(0, $cap - $allocation[$id]['child_count']));
+            $allocation[$id]['child_count'] += $add;
+            $remainingChildren -= $add;
+        }
+        if ($remainingChildren > 0) {
+            $lastRoomId = (int) $rooms->last()->id;
+            $allocation[$lastRoomId]['child_count'] += $remainingChildren;
+        }
+
+        DB::transaction(function () use ($booking, $allocation) {
+            foreach ($booking->bookingRooms as $bookingRoom) {
+                $counts = $allocation[(int) $bookingRoom->room_id] ?? null;
+                if (!$counts) continue;
+                $bookingRoom->update($counts);
+            }
+        });
+
+        $booking->load('bookingRooms.room.category');
+    }
+
 }

@@ -48,7 +48,7 @@
                 </div>
 
                 <div class="col-lg-8">
-                    <form action="{{ route('reviews.update', $review) }}" method="POST" class="card border-0 shadow-sm">
+                    <form action="{{ route('reviews.update', $review) }}" method="POST" class="card border-0 shadow-sm" novalidate data-review-submit-form>
                         @csrf
                         @method('PUT')
 
@@ -78,4 +78,25 @@
             </div>
         </div>
     </main>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('[data-review-submit-form]').forEach(function (form) {
+            form.addEventListener('submit', function (event) {
+                if (form.dataset.submitting === '1') {
+                    event.preventDefault();
+                    return;
+                }
+
+                form.dataset.submitting = '1';
+                const button = form.querySelector('button[type="submit"]');
+                if (button) {
+                    button.disabled = true;
+                    button.dataset.originalText = button.innerHTML;
+                    button.innerHTML = '<i class="bx bx-loader-alt bx-spin me-1"></i> Đang lưu...';
+                }
+            });
+        });
+    });
+</script>
+
 @endsection

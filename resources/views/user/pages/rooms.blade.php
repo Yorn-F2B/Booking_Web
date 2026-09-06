@@ -38,10 +38,6 @@
         $searchData['child_count'] ?? 0
     );
 
-    $currentBabyCount = old(
-        'baby_count',
-        $searchData['baby_count'] ?? 0
-    );
 
 
     $hasCompleteBookingSearch = $hasCompleteBookingSearch ?? (
@@ -50,8 +46,6 @@
         && !empty($searchData['adult_count'])
         && array_key_exists('child_count', $searchData ?? [])
         && $searchData['child_count'] !== null
-        && array_key_exists('baby_count', $searchData ?? [])
-        && $searchData['baby_count'] !== null
     );
 @endphp
 
@@ -127,14 +121,14 @@
        value="{{ $currentCheckOutDate && $currentCheckOutDate >= $minOnlineCheckOutDate ? $currentCheckOutDate : '' }}">
                             </div>
 
-                            <div class="col-md-1">
+                            <div class="col-sm-6 col-lg-2">
                                 <label class="form-label">
                                     Người lớn
                                 </label>
 <input type="number" name="adult_count" id="rooms_adult_count" class="form-control" min="1" max="{{ $maxAdultCapacity }}" value="{{ $currentAdultCount ?: 2 }}" required>
                             </div>
 
-                            <div class="col-md-1">
+                            <div class="col-sm-6 col-lg-2">
                                 <label class="form-label">
                                     Trẻ em
                                 </label>
@@ -142,12 +136,8 @@
                 <input type="number" name="child_count" id="rooms_child_count" class="form-control" min="0" max="{{ $maxChildCapacity }}" value="{{ $currentChildCount ?? 0 }}" required>
                             </div>
 
-                            <div class="col-md-1">
-                                <label class="form-label">Em bé</label>
-                                <input type="number" name="baby_count" id="rooms_baby_count" class="form-control" min="0" max="{{ $maxChildCapacity }}" value="{{ $currentBabyCount ?? 0 }}" required>
-                            </div>
 
-                            <div class="col-md-3">
+                            <div class="col-lg-2">
                                 <label class="form-label">
                                     Hạng phòng
                                 </label>
@@ -198,16 +188,16 @@
                     <div class="card-body p-4">
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                             <div><h2 class="h5 fw-bold mb-1">Phương án phòng phù hợp</h2><div class="text-muted small">Chỉ hiển thị phương án đang còn đủ phòng thật trong thời gian đã chọn.</div></div>
-                            <span class="badge bg-primary-subtle text-primary">{{ (int)($searchData['adult_count'] ?? 0) + (int)($searchData['child_count'] ?? 0) + (int)($searchData['baby_count'] ?? 0) }} khách</span>
+                            <span class="badge bg-primary-subtle text-primary">{{ (int)($searchData['adult_count'] ?? 0) + (int)($searchData['child_count'] ?? 0) }} khách</span>
                         </div>
                         <div class="row g-3">
                             @foreach($roomRecommendations as $option)
                                 <div class="col-lg-4"><div class="border rounded-3 p-3 h-100">
                                     <div class="d-flex gap-1 flex-wrap mb-2">@foreach($option['labels'] as $label)<span class="badge bg-warning-subtle text-dark">{{ $label }}</span>@endforeach</div>
                                     <div class="fw-bold fs-5">{{ $option['category_name'] }} × {{ $option['room_quantity'] }}</div>
-                                    <div class="small text-muted mt-1">Còn {{ $option['available_rooms'] }} phòng · sức chứa {{ $option['adult_capacity_total'] }} người lớn + {{ $option['child_capacity_total'] }} trẻ em/em bé</div>
+                                    <div class="small text-muted mt-1">Còn {{ $option['available_rooms'] }} phòng · sức chứa {{ $option['adult_capacity_total'] }} người lớn + {{ $option['child_capacity_total'] }} trẻ em</div>
                                     <div class="fw-bold text-primary mt-2">{{ number_format($option['estimated_room_total'],0,',','.') }}đ</div>
-                                    <a class="btn btn-primary w-100 mt-3" href="{{ route('bookings.confirm', ['room_category_id'=>$option['room_category_id'],'check_in_date'=>$searchData['check_in_date'],'check_out_date'=>$searchData['check_out_date'],'adult_count'=>$searchData['adult_count'],'child_count'=>$searchData['child_count'],'baby_count'=>$searchData['baby_count'] ?? 0,'room_quantity'=>$option['room_quantity']]) }}">Chọn phương án này</a>
+                                    <a class="btn btn-primary w-100 mt-3" href="{{ route('bookings.confirm', ['room_category_id'=>$option['room_category_id'],'check_in_date'=>$searchData['check_in_date'],'check_out_date'=>$searchData['check_out_date'],'adult_count'=>$searchData['adult_count'],'child_count'=>$searchData['child_count'],'room_quantity'=>$option['room_quantity']]) }}">Chọn phương án này</a>
                                 </div></div>
                             @endforeach
                         </div>
@@ -353,7 +343,6 @@
             <input type="hidden" name="check_out_date" value="{{ $searchData['check_out_date'] }}">
             <input type="hidden" name="adult_count" value="{{ $searchData['adult_count'] }}">
             <input type="hidden" name="child_count" value="{{ $searchData['child_count'] ?? 0 }}">
-            <input type="hidden" name="baby_count" value="{{ $searchData['baby_count'] ?? 0 }}">
             <input type="hidden" name="room_quantity" value="{{ (int) $categoryRecommendation['room_quantity'] }}">
 
             @auth

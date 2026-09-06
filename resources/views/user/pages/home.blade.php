@@ -31,10 +31,6 @@
             'child_count',
             request('child_count', 0)
         );
-        $homeSelectedBabyCount = old(
-            'baby_count',
-            request('baby_count', 0)
-        );
     @endphp
     <!-- Hero + Booking Form -->
     <section class="hero-section position-relative">
@@ -98,7 +94,7 @@
 
                                 <div class="row g-2 mb-3">
 
-                                    <div class="col-4">
+                                    <div class="col-sm-6">
                                         <label class="form-label">
                                             Người lớn
                                         </label>
@@ -106,7 +102,7 @@
                                         <input type="number" name="adult_count" id="home_adult_count" class="form-control" min="1" max="{{ $maxAdultCapacity }}" value="{{ $homeSelectedAdultCount ?: 2 }}" required>
                                     </div>
 
-                                    <div class="col-4">
+                                    <div class="col-sm-6">
                                         <label class="form-label">
                                             Trẻ em
                                         </label>
@@ -114,10 +110,6 @@
                                         <input type="number" name="child_count" id="home_child_count" class="form-control" min="0" max="{{ $maxChildCapacity }}" value="{{ $homeSelectedChildCount ?? 0 }}" required>
                                     </div>
 
-                                    <div class="col-4">
-                                        <label class="form-label">Em bé</label>
-                                        <input type="number" name="baby_count" id="home_baby_count" class="form-control" min="0" max="{{ $maxChildCapacity }}" value="{{ $homeSelectedBabyCount ?? 0 }}" required>
-                                    </div>
 
 
                                 </div>

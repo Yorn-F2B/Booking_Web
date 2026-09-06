@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Mail\OperationalNotificationMail;
 use App\Models\Booking;
+use App\Models\EmailDeliveryLog;
 use App\Models\OperationalNotification;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
@@ -43,17 +44,14 @@ class OperationalNotificationService
         if ($emailAlreadySent) {
             $emailStatus = 'sent';
         } elseif ($sendCustomerEmail && filled($user->email)) {
-            try {
-                Mail::to($user->email)->send(new OperationalNotificationMail($title, $message, $url));
-                $emailStatus = 'sent';
-            } catch (\Throwable $e) {
-                $emailStatus = 'failed';
-                Log::warning('Không gửi được email tương ứng với thông báo khách hàng.', [
-                    'user_id' => $userId,
-                    'notification_id' => $notification->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            $emailStatus = $this->sendCustomerEmailLogged(
+                $user->email,
+                $title,
+                $message,
+                $url,
+                $extra['booking_id'] ?? null,
+                $notification->id
+            );
         } elseif (!$sendCustomerEmail) {
             $emailStatus = 'skipped';
         }
@@ -91,33 +89,47 @@ class OperationalNotificationService
         }
 
         $email = trim((string) ($booking->booked_customer_email ?: $booking->customer?->email));
-        if ($email !== '') {
-            $emailStatus = 'failed';
-            try {
-                Mail::to($email)->send(new OperationalNotificationMail($title, $message, $targetUrl));
-                $emailStatus = 'sent';
-            } catch (\Throwable $e) {
-                Log::warning('Không gửi được email cập nhật booking cho khách không có tài khoản.', [
-                    'booking_id' => $booking->id,
-                    'email' => $email,
-                    'error' => $e->getMessage(),
-                ]);
-            }
+        $emailStatus = $email !== '' ? 'failed' : 'not_available';
 
-            $pseudoUser = new User([
-                'name' => $booking->booked_customer_name ?: 'Khách hàng',
-                'email' => $email,
-                'role' => 'customer',
-            ]);
-            $pseudoUser->id = 0;
-            $this->auditCustomerDelivery($pseudoUser, $title, $message, route('admin.bookings.show', $booking), $extra, $emailStatus, false);
+        if ($email !== '') {
+            $emailStatus = $this->sendCustomerEmailLogged(
+                $email,
+                $title,
+                $message,
+                $targetUrl,
+                $booking->id
+            );
         }
+
+        // Dù booking tại quầy không có tài khoản/email, phía admin vẫn phải biết
+        // thông báo này không có kênh để gửi thay vì im lặng như trước.
+        $pseudoUser = new User([
+            'name' => $booking->booked_customer_name ?: 'Khách hàng',
+            'email' => $email !== '' ? $email : null,
+            'role' => 'customer',
+        ]);
+        $pseudoUser->id = 0;
+        $this->auditCustomerDelivery(
+            $pseudoUser,
+            $title,
+            $message,
+            route('admin.bookings.show', $booking),
+            $extra,
+            $emailStatus,
+            false
+        );
 
         return null;
     }
 
-    public function auditEmailOnly(?Booking $booking, string $recipient, string $title, string $message, string $emailStatus = 'sent'): void
-    {
+    public function auditEmailOnly(
+        ?Booking $booking,
+        string $recipient,
+        string $title,
+        string $message,
+        string $emailStatus = 'sent',
+        bool $hasWebNotification = false
+    ): void {
         $pseudoUser = new User([
             'name' => $booking?->booked_customer_name ?: 'Khách hàng',
             'email' => $recipient,
@@ -132,7 +144,7 @@ class OperationalNotificationService
             $booking ? route('admin.bookings.show', $booking) : null,
             ['booking_id' => $booking?->id],
             $emailStatus,
-            false
+            $hasWebNotification
         );
     }
 
@@ -160,35 +172,124 @@ class OperationalNotificationService
             $identity .= ' (' . $customer->email . ')';
         }
 
-        $channelText = match ($emailStatus) {
-            'sent' => $hasWebNotification ? 'web + email' : 'email',
-            'failed' => $hasWebNotification ? 'web; email gửi thất bại' : 'email gửi thất bại',
-            'not_available' => $hasWebNotification ? 'web; khách chưa có email' : 'không có kênh gửi',
-            default => $hasWebNotification ? 'web' : 'email',
-        };
-
-        $auditTitle = $emailStatus === 'failed'
-            ? 'Thông báo khách: email gửi thất bại'
-            : 'Đã gửi thông báo cho khách hàng';
-        $auditMessage = 'Đã gửi tới ' . $identity . ' qua ' . $channelText . '. Nội dung: ' . $title . ' — ' . $message;
-
         $bookingId = $extra['booking_id'] ?? null;
-        $adminUrl = $bookingId ? route('admin.bookings.show', $bookingId) : $url;
-        $auditType = $emailStatus === 'failed' ? 'warning' : 'success';
 
-        $auditExtra = [
+        // Không đưa biên nhận gửi email/web vào Trung tâm công việc.
+        // Trung tâm công việc chỉ dành cho việc vận hành còn phải xử lý.
+        // Kết quả giao thông báo được phản hồi ngay cho người thao tác bằng toast bên dưới;
+        // lịch sử email chi tiết vẫn được lưu ở EmailDeliveryLog.
+
+        // Sau thao tác nghiệp vụ, nhân viên phải nhìn thấy ngay kết quả giao thông báo.
+        // Dùng hàng đợi thay vì một flash duy nhất để một request phát sinh nhiều sự kiện
+        // không làm toast sau ghi đè toast trước.
+        $actor = auth()->user();
+        if ($actor && request()->hasSession()) {
+            $emailText = match ($emailStatus) {
+                'sent' => filled($customer->email)
+                    ? 'Đã gửi email thành công tới ' . $customer->email . '.'
+                    : 'Đã gửi email thành công.',
+                'failed' => filled($customer->email)
+                    ? 'Không gửi được email tới ' . $customer->email . '.'
+                    : 'Không gửi được email cho khách.',
+                'not_available' => 'Không gửi email vì khách chưa có địa chỉ email.',
+                'skipped' => 'Nghiệp vụ này không gửi email.',
+                default => 'Chưa xác định được trạng thái gửi email.',
+            };
+
+            // Thành công dùng đúng kiểu panel xanh dương/info như các toast cập nhật phòng.
+            $toastType = match ($emailStatus) {
+                'failed' => 'error',
+                'not_available', 'skipped' => 'warning',
+                default => 'info',
+            };
+
+            $webText = $hasWebNotification
+                ? 'Đã lưu thông báo trên trang Thông báo của khách.'
+                : 'Booking này không có tài khoản web để nhận thông báo trên trang Thông báo.';
+
+            $toast = [
+                'type' => $toastType,
+                'title' => $emailStatus === 'sent'
+                    ? 'Đã gửi thông báo'
+                    : ($emailStatus === 'failed' ? 'Gửi email thất bại' : 'Thông báo khách hàng'),
+                'message' => $emailText
+                    . "\n" . $webText
+                    . "\nKhách: " . $identity
+                    . "\nNội dung: " . $title
+                    . (trim($message) !== '' ? " — " . trim($message) : ''),
+                'duration' => $emailStatus === 'failed' ? 12000 : 10000,
+                'dedupe_key' => implode('|', [
+                    (string) ($bookingId ?? 0),
+                    $title,
+                    $emailStatus,
+                    (string) $customer->email,
+                ]),
+            ];
+
+            $queue = session()->get('customer_notification_deliveries', []);
+            if (!is_array($queue)) {
+                $queue = [];
+            }
+
+            $alreadyQueued = collect($queue)->contains(function ($item) use ($toast) {
+                return is_array($item)
+                    && ($item['dedupe_key'] ?? null) === $toast['dedupe_key'];
+            });
+
+            if (!$alreadyQueued) {
+                $queue[] = $toast;
+                // Tránh một thao tác bất thường tạo quá nhiều panel che màn hình.
+                $queue = array_slice($queue, -6);
+            }
+
+            session()->flash('customer_notification_deliveries', $queue);
+        }
+    }
+
+    /**
+     * Gửi email thông báo vận hành và ghi EmailDeliveryLog để admin có bằng chứng
+     * trạng thái sent/failed, thay vì chỉ suy đoán từ việc không có exception.
+     */
+    private function sendCustomerEmailLogged(
+        string $recipient,
+        string $title,
+        string $message,
+        ?string $url,
+        ?int $bookingId = null,
+        ?int $notificationId = null
+    ): string {
+        $log = EmailDeliveryLog::create([
             'booking_id' => $bookingId,
-            'room_id' => $extra['room_id'] ?? null,
+            'recipient' => $recipient,
+            'mail_type' => 'operational_notification',
+            'subject' => $title,
+            'status' => 'pending',
+            'attempts' => 1,
             'meta' => [
-                'event' => 'customer_notification_delivery',
-                'customer_user_id' => $customer->id ?: null,
-                'customer_email' => $customer->email,
-                'email_status' => $emailStatus,
-                'customer_title' => $title,
-                'suppress_admin_audit' => true,
+                'notification_title' => $title,
+                'notification_message' => $message,
+                'target_url' => $url,
+                'notification_id' => $notificationId,
             ],
-        ];
+        ]);
 
-        $this->toRoles(self::STAFF_AUDIT_ROLES, $auditTitle, $auditMessage, $adminUrl, $auditType, $auditExtra);
+        try {
+            Mail::to($recipient)->send(new OperationalNotificationMail($title, $message, $url));
+            $log->update(['status' => 'sent', 'sent_at' => now('Asia/Ho_Chi_Minh')]);
+            return 'sent';
+        } catch (\Throwable $e) {
+            $log->update([
+                'status' => 'failed',
+                'failed_at' => now('Asia/Ho_Chi_Minh'),
+                'error_message' => mb_substr($e->getMessage(), 0, 2000),
+            ]);
+            Log::warning('Không gửi được email tương ứng với thông báo khách hàng.', [
+                'booking_id' => $bookingId,
+                'notification_id' => $notificationId,
+                'recipient' => $recipient,
+                'error' => $e->getMessage(),
+            ]);
+            return 'failed';
+        }
     }
 }

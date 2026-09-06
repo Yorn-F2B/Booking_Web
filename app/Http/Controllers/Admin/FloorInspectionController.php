@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\BookingLog;
 use App\Models\RoomInspection;
+use App\Models\RoomInspectionAttachment;
 use App\Models\RoomInspectionItem;
 use App\Models\Service;
 use App\Models\StaffFloorAssignment;
@@ -16,13 +17,15 @@ use App\Support\HousekeepingWorkScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class FloorInspectionController extends Controller
 {
     public function index()
     {
-        $inspections = RoomInspection::with([
+        $inspectionQuery = RoomInspection::with([
             'booking.customer',
             'booking.roomCategory',
             'room',
@@ -30,14 +33,73 @@ class FloorInspectionController extends Controller
             'items',
         ]);
 
-        $this->applyHousekeepingInspectionScope($inspections);
+        $this->applyHousekeepingInspectionScope($inspectionQuery);
 
-        $inspections = $inspections
-            ->orderByRaw("CASE workflow_stage WHEN 'housekeeping_recheck' THEN 0 WHEN 'housekeeping_report' THEN 1 ELSE 2 END")
-            ->latest()
-            ->paginate(10);
+        $allInspections = $inspectionQuery
+            ->orderByRaw("CASE workflow_stage WHEN 'housekeeping_recheck' THEN 0 WHEN 'housekeeping_report' THEN 1 WHEN 'guest_consultation' THEN 2 ELSE 3 END")
+            ->orderByDesc('updated_at')
+            ->get();
 
-        return view('admin.pages.floor-inspections.index', compact('inspections'));
+        // Một booking có thể có nhiều phòng. Gom theo booking để buồng phòng xử lý
+        // trọn một booking trước khi chuyển sang booking khác.
+        $bookingGroups = $allInspections
+            ->groupBy('booking_id')
+            ->map(function ($group) {
+                $sorted = $group->sort(function ($a, $b) {
+                    $priority = [
+                        RoomInspection::STAGE_HOUSEKEEPING_RECHECK => 0,
+                        RoomInspection::STAGE_HOUSEKEEPING_REPORT => 1,
+                        RoomInspection::STAGE_GUEST_CONSULTATION => 2,
+                        RoomInspection::STAGE_COMPLETED => 3,
+                    ];
+
+                    $pa = $priority[$a->workflow_stage] ?? 9;
+                    $pb = $priority[$b->workflow_stage] ?? 9;
+
+                    if ($pa !== $pb) {
+                        return $pa <=> $pb;
+                    }
+
+                    return strnatcasecmp((string) ($a->room?->room_number ?? ''), (string) ($b->room?->room_number ?? ''));
+                })->values();
+
+                $actionable = $sorted->filter(fn ($inspection) => $this->isInspectionActionable($inspection))->values();
+                $latestUpdate = $sorted->max(fn ($inspection) => optional($inspection->last_revision_at ?? $inspection->updated_at)->timestamp ?? 0);
+
+                return (object) [
+                    'booking_id' => $group->first()?->booking_id,
+                    'booking' => $group->first()?->booking,
+                    'inspections' => $sorted,
+                    'actionable' => $actionable,
+                    'actionable_count' => $actionable->count(),
+                    'total_rooms' => $sorted->count(),
+                    'next_inspection' => $actionable->first() ?? $sorted->first(),
+                    'latest_update' => $latestUpdate,
+                ];
+            })
+            ->sort(function ($a, $b) {
+                $aPriority = $a->actionable_count > 0 ? 0 : 1;
+                $bPriority = $b->actionable_count > 0 ? 0 : 1;
+
+                if ($aPriority !== $bPriority) {
+                    return $aPriority <=> $bPriority;
+                }
+
+                return $b->latest_update <=> $a->latest_update;
+            })
+            ->values();
+
+        $perPage = 10;
+        $page = LengthAwarePaginator::resolveCurrentPage();
+        $bookingGroups = new LengthAwarePaginator(
+            $bookingGroups->forPage($page, $perPage)->values(),
+            $bookingGroups->count(),
+            $perPage,
+            $page,
+            ['path' => request()->url(), 'query' => request()->query()]
+        );
+
+        return view('admin.pages.floor-inspections.index', compact('bookingGroups'));
     }
 
     public function show(RoomInspection $roomInspection)
@@ -49,6 +111,7 @@ class FloorInspectionController extends Controller
             'booking.roomCategory',
             'room',
             'inspector',
+            'attachments.uploader',
             'items.guestResponder',
             'items.rechecker',
             'items.detector',
@@ -90,6 +153,8 @@ class FloorInspectionController extends Controller
             'room_minibar_service_ids.*' => 'exists:services,id',
             'room_minibar_quantities' => 'nullable|array',
             'room_minibar_quantities.*' => 'nullable|integer|min:1',
+            'inspection_images' => 'nullable|array|max:6',
+            'inspection_images.*' => 'file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         DB::beginTransaction();
@@ -238,6 +303,12 @@ class FloorInspectionController extends Controller
                 'guest_consultation_note' => null,
             ]);
 
+            $initialEvidenceCount = $this->storeEvidenceAttachments(
+                $inspection,
+                $request->file('inspection_images', []),
+                RoomInspectionAttachment::CONTEXT_INITIAL_REPORT
+            );
+
             $parts = [];
             if ($minibarTotal > 0) {
                 $parts[] = 'minibar/đồ dùng: ' . implode('; ', $minibarMessages) . ' — ' . number_format($minibarTotal, 0, ',', '.') . 'đ';
@@ -247,6 +318,9 @@ class FloorInspectionController extends Controller
             }
             if (empty($parts)) {
                 $parts[] = 'không phát sinh minibar, mất đồ hoặc hư hại';
+            }
+            if ($initialEvidenceCount > 0) {
+                $parts[] = 'ảnh minh chứng: ' . $initialEvidenceCount . ' ảnh';
             }
 
             $summary = 'Buồng phòng gửi kết quả kiểm tra phòng '
@@ -281,11 +355,12 @@ class FloorInspectionController extends Controller
             DB::commit();
             Realtime::inspection($inspection->id, $hasChargeItems ? 'inspection_reported' : 'inspection_completed');
 
-            return redirect()
-                ->route('admin.floor-inspections.index')
-                ->with('success', $hasChargeItems
-                    ? 'Đã gửi kết quả. Lễ tân cần trao đổi từng khoản với khách; khi hai bên thống nhất, phiếu sẽ tự hoàn tất.'
-                    : 'Đã gửi kết quả không phát sinh phí. Phiếu đã hoàn tất ngay.');
+            return $this->redirectToNextInspectionInBooking(
+                $inspection,
+                $hasChargeItems
+                    ? 'Đã gửi kết quả phòng ' . ($inspection->room?->room_number ?? '---') . '. Tiếp tục kiểm tra các phòng còn lại của cùng booking.'
+                    : 'Đã hoàn tất kiểm tra phòng ' . ($inspection->room?->room_number ?? '---') . '. Tiếp tục kiểm tra các phòng còn lại của cùng booking.'
+            );
         } catch (ValidationException $e) {
             DB::rollBack();
             throw $e;
@@ -313,6 +388,8 @@ class FloorInspectionController extends Controller
             'supplemental_minibar_quantities' => 'nullable|array',
             'supplemental_minibar_quantities.*' => 'nullable|integer|min:1|max:999',
             'supplemental_note' => 'required|string|max:1000',
+            'supplemental_images' => 'nullable|array|max:6',
+            'supplemental_images.*' => 'file|mimes:jpg,jpeg,png,webp|max:5120',
         ], [
             'supplemental_note.required' => 'Vui lòng ghi rõ lý do phát hiện bổ sung sau lần kiểm tra trước.',
         ]);
@@ -434,11 +511,18 @@ class FloorInspectionController extends Controller
                 'approved_total' => (float) $inspection->items->where('status', 'approved')->sum('total'),
             ]);
 
+            $supplementalEvidenceCount = $this->storeEvidenceAttachments(
+                $inspection,
+                $request->file('supplemental_images', []),
+                RoomInspectionAttachment::CONTEXT_SUPPLEMENTAL_REPORT
+            );
+
             $summary = 'Buồng phòng phát hiện bổ sung sau lần kiểm tra trước tại phòng '
                 . ($inspection->room->room_number ?? '---') . ': '
                 . $createdItems->map(fn ($item) => $item->name . ' x' . $item->quantity . ' = '
                     . number_format((float) $item->total, 0, ',', '.') . 'đ')->implode('; ')
                 . '. Lý do/căn cứ: ' . $note
+                . ($supplementalEvidenceCount > 0 ? '. Đính kèm ' . $supplementalEvidenceCount . ' ảnh minh chứng.' : '')
                 . '. Các khoản cũ được giữ nguyên; booking tiếp tục bị chặn checkout cho đến khi khoản mới được xử lý.';
 
             $workflow->advanceVersion(
@@ -480,6 +564,8 @@ class FloorInspectionController extends Controller
             'recheck_notes.*' => 'nullable|string|max:1000',
             'recheck_quantities' => 'required|array',
             'recheck_quantities.*' => 'required|integer|min:0|max:999',
+            'recheck_images' => 'nullable|array|max:6',
+            'recheck_images.*' => 'file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         DB::beginTransaction();
@@ -609,9 +695,16 @@ class FloorInspectionController extends Controller
                 'damage_total' => (float) $inspection->items->where('type', 'damage_fee')->sum('total'),
             ]);
 
+            $recheckEvidenceCount = $this->storeEvidenceAttachments(
+                $inspection,
+                $request->file('recheck_images', []),
+                RoomInspectionAttachment::CONTEXT_RECHECK_REPORT
+            );
+
             $summary = 'Buồng phòng đã cập nhật kết quả kiểm tra lại phòng '
                 . ($inspection->room->room_number ?? '---') . ': '
-                . implode('; ', $comparisonSummaries) . '.';
+                . implode('; ', $comparisonSummaries) . '.'
+                . ($recheckEvidenceCount > 0 ? ' Đính kèm ' . $recheckEvidenceCount . ' ảnh minh chứng.' : '');
 
             if ($hasPendingGuestReview) {
                 $summary .= ' Các khoản còn khác ý kiến khách cần lễ tân trao đổi lại: '
@@ -635,11 +728,12 @@ class FloorInspectionController extends Controller
             DB::commit();
             Realtime::inspection($inspection->id, $hasPendingGuestReview ? 'inspection_rechecked' : 'inspection_completed');
 
-            return redirect()
-                ->route('admin.floor-inspections.index')
-                ->with('success', $hasPendingGuestReview
-                    ? 'Đã cập nhật. Chỉ các khoản còn lệch với ý kiến khách được chuyển lại lễ tân.'
-                    : 'Đã cập nhật. Kết quả đã khớp với khách và phiếu đã hoàn tất ngay.');
+            return $this->redirectToNextInspectionInBooking(
+                $inspection,
+                $hasPendingGuestReview
+                    ? 'Đã cập nhật kiểm tra lại phòng ' . ($inspection->room?->room_number ?? '---') . '. Tiếp tục các phòng còn lại của cùng booking.'
+                    : 'Đã hoàn tất kiểm tra lại phòng ' . ($inspection->room?->room_number ?? '---') . '. Tiếp tục các phòng còn lại của cùng booking.'
+            );
         } catch (ValidationException $e) {
             DB::rollBack();
             throw $e;
@@ -648,6 +742,121 @@ class FloorInspectionController extends Controller
 
             return back()->withInput()->with('error', 'Không thể gửi kết quả kiểm tra lại: ' . $e->getMessage());
         }
+    }
+
+    private function isInspectionActionable(RoomInspection $inspection): bool
+    {
+        return (
+            $inspection->workflow_stage === RoomInspection::STAGE_HOUSEKEEPING_REPORT
+            && in_array($inspection->status, ['pending', 'rejected'], true)
+        ) || (
+            $inspection->workflow_stage === RoomInspection::STAGE_HOUSEKEEPING_RECHECK
+            && $inspection->status === 'reported'
+        );
+    }
+
+    private function redirectToNextInspectionInBooking(RoomInspection $currentInspection, string $message)
+    {
+        $nextQuery = RoomInspection::query()
+            ->with('room')
+            ->where('booking_id', $currentInspection->booking_id)
+            ->where('id', '!=', $currentInspection->id)
+            ->where(function ($query) {
+                $query->where(function ($initial) {
+                    $initial->where('workflow_stage', RoomInspection::STAGE_HOUSEKEEPING_REPORT)
+                        ->whereIn('status', ['pending', 'rejected']);
+                })->orWhere(function ($recheck) {
+                    $recheck->where('workflow_stage', RoomInspection::STAGE_HOUSEKEEPING_RECHECK)
+                        ->where('status', 'reported');
+                });
+            });
+
+        $this->applyHousekeepingInspectionScope($nextQuery);
+
+        $nextInspection = $nextQuery
+            ->orderByRaw("CASE workflow_stage WHEN 'housekeeping_recheck' THEN 0 WHEN 'housekeeping_report' THEN 1 ELSE 2 END")
+            ->orderByRaw("CAST((SELECT room_number FROM rooms WHERE rooms.id = room_inspections.room_id LIMIT 1) AS UNSIGNED)")
+            ->orderBy('id')
+            ->first();
+
+        if ($nextInspection) {
+            return redirect()
+                ->route('admin.floor-inspections.show', $nextInspection->id)
+                ->with('success', $message);
+        }
+
+        return redirect()
+            ->route('admin.floor-inspections.index')
+            ->with('success', $message . ' Booking này không còn phòng nào cần buồng phòng xử lý.');
+    }
+
+    public function attachment(RoomInspectionAttachment $attachment)
+    {
+        $attachment->loadMissing('inspection.room');
+        $this->guardCanViewInspectionEvidence($attachment->inspection);
+
+        if (!Storage::disk('public')->exists($attachment->path)) {
+            abort(404, 'Không tìm thấy ảnh minh chứng.');
+        }
+
+        return Storage::disk('public')->response(
+            $attachment->path,
+            $attachment->original_name ?: basename($attachment->path),
+            [
+                'Content-Type' => $attachment->mime_type ?: 'image/jpeg',
+            ]
+        );
+    }
+
+    private function storeEvidenceAttachments(RoomInspection $inspection, $files, string $context): int
+    {
+        $storedCount = 0;
+
+        foreach (is_array($files) ? $files : [$files] as $file) {
+            if (!$file) {
+                continue;
+            }
+
+            $path = $file->store(
+                'room-inspection-evidence/' . $inspection->booking_id . '/' . $inspection->id . '/' . $context,
+                'public'
+            );
+
+            $inspection->attachments()->create([
+                'context' => $context,
+                'path' => $path,
+                'original_name' => $file->getClientOriginalName(),
+                'mime_type' => $file->getMimeType(),
+                'size_bytes' => $file->getSize(),
+                'uploaded_by' => Auth::id(),
+            ]);
+
+            $storedCount++;
+        }
+
+        return $storedCount;
+    }
+
+    private function guardCanViewInspectionEvidence(?RoomInspection $roomInspection): void
+    {
+        abort_if(!$roomInspection, 404);
+
+        $user = Auth::user();
+
+        if (!$user) {
+            abort(403, 'Bạn không có quyền xem ảnh minh chứng kiểm tra phòng.');
+        }
+
+        if (in_array($user->role, ['super_admin', 'manager', 'receptionist_lead', 'receptionist', 'housekeeping_supervisor'], true)) {
+            return;
+        }
+
+        if ($user->role === 'housekeeping') {
+            $this->guardCanHandleInspection($roomInspection);
+            return;
+        }
+
+        abort(403, 'Bạn không có quyền xem ảnh minh chứng kiểm tra phòng.');
     }
 
     private function applyHousekeepingInspectionScope($query): void

@@ -116,7 +116,6 @@ class RoomActionLogController extends Controller
                     'check_out_at' => Carbon::parse($b->check_out_at)->setTimezone('Asia/Ho_Chi_Minh')->format('H:i d/m/Y'),
                     'adult_count'  => $canViewDetails ? ($b->adult_count ?? 0) : null,
                     'child_count'  => $canViewDetails ? ($b->child_count ?? 0) : null,
-                    'baby_count'   => $canViewDetails ? ($b->baby_count ?? 0) : null,
                     'can_view_details' => (bool) $canViewDetails,
                 ];
             })

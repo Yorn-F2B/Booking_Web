@@ -393,7 +393,6 @@ class BookingRoomController extends Controller
                         'room_id' => $newRoom->id,
                         'adult_count' => 0,
                         'child_count' => 0,
-                        'baby_count' => 0,
                         'price_at_booking' => $booking->roomCategory->price ?? 0,
                         'surcharge' => 0,
                         'surcharge_reason' => null,
@@ -430,7 +429,7 @@ class BookingRoomController extends Controller
 
             // Nếu dữ liệu legacy thiếu booking_rooms hoặc vừa tạo thêm dòng khi gán,
             // phân lại occupancy để không có phòng 0 người và tổng từng phòng luôn
-            // khớp adult/child/baby của booking.
+            // khớp adult/child của booking.
             app(\App\Services\BookingRoomOccupancyAllocator::class)
                 ->rebalanceBooking($booking->fresh(['bookingRooms.room.category']));
 

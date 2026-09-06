@@ -260,8 +260,8 @@ class BookingPromotionApplicationService
                 'room_quantity' => $scopeRoom ? 1 : $booking->room_quantity,
                 'eligibility_room_quantity' => $booking->room_quantity,
                 'guest_count' => $scopeRoom
-                    ? max(1, (int) $scopeRoom->adult_count + (int) $scopeRoom->child_count + (int) ($scopeRoom->baby_count ?? 0))
-                    : max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0)),
+                    ? max(1, (int) $scopeRoom->adult_count + (int) $scopeRoom->child_count)
+                    : max(1, (int) $booking->adult_count + (int) $booking->child_count),
                 'scope' => $scopeRoom ? 'room' : 'booking',
                 'booking_room_id' => $scopeRoom?->id,
                 'room_id_snapshot' => $scopeRoom?->room_id,

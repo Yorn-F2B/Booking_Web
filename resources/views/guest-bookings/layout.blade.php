@@ -12,6 +12,7 @@
 </head>
 <body>
 @include('partials.flash-toasts')
+    @include('partials.global-validation-errors')
 <div class="wrap"><div class="card">
     <div class="head"><div class="brand">MCuong Hotel</div><h1>@yield('heading')</h1><p>@yield('subheading')</p></div>
     <div class="body">
@@ -22,5 +23,6 @@
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script src="https://npmcdn.com/flatpickr/dist/l10n/vn.js"></script>
 <script src="{{ asset('assets/js/project-date-picker.js') }}?v={{ filemtime(public_path('assets/js/project-date-picker.js')) }}"></script>
+    <script src="{{ asset('assets/js/form-validation-hints.js') }}?v={{ filemtime(public_path('assets/js/form-validation-hints.js')) }}"></script>
 </body>
 </html>

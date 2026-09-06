@@ -38,7 +38,6 @@ class Booking extends Model
         'actual_check_out',
         'adult_count',
         'child_count',
-        'baby_count',
         'room_quantity',
         'prefer_adjacent_rooms',
         'room_selection_mode',

@@ -12,7 +12,7 @@
             <div class="admin-page-head">
                 <div>
                     <h2>Khách đang lưu trú</h2>
-                    <p>Mỗi booking hiển thị số khách thực tế và người đại diện của từng phòng</p>
+                    <p>Mỗi phòng chỉ quản lý một người đại diện; booking nhiều phòng có thêm một đại diện cả đoàn</p>
                 </div>
             </div>
 
@@ -38,9 +38,8 @@
                             <tr>
                                 <th>Phòng</th>
                                 <th>Mã Booking</th>
-                                <th>Khách đại diện</th>
-                                <th>Thông tin liên hệ</th>
-                                <th>SL Khách</th>
+                                <th>Người đại diện phòng</th>
+                                <th>Liên hệ booking</th>
                                 <th>Nhận phòng</th>
                                 <th>Dự kiến trả phòng</th>
                                 <th class="text-end">Thao tác</th>
@@ -63,38 +62,24 @@
                                         </a>
                                     </td>
                                     <td>
-                                        <?php if($booking->customer): ?>
-                                            <?php if(in_array(auth()->user()->role ?? null, ['super_admin', 'manager'], true)): ?>
-                                                <a href="<?php echo e(route('admin.customers.show', $booking->customer->id)); ?>" class="fw-bold">
-                                                    <?php echo e($booking->customer->full_name); ?>
+                                        <?php
+                                            $roomRepresentatives = $booking->bookingRooms->map(function ($bookingRoom) use ($booking) {
+                                                return $booking->guests->where('booking_room_id', $bookingRoom->id)
+                                                    ->first(fn ($guest) => $guest->guest_type === 'adult');
+                                            })->filter();
+                                        ?>
+                                        <?php if($roomRepresentatives->isNotEmpty()): ?>
+                                            <ul class="mb-0 ps-3 small">
+                                                <?php $__currentLoopData = $roomRepresentatives; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $guest): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                                    <li>
+                                                        <strong>P.<?php echo e($guest->bookingRoom?->room?->room_number ?? '---'); ?></strong> · <?php echo e($guest->full_name); ?>
 
-                                                </a>
-                                            <?php else: ?>
-                                                <span class="fw-bold"><?php echo e($booking->customer->full_name); ?></span>
-                                            <?php endif; ?>
-                                            <?php
-                                                $roomRepresentatives = $booking->bookingRooms->map(function ($bookingRoom) use ($booking) {
-                                                    return $booking->guests->where('booking_room_id', $bookingRoom->id)
-                                                        ->first(fn ($guest) => $guest->guest_type === 'adult');
-                                                })->filter();
-                                                $groupRepresentative = $booking->guests->firstWhere('is_booking_representative', true);
-                                            ?>
-                                            <?php if($roomRepresentatives->isNotEmpty()): ?>
-                                                <div class="mt-2 small text-muted">
-                                                    <div class="fw-bold mb-1">Đại diện phòng:</div>
-                                                    <ul class="mb-0 ps-3">
-                                                    <?php $__currentLoopData = $roomRepresentatives; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $guest): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                        <li>
-                                                            P.<?php echo e($guest->bookingRoom?->room?->room_number ?? '---'); ?> · <?php echo e($guest->full_name); ?>
-
-                                                            <?php if($guest->is_booking_representative): ?><strong class="text-primary"> · đại diện đoàn</strong><?php endif; ?>
-                                                        </li>
-                                                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                                    </ul>
-                                                </div>
-                                            <?php endif; ?>
+                                                        <?php if($guest->is_booking_representative): ?><span class="text-primary fw-semibold"> · đại diện đoàn</span><?php endif; ?>
+                                                    </li>
+                                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                            </ul>
                                         <?php else: ?>
-                                            <span class="text-muted">Chưa có thông tin</span>
+                                            <span class="text-warning">Chưa có người đại diện</span>
                                         <?php endif; ?>
                                     </td>
                                     <td>
@@ -103,15 +88,6 @@
                                             <div class="small text-muted"><i class="bx bx-id-card me-1"></i><?php echo e($booking->customer->cccd ?? '-'); ?></div>
                                         <?php else: ?>
                                             -
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <?php echo e((int) $booking->adult_count); ?> NL
-                                        <?php if((int) $booking->child_count > 0): ?>
-                                            / <?php echo e((int) $booking->child_count); ?> TE
-                                        <?php endif; ?>
-                                        <?php if((int) ($booking->baby_count ?? 0) > 0): ?>
-                                            / <?php echo e((int) ($booking->baby_count ?? 0)); ?> EB
                                         <?php endif; ?>
                                     </td>
                                     <td>
@@ -132,7 +108,7 @@
                                 </tr>
                             <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
                                 <tr>
-                                    <td colspan="8" class="text-center text-muted py-4">
+                                    <td colspan="7" class="text-center text-muted py-4">
                                         Hiện tại không có phòng nào đang có khách lưu trú.
                                     </td>
                                 </tr>

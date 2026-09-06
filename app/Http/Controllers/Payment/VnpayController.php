@@ -912,8 +912,7 @@ class VnpayController extends Controller
             $allocation = app(\App\Services\BookingRoomOccupancyAllocator::class)->allocate(
                 $allRooms,
                 max(0, (int) $booking->adult_count),
-                max(0, (int) $booking->child_count),
-                max(0, (int) ($booking->baby_count ?? 0))
+                max(0, (int) $booking->child_count)
             );
         } catch (\Throwable $e) {
             Log::warning('Không thể tự phân occupancy sau thanh toán VNPay.', [
@@ -932,7 +931,6 @@ class VnpayController extends Controller
             $bookingRoom->update([
                 'adult_count' => $counts['adult_count'],
                 'child_count' => $counts['child_count'],
-                'baby_count' => $counts['baby_count'],
             ]);
         }
 
@@ -948,7 +946,6 @@ class VnpayController extends Controller
                 'room_id' => $room->id,
                 'adult_count' => $counts['adult_count'],
                 'child_count' => $counts['child_count'],
-                'baby_count' => $counts['baby_count'],
                 'price_at_booking' => $roomPrice,
                 'surcharge' => 0,
                 'surcharge_reason' => null,

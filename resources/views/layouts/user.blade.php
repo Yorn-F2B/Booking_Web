@@ -18,6 +18,7 @@
 
 <body>
     @include('partials.flash-toasts')
+    @include('partials.global-validation-errors')
     {{-- Header --}}
     @include('user.partials.header')
 
@@ -41,6 +42,7 @@
     {{-- Axios, Echo, Reverb và logic chat --}}
     @vite('resources/js/app.js')
 
+    <script src="{{ asset('assets/js/form-validation-hints.js') }}?v={{ filemtime(public_path('assets/js/form-validation-hints.js')) }}"></script>
 </body>
 
 </html>

@@ -37,6 +37,11 @@ class RoomIssueGroupController extends Controller
         [$leader, $issues] = $this->loadGroup($roomIssueRequest);
         $booking = $leader->booking;
 
+        if (!$booking || !in_array($booking->status, ['checked_in', 'inspection_requested'], true)) {
+            return redirect()->route('admin.room-issues.index')
+                ->with('warning', 'Khách không còn ở trạng thái lưu trú nên sự cố này đã được loại khỏi hàng chờ xử lý.');
+        }
+
         if ($issues->where('status', 'pending')->contains('workflow_status', 'awaiting_housekeeping')) {
             return redirect()->route('admin.room-issues.index')
                 ->with('warning', 'Buồng phòng chưa kiểm tra xong tất cả phòng trong lần báo sự cố này.');
@@ -58,6 +63,17 @@ class RoomIssueGroupController extends Controller
             }
         }
 
+        $availableProposals = collect();
+        foreach ($issues->where('status', 'pending') as $issue) {
+            if (!in_array($issue->workflow_status, ['housekeeping_verified', 'proposal_ready', 'guest_requested_change', 'waiting_guest_confirmation'], true)) {
+                continue;
+            }
+            $availableProposals->put(
+                $issue->id,
+                $this->proposalService->resolveAvailableProposals($issue, $booking)
+            );
+        }
+
         $promotions = $this->availablePromotions($booking, $issues);
 
         return view('admin.pages.room-issues.group-show', compact(
@@ -65,14 +81,15 @@ class RoomIssueGroupController extends Controller
             'issues',
             'booking',
             'automaticProposals',
+            'availableProposals',
             'promotions'
         ));
     }
 
     /**
-     * Hệ thống ưu tiên phòng cùng hạng rồi hạng cao hơn. Chỉ cho giữ nguyên
-     * và sửa tại phòng khi buồng phòng đã xác nhận có thể sửa ngay tại phòng.
-     * Nếu lỗi thật nhưng không thể sửa tại chỗ thì khách bắt buộc phải chuyển.
+     * Hệ thống ưu tiên phòng cùng hạng rồi hạng cao hơn. Nếu không còn phòng
+     * thay thế phù hợp, luôn cho phép phương án giữ nguyên phòng và sửa gấp để
+     * lễ tân trao đổi với khách, tránh phiếu sự cố bị kẹt vô thời hạn.
      */
     public function saveProposal(Request $request, RoomIssueRequest $roomIssueRequest)
     {
@@ -85,7 +102,7 @@ class RoomIssueGroupController extends Controller
             'issue_promotion_codes.*' => ['nullable', 'array'],
             'issue_promotion_codes.*.*' => ['string', 'max:50'],
             'resolution_preference' => ['nullable', 'array'],
-            'resolution_preference.*' => ['nullable', Rule::in(['auto', 'repair_only'])],
+            'resolution_preference.*' => ['nullable', Rule::in(['auto', 'same_category', 'upgrade_category', 'repair_only'])],
             'admin_note_draft' => ['nullable', 'string', 'max:2000'],
         ]);
 
@@ -114,7 +131,7 @@ class RoomIssueGroupController extends Controller
                     throw new \RuntimeException('Có phòng buồng phòng không phát hiện sự cố. Hãy từ chối/đóng phiếu đó trước khi lập phương án cho các phòng còn lại.');
                 }
                 if ($issues->contains(fn ($issue) => !in_array($issue->workflow_status, [
-                    'housekeeping_verified', 'proposal_ready', 'guest_requested_change',
+                    'housekeeping_verified', 'proposal_ready', 'guest_requested_change', 'waiting_guest_confirmation',
                 ], true))) {
                     throw new \RuntimeException('Trạng thái sự cố đã thay đổi. Hãy tải lại trang trước khi gửi phương án.');
                 }
@@ -148,47 +165,18 @@ class RoomIssueGroupController extends Controller
                     $codesByIssue->put((int) $issue->id, $selectedCodes);
                 }
 
-                // Không xóa phương án đổi phòng chỉ vì khách đã từng chọn sửa gấp.
-                // Nếu phòng đang được giữ còn hiệu lực, hệ thống giữ nguyên phòng đó
-                // và làm mới hạn theo policy; nếu hết hạn mới tự dò phòng khác.
+                $preferences = collect($data['resolution_preference'] ?? [])
+                    ->mapWithKeys(fn ($value, $issueId) => [(int) $issueId => (string) ($value ?: 'auto')])
+                    ->all();
+
                 $proposalResult = $this->proposalService->prepareGroup(
                     $booking,
                     $issues,
                     Auth::id(),
                     'waiting_guest_confirmation',
-                    true
+                    true,
+                    $preferences
                 );
-
-                foreach ($issues as $issue) {
-                    $preference = (string) data_get($data, 'resolution_preference.' . $issue->id, 'auto');
-                    if ($preference === 'repair_only') {
-                        if (!$issue->housekeeping_can_repair_in_room) {
-                            throw new \RuntimeException('Buồng phòng chưa xác nhận có thể sửa tại phòng ' . ($issue->currentRoom?->room_number ?? $issue->current_room_id) . '.');
-                        }
-
-                        RoomIssueRoomHold::where('room_issue_request_id', $issue->id)
-                            ->whereNull('released_at')
-                            ->update([
-                                'released_at' => now('Asia/Ho_Chi_Minh'),
-                                'release_reason' => 'Quản lý chọn sửa tại phòng',
-                            ]);
-
-                        // prepareGroup() vừa có thể cập nhật phương án đổi phòng trực tiếp trong DB.
-                        // Dùng query update thay vì model $issue đang stale để chắc chắn xóa sạch
-                        // phòng đề xuất khi quản lý chuyển sang phương án sửa tại phòng.
-                        RoomIssueRequest::whereKey($issue->id)->update([
-                            'proposed_resolution_type' => 'repair_only',
-                            'proposed_room_id' => null,
-                            'proposed_room_category_id' => null,
-                            'proposal_note' => 'Buồng phòng xác nhận có thể sửa tại phòng. Quản lý chọn phương án giữ nguyên phòng và sửa gấp.',
-                            'proposal_created_by' => Auth::id(),
-                            'proposal_created_at' => now('Asia/Ho_Chi_Minh'),
-                            'proposal_expires_at' => null,
-                            'workflow_status' => 'waiting_guest_confirmation',
-                        ]);
-                        $issue->refresh();
-                    }
-                }
 
                 foreach ($issues as $issue) {
                     $issue->update([
@@ -335,8 +323,20 @@ class RoomIssueGroupController extends Controller
         }
 
         $leader = $issues->first();
+        $availableProposals = collect();
+        foreach ($issues as $issue) {
+            $availableProposals->put(
+                $issue->id,
+                $this->proposalService->resolveAvailableProposals($issue, $booking)
+            );
+        }
 
-        return view('admin.pages.bookings.room-issue-proposal', compact('booking', 'issues', 'leader'));
+        return view('admin.pages.bookings.room-issue-proposal', compact(
+            'booking',
+            'issues',
+            'leader',
+            'availableProposals'
+        ));
     }
 
     public function receptionistRespond(Request $request, Booking $booking)
@@ -379,36 +379,48 @@ class RoomIssueGroupController extends Controller
                 $now = now('Asia/Ho_Chi_Minh');
 
                 $choiceLogs = [];
+                $usedTargetRoomIds = [];
                 foreach ($issues as $issue) {
-                    $choice = (string) data_get($request->input('items', []), $issue->id . '.choice', '');
-                    $allowedChoices = [];
-                    if ($issue->housekeeping_can_repair_in_room) {
-                        $allowedChoices[] = 'repair_only';
-                    }
-                    if (in_array($issue->proposed_resolution_type, ['same_category', 'upgrade_category'], true)
-                        && $issue->proposed_room_id) {
-                        $allowedChoices[] = $issue->proposed_resolution_type;
-                    }
+                    $rawChoice = (string) data_get($request->input('items', []), $issue->id . '.choice', '');
+                    [$choice, $requestedRoomId] = array_pad(explode(':', $rawChoice, 2), 2, '0');
+                    $requestedRoomId = (int) $requestedRoomId;
+                    $available = $this->proposalService->resolveAvailableProposals($issue, $booking, $usedTargetRoomIds);
+                    $selectedProposal = $available[$choice] ?? null;
 
-                    if (!in_array($choice, $allowedChoices, true)) {
-                        throw new \RuntimeException('Vui lòng chọn phương án hợp lệ cho phòng '
-                            . ($issue->currentRoom?->room_number ?? $issue->current_room_id) . '.');
+                    if (!$selectedProposal) {
+                        throw new \RuntimeException('Phương án khách chọn cho phòng '
+                            . ($issue->currentRoom?->room_number ?? $issue->current_room_id)
+                            . ' không còn khả dụng. Vui lòng tải lại để xem các phương án hiện tại.');
                     }
 
-                    if ($choice !== 'repair_only') {
-                        $hold = RoomIssueRoomHold::where('group_uuid', $groupUuid)
-                            ->where('room_issue_request_id', $issue->id)
-                            ->where('room_id', $issue->proposed_room_id)
-                            ->whereNull('released_at')
-                            ->where('expires_at', '>', $now)
-                            ->lockForUpdate()
-                            ->first();
+                    $targetRoom = $selectedProposal['room'] ?? null;
+                    $currentRoomId = (int) ($targetRoom?->id ?? 0);
+                    if ($requestedRoomId !== $currentRoomId) {
+                        throw new \RuntimeException('Phòng thay thế vừa thay đổi trạng thái. Vui lòng tải lại để khách chọn đúng phương án đang còn khả dụng.');
+                    }
+                    RoomIssueRoomHold::where('group_uuid', $groupUuid)
+                        ->where('room_issue_request_id', $issue->id)
+                        ->whereNull('released_at')
+                        ->update([
+                            'released_at' => $now,
+                            'release_reason' => 'Khách chọn phương án khác qua lễ tân',
+                        ]);
 
-                        if (!$hold) {
-                            throw new \RuntimeException('Phòng giữ cho phòng '
-                                . ($issue->currentRoom?->room_number ?? $issue->current_room_id)
-                                . ' đã hết thời hạn giữ phòng. Vui lòng nhờ quản lý tạo lại phương án.');
-                        }
+                    $holdExpiresAt = null;
+                    if ($targetRoom) {
+                        $usedTargetRoomIds[] = (int) $targetRoom->id;
+                        $holdMinutes = max(5, (int) app(HotelPolicyService::class)
+                            ->forBooking($booking, 'room_issue.proposal_hold_minutes', 30));
+                        $holdExpiresAt = $now->copy()->addMinutes($holdMinutes);
+                        RoomIssueRoomHold::create([
+                            'group_uuid' => $groupUuid,
+                            'room_issue_request_id' => $issue->id,
+                            'booking_id' => $booking->id,
+                            'room_id' => $targetRoom->id,
+                            'held_by' => Auth::id(),
+                            'held_at' => $now,
+                            'expires_at' => $holdExpiresAt,
+                        ]);
                     }
 
                     $issue->update([
@@ -418,14 +430,18 @@ class RoomIssueGroupController extends Controller
                         'guest_response_note' => $baseData['response_note'] ?? null,
                         'guest_responded_by' => Auth::id(),
                         'guest_responded_at' => $now,
+                        'proposed_resolution_type' => $choice,
+                        'proposed_room_id' => $targetRoom?->id,
+                        'proposed_room_category_id' => $targetRoom?->room_category_id,
+                        'proposal_note' => $selectedProposal['description'] ?? null,
+                        'proposal_expires_at' => $holdExpiresAt,
                     ]);
+                    $issue->setRelation('proposedRoom', $targetRoom);
 
                     $choiceLogs[] = 'phòng '
                         . ($issue->currentRoom?->room_number ?? $issue->current_room_id)
                         . ': ' . $this->resolutionLabel($choice)
-                        . ($choice !== 'repair_only' && $issue->proposedRoom
-                            ? ' sang phòng ' . $issue->proposedRoom->room_number
-                            : '');
+                        . ($targetRoom ? ' sang phòng ' . $targetRoom->room_number : '');
                 }
 
                 BookingLog::create([
@@ -646,10 +662,11 @@ class RoomIssueGroupController extends Controller
         $resolution = $issue->guest_selected_resolution_type;
         $newRoom = null;
 
-        if ($resolution === 'repair_only' && !$issue->housekeeping_can_repair_in_room) {
+        if ($resolution === 'repair_only'
+            && !$issue->housekeeping_can_repair_in_room
+            && $issue->proposed_resolution_type !== 'repair_only') {
             throw new \RuntimeException(
-                'Phòng ' . $oldRoom->room_number
-                . ' đã được buồng phòng xác nhận có lỗi nhưng không thể sửa ngay tại phòng; khách bắt buộc phải chuyển phòng.'
+                'Phương án giữ nguyên phòng ' . $oldRoom->room_number . ' không còn hợp lệ. Hãy lập lại phương án sự cố.'
             );
         }
 

@@ -115,7 +115,6 @@
                 <input type="hidden" name="check_out_date" value="<?php echo e($bookingData['check_out_date']); ?>">
                 <input type="hidden" name="adult_count" value="<?php echo e($bookingData['adult_count']); ?>">
                 <input type="hidden" name="child_count" value="<?php echo e($bookingData['child_count'] ?? 0); ?>">
-                <input type="hidden" name="baby_count" value="<?php echo e($bookingData['baby_count'] ?? 0); ?>">
                 <input type="hidden" name="room_quantity" value="<?php echo e($bookingData['room_quantity'] ?? 1); ?>">
                 <input type="hidden" name="note" value="<?php echo e($bookingData['note'] ?? ''); ?>">
 
@@ -130,7 +129,6 @@
                             <div class="col-md-3"><label class="form-label">Trả phòng</label><input id="editBookingCheckOut" type="date" class="form-control" value="<?php echo e($bookingData['check_out_date']); ?>"></div>
                             <div class="col-md-2"><label class="form-label">Người lớn</label><input id="editBookingAdults" type="number" min="1" max="<?php echo e((int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_guests',60)); ?>" class="form-control" value="<?php echo e($bookingData['adult_count']); ?>"></div>
                             <div class="col-md-2"><label class="form-label">Trẻ em</label><input id="editBookingChildren" type="number" min="0" max="<?php echo e((int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_guests',60)); ?>" class="form-control" value="<?php echo e($bookingData['child_count'] ?? 0); ?>"></div>
-                            <div class="col-md-2"><label class="form-label">Em bé</label><input id="editBookingBabies" type="number" min="0" max="<?php echo e((int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_guests',60)); ?>" class="form-control" value="<?php echo e($bookingData['baby_count'] ?? 0); ?>"></div>
                             <div class="col-md-2"><label class="form-label">Số phòng</label><input id="editBookingRooms" type="number" min="1" max="<?php echo e((int) app(\App\Services\HotelPolicyService::class)->get('booking.max_online_rooms',30)); ?>" class="form-control" value="<?php echo e($bookingData['room_quantity'] ?? 1); ?>"></div>
                         </div>
                     </div>
@@ -678,8 +676,7 @@ unset($__errorArgs, $__bag); ?>
                                     </div>
                                     <div class="fw-bold">
                                         <?php echo e($bookingData['adult_count']); ?> người lớn,
-                                        <?php echo e($bookingData['child_count'] ?? 0); ?> trẻ em,
-                                        <?php echo e($bookingData['baby_count'] ?? 0); ?> em bé
+                                        <?php echo e($bookingData['child_count'] ?? 0); ?> trẻ em
                                     </div>
                                 </div>
 
@@ -753,7 +750,6 @@ unset($__errorArgs, $__bag); ?>
         'check_out_date' => $bookingData['check_out_date'],
         'adult_count' => $bookingData['adult_count'],
         'child_count' => $bookingData['child_count'] ?? 0,
-        'baby_count' => $bookingData['baby_count'] ?? 0,
         'room_category_id' => $roomCategory->id,
     ])); ?>" class="btn btn-outline-secondary w-100 mt-2">
                                     Quay lại danh sách phòng
@@ -815,7 +811,7 @@ unset($__errorArgs, $__bag); ?>
             const selectedServices = new Map();
             const bookingNightCount = Math.max(1, <?php echo e((int) $nightCount); ?>);
             const bookingRoomCount = Math.max(1, <?php echo e((int) ($bookingData['room_quantity'] ?? 1)); ?>);
-            const bookingGuestCount = Math.max(1, <?php echo e((int) $bookingData['adult_count'] + (int) ($bookingData['child_count'] ?? 0) + (int) ($bookingData['baby_count'] ?? 0)); ?>);
+            const bookingGuestCount = Math.max(1, <?php echo e((int) $bookingData['adult_count'] + (int) ($bookingData['child_count'] ?? 0)); ?>);
 
             function serviceMultiplier(billingRule) {
                 if (billingRule === 'per_night') return bookingNightCount;
@@ -1233,7 +1229,6 @@ unset($__errorArgs, $__bag); ?>
                     check_out_date: document.querySelector('input[name="check_out_date"]')?.value || <?php echo json_encode($bookingData['check_out_date'], 15, 512) ?>,
                     adult_count: document.querySelector('input[name="adult_count"]')?.value || <?php echo json_encode($bookingData['adult_count'], 15, 512) ?>,
                     child_count: document.querySelector('input[name="child_count"]')?.value || <?php echo json_encode($bookingData['child_count'] ?? 0, 15, 512) ?>,
-                    baby_count: document.querySelector('input[name="baby_count"]')?.value || <?php echo json_encode($bookingData['baby_count'] ?? 0, 15, 512) ?>,
                     room_quantity: document.querySelector('input[name="room_quantity"]')?.value || <?php echo json_encode($bookingData['room_quantity'] ?? 1, 15, 512) ?>,
                     customer_cccd: (cccdInput?.value || '').replace(/\D/g, '')
                 });
@@ -1280,7 +1275,7 @@ unset($__errorArgs, $__bag); ?>
 
 <?php echo $__env->make('partials.cccd-scanner-script', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
 <script>
-const bookingOptionInputs = ['editBookingCheckIn','editBookingCheckOut','editBookingAdults','editBookingChildren','editBookingBabies','editBookingRooms']
+const bookingOptionInputs = ['editBookingCheckIn','editBookingCheckOut','editBookingAdults','editBookingChildren','editBookingRooms']
     .map(id => document.getElementById(id)).filter(Boolean);
 const finalBookingSubmit = document.getElementById('finalBookingSubmit');
 const initialBookingOption = bookingOptionInputs.map(input => input.value).join('|');
@@ -1326,7 +1321,6 @@ document.getElementById('recheckBookingOption')?.addEventListener('click', funct
         check_out_date: document.getElementById('editBookingCheckOut').value,
         adult_count: document.getElementById('editBookingAdults').value,
         child_count: document.getElementById('editBookingChildren').value,
-        baby_count: document.getElementById('editBookingBabies').value,
         room_quantity: document.getElementById('editBookingRooms').value,
         note: <?php echo json_encode($bookingData['note'] ?? '', 15, 512) ?>
     });

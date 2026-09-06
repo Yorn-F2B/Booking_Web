@@ -8,7 +8,6 @@ class BookingGuest extends Model
 {
     public const TYPE_ADULT = 'adult';
     public const TYPE_CHILD = 'child';
-    public const TYPE_INFANT = 'infant';
 
     protected $fillable = [
         'booking_id',

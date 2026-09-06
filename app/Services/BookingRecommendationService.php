@@ -8,11 +8,10 @@ use Illuminate\Support\Collection;
 
 class BookingRecommendationService
 {
-    public function recommend(string $checkInAt, string $checkOutAt, int $adults, int $children = 0, int $babies = 0, ?int $categoryId = null): Collection
+    public function recommend(string $checkInAt, string $checkOutAt, int $adults, int $children = 0, ?int $categoryId = null): Collection
     {
         $adults = max(1, $adults);
         $children = max(0, $children);
-        $babies = max(0, $babies);
         $checkIn = Carbon::parse($checkInAt, 'Asia/Ho_Chi_Minh');
         $checkOut = Carbon::parse($checkOutAt, 'Asia/Ho_Chi_Minh');
         $nights = max(1, $checkIn->copy()->startOfDay()->diffInDays($checkOut->copy()->startOfDay()));
@@ -27,11 +26,11 @@ class BookingRecommendationService
 
         $maxRooms = max(1, (int) app(HotelPolicyService::class)->get('booking.max_online_rooms', 30));
 
-        return $query->get()->map(function (RoomCategory $category) use ($adults, $children, $babies, $nights, $maxRooms) {
+        return $query->get()->map(function (RoomCategory $category) use ($adults, $children, $nights, $maxRooms) {
             $adultCap = max(1, (int) $category->adult_capacity);
             $childCap = max(0, (int) $category->child_capacity);
             $roomsForAdults = (int) ceil($adults / $adultCap);
-            $minorCount = $children + $babies;
+            $minorCount = $children;
             $roomsForChildren = $minorCount > 0
                 ? ($childCap > 0 ? (int) ceil($minorCount / $childCap) : PHP_INT_MAX)
                 : 1;
@@ -44,7 +43,7 @@ class BookingRecommendationService
             }
 
             $totalCapacity = ($adultCap + $childCap) * $required;
-            $guestTotal = $adults + $children + $babies;
+            $guestTotal = $adults + $children;
             $wasted = max(0, $totalCapacity - $guestTotal);
             $total = (float) $category->price * $nights * $required;
 

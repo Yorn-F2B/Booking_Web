@@ -19,6 +19,8 @@
     $oldRoomMinibarItemMap = $roomInspection->items->where('type', 'minibar')->keyBy('service_id');
     $isInitialStep = $roomInspection->workflow_stage === 'housekeeping_report' && in_array($roomInspection->status, ['pending', 'rejected']);
     $isRecheckStep = $roomInspection->workflow_stage === 'housekeeping_recheck' && $roomInspection->status === 'reported';
+    $attachmentContextLabels = \App\Models\RoomInspectionAttachment::contextOptions();
+    $attachmentGroups = $roomInspection->attachments->groupBy('context');
 ?>
 
 <div class="admin-wrapper">
@@ -62,8 +64,31 @@
                     <div class="mb-3"><div class="text-muted small">Hạng phòng</div><strong><?php echo e($roomInspection->booking->roomCategory->name ?? '---'); ?></strong></div>
                     <div class="mb-3"><div class="text-muted small">Lần cập nhật gần nhất</div><?php echo e($roomInspection->last_revision_at?->format('d/m/Y H:i:s') ?? 'Chưa có'); ?></div>
                     <?php if($roomInspection->last_update_summary): ?>
-                        <div class="alert alert-light border small mb-0"><?php echo e($roomInspection->last_update_summary); ?></div>
+                        <div class="alert alert-light border small mb-3"><?php echo e($roomInspection->last_update_summary); ?></div>
                     <?php endif; ?>
+
+                    <div>
+                        <div class="text-muted small mb-2">Ảnh minh chứng đã lưu</div>
+                        <?php if($attachmentGroups->isNotEmpty()): ?>
+                            <?php $__currentLoopData = $attachmentGroups; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $context => $attachments): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                <div class="mb-3">
+                                    <div class="small fw-semibold"><?php echo e($attachmentContextLabels[$context] ?? 'Ảnh minh chứng'); ?></div>
+                                    <div class="d-flex flex-wrap gap-2 mt-2">
+                                        <?php $__currentLoopData = $attachments; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $attachment): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                            <div style="width:110px">
+                                                <a href="<?php echo e(route('admin.floor-inspection-attachments.show', $attachment)); ?>" target="_blank">
+                                                    <img src="<?php echo e(route('admin.floor-inspection-attachments.show', $attachment)); ?>" alt="Ảnh minh chứng" style="width:110px;height:110px;object-fit:cover;border-radius:10px;border:1px solid #ddd;">
+                                                </a>
+                                                <div class="small text-muted mt-1"><?php echo e($attachment->uploader->name ?? 'Buồng phòng'); ?> · <?php echo e($attachment->created_at?->format('d/m H:i')); ?></div>
+                                            </div>
+                                        <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                    </div>
+                                </div>
+                            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                        <?php else: ?>
+                            <div class="small text-muted">Chưa có ảnh minh chứng.</div>
+                        <?php endif; ?>
+                    </div>
 
                 </div>
             </div>
@@ -79,7 +104,7 @@
                                 <div class="alert alert-warning small">
                                     Chỉ dùng khi vừa phát hiện thêm minibar, mất đồ hoặc hư hại <strong>sau lần kiểm tra trước</strong> và booking chưa checkout. Mỗi khoản sẽ được tạo thành dòng mới, ghi người/thời điểm phát hiện và gửi lại lễ tân để xử lý.
                                 </div>
-                                <form action="<?php echo e(route('admin.floor-inspections.supplemental-report', $roomInspection->id)); ?>" method="POST">
+                                <form action="<?php echo e(route('admin.floor-inspections.supplemental-report', $roomInspection->id)); ?>" method="POST" enctype="multipart/form-data">
                                     <?php echo csrf_field(); ?>
                                     <div class="mb-4">
                                         <label class="form-label fw-semibold">Minibar / đồ dùng mới phát hiện</label>
@@ -105,6 +130,16 @@
                                         <label class="form-label fw-semibold">Lý do / căn cứ phát hiện bổ sung <span class="text-danger">*</span></label>
                                         <textarea name="supplemental_note" rows="3" class="form-control" required placeholder="Ví dụ: phát hiện vết nứt sau khi dọn lớp ga; kiểm kê minibar lần hai thấy thiếu..."><?php echo e(old('supplemental_note')); ?></textarea>
                                     </div>
+                                    <div class="mb-3">
+                                        <label class="form-label fw-semibold">Ảnh minh chứng bổ sung <span class="text-muted fw-normal">(tối đa 6 ảnh)</span></label>
+                                        <input type="file" id="supplementalImages" name="supplemental_images[]" class="form-control js-camera-capture-input" accept="image/jpeg,image/png,image/webp" multiple data-persistent-files data-camera-button="#supplementalCameraButton">
+                                        <div class="d-flex gap-2 align-items-center mt-2 flex-wrap">
+                                            <button type="button" id="supplementalCameraButton" class="btn btn-outline-primary btn-sm js-open-camera" data-target-input="#supplementalImages">
+                                                <i class="bx bx-camera me-1"></i> Chụp bằng camera
+                                            </button>
+                                            <span class="small text-muted">Có thể chọn ảnh có sẵn hoặc chụp trực tiếp để lưu lại bằng chứng.</span>
+                                        </div>
+                                    </div>
                                     <button type="submit" class="btn btn-warning w-100" onclick="return confirm('Tạo khoản phát hiện bổ sung? Các khoản đã xử lý trước đó sẽ được giữ nguyên và checkout tiếp tục bị chặn cho đến khi khoản mới được giải quyết.')">
                                         Ghi nhận phát hiện bổ sung
                                     </button>
@@ -119,7 +154,7 @@
                             Nhập lại số lượng thực tế.
                         </div>
 
-                        <form action="<?php echo e(route('admin.floor-inspections.recheck', $roomInspection->id)); ?>" method="POST" id="recheckForm">
+                        <form action="<?php echo e(route('admin.floor-inspections.recheck', $roomInspection->id)); ?>" method="POST" id="recheckForm" enctype="multipart/form-data">
                             <?php echo csrf_field(); ?>
                             <div class="table-responsive">
                                 <table class="table table-bordered align-middle">
@@ -213,6 +248,16 @@
                                     </tbody>
                                 </table>
                             </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">Ảnh minh chứng kiểm tra lại <span class="text-muted fw-normal">(tối đa 6 ảnh)</span></label>
+                                <input type="file" id="recheckImages" name="recheck_images[]" class="form-control js-camera-capture-input" accept="image/jpeg,image/png,image/webp" multiple data-persistent-files data-camera-button="#recheckCameraButton">
+                                <div class="d-flex gap-2 align-items-center mt-2 flex-wrap">
+                                    <button type="button" id="recheckCameraButton" class="btn btn-outline-primary btn-sm js-open-camera" data-target-input="#recheckImages">
+                                        <i class="bx bx-camera me-1"></i> Chụp bằng camera
+                                    </button>
+                                    <span class="small text-muted">Nên chụp lại hiện trạng thực tế để lễ tân có căn cứ trao đổi tiếp với khách.</span>
+                                </div>
+                            </div>
                             <button type="submit" class="btn btn-primary w-100" onclick="return confirm('Gửi số lượng đã xác minh cho lễ tân trao đổi lại với khách?')">
                                 Cập nhật số lượng và gửi lại lễ tân
                             </button>
@@ -224,7 +269,7 @@
                             Đây mới là danh sách <strong>dự kiến</strong>. Nếu có khoản phát sinh, lễ tân sẽ trao đổi với khách trước; khoản khách phản hồi sẽ quay lại buồng phòng kiểm tra lại.
                         </div>
 
-                        <form action="<?php echo e(route('admin.floor-inspections.report', $roomInspection->id)); ?>" method="POST">
+                        <form action="<?php echo e(route('admin.floor-inspections.report', $roomInspection->id)); ?>" method="POST" enctype="multipart/form-data">
                             <?php echo csrf_field(); ?>
                             <div class="mb-4">
                                 <label class="form-label fw-semibold">Phòng có hư hại/mất đồ không?</label>
@@ -259,6 +304,17 @@
                             <div class="mb-3">
                                 <label class="form-label">Ghi chú kiểm tra</label>
                                 <textarea name="inspection_note" rows="3" class="form-control" placeholder="Mô tả vị trí, tình trạng và thông tin cần lưu ý"><?php echo e(old('inspection_note', $roomInspection->inspection_note)); ?></textarea>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">Ảnh minh chứng kiểm tra <span class="text-muted fw-normal">(tối đa 6 ảnh)</span></label>
+                                <input type="file" id="inspectionImages" name="inspection_images[]" class="form-control js-camera-capture-input" accept="image/jpeg,image/png,image/webp" multiple data-persistent-files data-camera-button="#inspectionCameraButton">
+                                <div class="d-flex gap-2 align-items-center mt-2 flex-wrap">
+                                    <button type="button" id="inspectionCameraButton" class="btn btn-outline-primary btn-sm js-open-camera" data-target-input="#inspectionImages">
+                                        <i class="bx bx-camera me-1"></i> Chụp bằng camera
+                                    </button>
+                                    <span class="small text-muted">Buồng phòng có thể tải ảnh lên hoặc chụp trực tiếp để lưu bằng chứng khi đối chiếu với khách.</span>
+                                </div>
                             </div>
 
                             <button type="submit" class="btn btn-primary w-100" onclick="return confirm('Gửi kết quả kiểm tra ban đầu? Các khoản phát sinh sẽ chuyển sang lễ tân trao đổi với khách.')">

@@ -443,7 +443,7 @@
             $baseQuantity = max(1, (int) ($item->base_quantity ?: $item->quantity ?: 1));
             $nights = max(1, (int) ($item->nights_snapshot ?: $nightCount));
             $rooms = max(1, (int) ($item->rooms_snapshot ?: $booking->room_quantity ?: 1));
-            $people = max(1, (int) ($item->people_snapshot ?: ((int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0)) ?: 1));
+            $people = max(1, (int) ($item->people_snapshot ?: ((int) $booking->adult_count + (int) $booking->child_count) ?: 1));
             $parts = [number_format((float) $item->unit_price, 0, ',', '.') . 'đ', '× ' . $baseQuantity];
 
             if (in_array($rule, [\App\Models\Service::BILLING_PER_NIGHT, \App\Models\Service::BILLING_PER_ROOM_PER_NIGHT, \App\Models\Service::BILLING_PER_GUEST_PER_NIGHT], true)) {
@@ -610,12 +610,18 @@
         $lateFlowDate = $lateShowCheckInAt?->copy()->startOfDay();
         $noShowStartAt = $lateFlowDate ? $setPolicyTime($lateFlowDate, $directCancelCutoffTimePolicy) : null;
         $noShowEndAt = $lateFlowDate ? $setPolicyTime($lateFlowDate, $lateArrivalCutoffTimePolicy) : null;
-        $canNoShowNow = $usesLateArrivalNoShowPolicy
+        $rescheduledAfterCutoffAt = $isRescheduledAfterCutoff ? $booking->rescheduledAfterCutoffAt() : null;
+
+        // Đơn được lễ tân chuyển từ ngày tương lai về hôm nay là một lịch nhận phòng mới.
+        // Tuyệt đối không dựng lại giờ G/no-show hay "thời gian ân hạn" cho chính lần đổi lịch này.
+        // Backend guardCheckInArrivalTime()/usesLateArrivalNoShowPolicy() cũng dùng cùng nguyên tắc.
+        $normalNoShowEligible = $usesLateArrivalNoShowPolicy
             && $booking->status == 'confirmed'
             && !$booking->actual_check_in
-            && $noShowStartAt
-            && $lateShowNowVn->greaterThanOrEqualTo($noShowStartAt)
-            && $lateShowNowVn->lessThan($noShowEndAt);
+            && $lateShowCheckInAt
+            && $lateShowNowVn->greaterThanOrEqualTo($lateShowCheckInAt)
+            && (!$lateShowCheckOutAt || $lateShowNowVn->lessThan($lateShowCheckOutAt));
+        $canNoShowNow = $normalNoShowEligible;
         $canConfirmLateArrivalNow = $usesLateArrivalNoShowPolicy
             && $booking->status == 'confirmed'
             && !$booking->actual_check_in
@@ -1693,7 +1699,18 @@
                     <div class="metric-grid">
                         <div class="metric-card"><span>Khách hàng</span><strong><?php echo e($customerName); ?></strong></div>
                         <div class="metric-card"><span>Thời gian lưu trú</span><strong><?php echo e($lateShowCheckInAt?->format('d/m/Y H:i') ?? '---'); ?><br>→ <?php echo e($lateShowCheckOutAt?->format('d/m/Y H:i') ?? '---'); ?></strong></div>
-                        <div class="metric-card"><span>Hạng phòng khách đặt</span><strong><?php echo e($booking->roomCategory->name ?? 'Không xác định'); ?><br><span class="text-muted small"><?php echo e($booking->room_quantity); ?> phòng · <?php echo e($booking->adult_count); ?> NL / <?php echo e($booking->child_count); ?> TE / <?php echo e($booking->baby_count ?? 0); ?> EB · Sức chứa <?php echo e($currentAdultCapacity); ?> NL / <?php echo e($currentChildCapacity); ?> TE</span></strong></div>
+                        <div class="metric-card"><span>Hạng phòng khách đặt</span><strong><?php echo e($booking->roomCategory->name ?? 'Không xác định'); ?><br><span class="text-muted small"><?php echo e($booking->room_quantity); ?> phòng · <?php echo e($booking->adult_count); ?> NL / <?php echo e($booking->child_count); ?> TE · Sức chứa <?php echo e($currentAdultCapacity); ?> NL / <?php echo e($currentChildCapacity); ?> TE</span></strong></div>
+                        <?php if($booking->actual_check_in): ?>
+                            <?php
+                                $initialCheckInAdults = (int) ($booking->check_in_adult_count ?? $booking->adult_count);
+                                $initialCheckInChildren = (int) ($booking->check_in_child_count ?? $booking->child_count);
+                                $initialCheckInTotal = $initialCheckInAdults + $initialCheckInChildren;
+                            ?>
+                            <div class="metric-card">
+                                <span>Khách thực tế lúc check-in ban đầu</span>
+                                <strong><?php echo e($initialCheckInTotal); ?> khách<br><span class="text-muted small"><?php echo e($initialCheckInAdults); ?> người lớn · <?php echo e($initialCheckInChildren); ?> trẻ em · <?php echo e($booking->actual_check_in->timezone('Asia/Ho_Chi_Minh')->format('H:i d/m/Y')); ?></span></strong>
+                            </div>
+                        <?php endif; ?>
                         <div class="metric-card"><span>Còn lại cần thu</span><strong class="text-danger fs-5"><?php echo e(number_format($remainingTotal, 0, ',', '.')); ?>đ</strong></div>
                     </div>
                 </div>
@@ -1776,6 +1793,34 @@
                                     <?php endif; ?>
                                 </div>
                                 <div class="list-group-item px-0">
+                                    <strong>Phân phòng theo yêu cầu khách</strong>
+                                    <?php if(($booking->room_selection_mode ?? 'automatic') === 'manual'): ?>
+                                        <div class="small text-muted mt-1 mb-2">
+                                            Trạng thái: <?php echo e($booking->room_selection_status === 'fulfilled' ? 'Đã đáp ứng' : ($booking->room_selection_status === 'fallback_accepted' ? 'Khách đã nhận phòng dự phòng' : 'Cần/đang xử lý')); ?>.
+                                        </div>
+                                        <a href="#manualRoomSelectionPanel" class="btn btn-sm btn-outline-primary" data-bs-dismiss="modal">
+                                            <i class="bx bx-check-square me-1"></i> Mở phần chọn phòng thủ công
+                                        </a>
+                                    <?php else: ?>
+                                        <div class="small text-muted mt-1">Booking này không yêu cầu lễ tân chọn phòng cụ thể.</div>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="list-group-item px-0">
+                                    <strong>Xử lý đến muộn / no-show</strong>
+                                    <?php if($canHandleNoShowNow): ?>
+                                        <div class="small text-muted mt-1 mb-2">Đã đến thời điểm có thể xử lý theo chính sách giữ phòng.</div>
+                                        <a href="#lateArrivalHandlingPanel" class="btn btn-sm btn-outline-danger" data-bs-dismiss="modal">
+                                            <i class="bx bx-time-five me-1"></i> Mở xử lý đến muộn
+                                        </a>
+                                    <?php elseif(in_array($booking->status, ['pending', 'confirmed'], true) && !$booking->actual_check_in): ?>
+                                        <div class="small text-muted mt-1">
+                                            Chưa đến thời điểm xử lý no-show. Hạn giữ hiện tại: <strong><?php echo e($lateShowNoShowLimitAt?->format('H:i d/m/Y') ?? '---'); ?></strong>.
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="small text-muted mt-1">Không áp dụng ở trạng thái hiện tại.</div>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="list-group-item px-0">
                                     <strong>Báo cáo sự cố</strong>
                                     <?php if($booking->status === 'checked_in' && $booking->actual_check_in): ?>
                                         <?php if($canSendRoomIssueForm): ?>
@@ -1847,6 +1892,81 @@ unset($__errorArgs, $__bag); ?>
                 </div>
             </div>
 
+            <?php
+                $deliveryTypeLabels = [
+                    'booking_confirmation' => 'Xác nhận đặt phòng',
+                    'payment_success_booking_confirmation' => 'Xác nhận thanh toán',
+                    'vnpay_payment_request' => 'Yêu cầu thanh toán VNPay',
+                    'room_selection_result' => 'Kết quả chọn phòng',
+                    'late_arrival_form' => 'Form đến muộn',
+                    'room_issue_form' => 'Form báo sự cố',
+                    'booking_cancelled' => 'Thông báo hủy booking',
+                    'guest_booking_lookup_otp' => 'OTP tra cứu booking',
+                    'booking_cancel_otp' => 'OTP hủy booking',
+                    'operational_notification' => 'Cập nhật booking',
+                ];
+                $latestCustomerDelivery = $customerDeliveryLogs->first();
+            ?>
+            <details class="compact-panel mb-3" id="customer-delivery-panel">
+                <summary>
+                    <span>
+                        <i class="bx bx-envelope me-1"></i> Thông báo đã gửi cho khách
+                        <span class="text-muted fw-normal small ms-2"><?php echo e($customerDeliveryLogs->count()); ?> thông báo · bấm để xem</span>
+                    </span>
+                    <?php if($latestCustomerDelivery): ?>
+                        <span class="badge-clean <?php echo e($latestCustomerDelivery->status === 'sent' ? 'status-done' : ($latestCustomerDelivery->status === 'failed' ? 'status-cancelled' : 'status-warning')); ?>">
+                            <?php echo e($latestCustomerDelivery->status === 'sent' ? 'Đã gửi' : ($latestCustomerDelivery->status === 'failed' ? 'Gửi lỗi' : 'Đang gửi')); ?>
+
+                        </span>
+                    <?php else: ?>
+                        <span class="badge-clean status-muted">Chưa có</span>
+                    <?php endif; ?>
+                </summary>
+                <div class="compact-panel-body" style="max-height:320px; overflow-y:auto;">
+                    <?php $__empty_1 = true; $__currentLoopData = $customerDeliveryLogs; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $deliveryLog): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
+                        <?php
+                            $deliveryMeta = is_array($deliveryLog->meta) ? $deliveryLog->meta : [];
+                            $deliveryTitle = trim((string) ($deliveryMeta['notification_title'] ?? $deliveryLog->subject ?? 'Thông báo cho khách'));
+                            $deliveryMessage = trim((string) ($deliveryMeta['notification_message'] ?? ''));
+                            $deliveryWhen = $deliveryLog->sent_at ?: $deliveryLog->failed_at ?: $deliveryLog->created_at;
+                        ?>
+                        <div class="soft-note mb-2" style="border-left:4px solid <?php echo e($deliveryLog->status === 'sent' ? '#16866f' : ($deliveryLog->status === 'failed' ? '#dc3545' : '#d9aa25')); ?>;">
+                            <div class="d-flex justify-content-between gap-3 flex-wrap align-items-start">
+                                <div>
+                                    <div class="fw-bold"><?php echo e($deliveryTitle); ?></div>
+                                    <div class="small text-muted mt-1">
+                                        Gửi đến: <strong><?php echo e($deliveryLog->recipient ?: '---'); ?></strong>
+                                        · <?php echo e($deliveryTypeLabels[$deliveryLog->mail_type] ?? $deliveryLog->mail_type); ?>
+
+                                        · <?php echo e(optional($deliveryWhen)->timezone('Asia/Ho_Chi_Minh')->format('H:i d/m/Y')); ?>
+
+                                    </div>
+                                </div>
+                                <span class="badge-clean <?php echo e($deliveryLog->status === 'sent' ? 'status-done' : ($deliveryLog->status === 'failed' ? 'status-cancelled' : 'status-warning')); ?>">
+                                    <?php echo e($deliveryLog->status === 'sent' ? 'Đã gửi email' : ($deliveryLog->status === 'failed' ? 'Gửi thất bại' : 'Chờ gửi')); ?>
+
+                                </span>
+                            </div>
+                            <?php if($deliveryMessage !== ''): ?>
+                                <div class="small mt-2"><strong>Nội dung:</strong> <?php echo e($deliveryMessage); ?></div>
+                            <?php elseif($deliveryLog->subject): ?>
+                                <div class="small mt-2"><strong>Nội dung/tiêu đề:</strong> <?php echo e($deliveryLog->subject); ?></div>
+                            <?php endif; ?>
+                            <?php if($deliveryLog->status === 'failed' && filled($deliveryLog->error_message)): ?>
+                                <div class="small text-danger mt-2"><strong>Lỗi gửi:</strong> <?php echo e($deliveryLog->error_message); ?></div>
+                            <?php endif; ?>
+                        </div>
+                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
+                        <div class="soft-note text-muted">
+                            Chưa có email/thông báo nào được gửi cho khách từ booking này.
+                        </div>
+                    <?php endif; ?>
+                    <div class="small text-muted mt-2">
+                        “Đã gửi email” nghĩa là hệ thống đã giao thư thành công cho máy chủ mail; khách vẫn có thể nhận ở Inbox hoặc Spam.
+                    </div>
+                </div>
+            </details>
+
             <div class="booking-shell">
                 <div class="main-stack">
                     <section class="card-clean primary-operation-card">
@@ -1861,6 +1981,10 @@ unset($__errorArgs, $__bag); ?>
                         </div>
 
                         <div class="operation-list">
+                            <?php if($booking->status == 'checked_in'): ?>
+                                <?php echo $__env->make('admin.pages.bookings.partials.staying-guests', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+                            <?php endif; ?>
+
                             <?php if($booking->status == 'confirmed'): ?>
                                 <div class="operation-row">
                                     <div class="operation-row-head">
@@ -2236,41 +2360,17 @@ unset($__errorArgs, $__bag); ?>
                                     <?php endif; ?>
 
                                     <?php
-                                        // booking_rooms là nguồn số người thực tế; booking_guests chỉ lưu
-                                        // hồ sơ đại diện/giấy tờ nên không dùng số hồ sơ để tính sức chứa.
-                                        $checkInRoomCapacityStates = $booking->bookingRooms->map(function ($bookingRoom) {
-                                            $adultCount = max(0, (int) $bookingRoom->adult_count);
-                                            $childCount = max(0, (int) $bookingRoom->child_count);
-                                            $babyCount = max(0, (int) ($bookingRoom->baby_count ?? 0));
-                                            $minorCount = $childCount + $babyCount;
-                                            $adultCapacity = (int) ($bookingRoom->room?->category?->adult_capacity ?? 0);
-                                            $childCapacity = (int) ($bookingRoom->room?->category?->child_capacity ?? 0);
+                                        $bookingAllocatedAdults = (int) $booking->bookingRooms->sum('adult_count');
+                                        $bookingAllocatedChildren = (int) $booking->bookingRooms->sum('child_count');
 
-                                            return [
-                                                'booking_room_id' => (int) $bookingRoom->id,
-                                                'room_number' => $bookingRoom->room?->room_number ?? '---',
-                                                'adult_count' => $adultCount,
-                                                'child_count' => $childCount,
-                                                'baby_count' => $babyCount,
-                                                'minor_count' => $minorCount,
-                                                'adult_capacity' => $adultCapacity,
-                                                'child_capacity' => $childCapacity,
-                                                'adult_over' => max(0, $adultCount - $adultCapacity),
-                                                'minor_over' => max(0, $minorCount - $childCapacity),
-                                            ];
-                                        })->values();
+                                        $actualAdultsForCheckIn = max(1, (int) old('actual_adult_count', $booking->adult_count));
+                                        $actualChildrenForCheckIn = max(0, (int) old('actual_child_count', $booking->child_count));
+                                        $actualMinorForCheckIn = $actualChildrenForCheckIn;
+                                        $adultOverForCheckIn = max(0, $actualAdultsForCheckIn - $currentAdultCapacity);
+                                        $minorOverForCheckIn = max(0, $actualMinorForCheckIn - $currentChildCapacity);
+                                        $initialAnyOverCapacity = $adultOverForCheckIn > 0 || $minorOverForCheckIn > 0;
+                                        $initialActualGuestConfirmed = (string) old('actual_guest_confirmed', '') === '1';
 
-                                        $perRoomOverCapacityForCheckIn = $checkInRoomCapacityStates
-                                            ->contains(fn ($state) => $state['adult_over'] > 0 || $state['minor_over'] > 0);
-                                        $canResolveCapacityByMovingGuests = false;
-                                        $capacityMoveSuggestionGroups = collect();
-
-                                        $initialActualAdults = (int) $booking->bookingRooms->sum('adult_count');
-                                        $initialActualChildren = (int) $booking->bookingRooms->sum('child_count');
-                                        $initialActualBabies = (int) $booking->bookingRooms->sum('baby_count');
-                                        $initialAggregateOverCapacity = $initialActualAdults > $currentAdultCapacity
-                                            || ($initialActualChildren + $initialActualBabies) > $currentChildCapacity;
-                                        $initialAnyOverCapacity = $initialAggregateOverCapacity || $perRoomOverCapacityForCheckIn;
                                         $workflowRoomCount = max(1, $booking->bookingRooms->count());
                                         $workflowNeedsGroupRepresentative = $workflowRoomCount > 1;
                                         $workflowMissingRepresentativeRooms = $booking->bookingRooms->filter(function ($bookingRoom) use ($booking) {
@@ -2282,98 +2382,199 @@ unset($__errorArgs, $__bag); ?>
                                             || $booking->guests->where('is_booking_representative', true)->count() === 1;
                                     ?>
 
-                                    <div class="border rounded p-3 mb-3 <?php echo e($adminPaymentPaidAmount + 0.01 >= $adminPaymentDepositTarget ? 'bg-light' : 'border-warning bg-warning-subtle'); ?>" id="checkInDepositStep">
-                                        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
-                                            <div>
-                                                <div class="fw-bold">Bước 1 · Thu đủ cọc</div>
-                                                <div class="small text-muted">Đã thu <?php echo e(number_format($adminPaymentPaidAmount, 0, ',', '.')); ?>đ / mức cọc cần <?php echo e(number_format($adminPaymentDepositTarget, 0, ',', '.')); ?>đ.</div>
-                                            </div>
-                                            <?php if($adminPaymentPaidAmount + 0.01 >= $adminPaymentDepositTarget): ?>
-                                                <span class="badge text-bg-success">Đã đủ cọc</span>
-                                            <?php else: ?>
+                                    <details class="compact-panel mb-3" id="checkInDepositStep">
+                                        <summary>
+                                            <span>Điều kiện 1 · Thu đủ cọc</span>
+                                            <span class="badge-clean <?php echo e($adminPaymentPaidAmount + 0.01 >= $adminPaymentDepositTarget ? 'status-done' : 'status-warning'); ?>">
+                                                <?php echo e($adminPaymentPaidAmount + 0.01 >= $adminPaymentDepositTarget ? 'Đã đủ cọc' : 'Còn thiếu ' . number_format(max(0, $adminPaymentDepositTarget - $adminPaymentPaidAmount), 0, ',', '.') . 'đ'); ?>
+
+                                            </span>
+                                        </summary>
+                                        <div class="compact-panel-body">
+                                            <div class="small text-muted mb-2">Đã thu <?php echo e(number_format($adminPaymentPaidAmount, 0, ',', '.')); ?>đ / mức cọc cần <?php echo e(number_format($adminPaymentDepositTarget, 0, ',', '.')); ?>đ.</div>
+                                            <?php if($adminPaymentPaidAmount + 0.01 < $adminPaymentDepositTarget): ?>
                                                 <a href="#bookingPaymentPanel" class="btn btn-warning btn-sm">Thu thêm <?php echo e(number_format(max(0, $adminPaymentDepositTarget - $adminPaymentPaidAmount), 0, ',', '.')); ?>đ</a>
                                             <?php endif; ?>
                                         </div>
-                                    </div>
+                                    </details>
 
-                                    <details class="compact-panel mb-3" id="actualOccupancyPanel" open>
+                                    <details class="compact-panel mb-3" id="checkInActualGuestsStep"
+                                        data-adult-capacity="<?php echo e((int) $currentAdultCapacity); ?>"
+                                        data-child-capacity="<?php echo e((int) $currentChildCapacity); ?>"
+                                        <?php if($initialAnyOverCapacity): ?> open <?php endif; ?>>
                                         <summary>
-                                            <span>Bước 2 · Xác nhận số khách thực tế theo phòng</span>
-                                            <span class="badge-clean <?php echo e($initialAnyOverCapacity ? 'status-warning' : 'status-done'); ?>">
-                                                <?php echo e($initialActualAdults); ?> NL / <?php echo e($initialActualChildren); ?> TE / <?php echo e($initialActualBabies); ?> EB
+                                            <span>Điều kiện 2 · Khách thực tế đến nhận phòng</span>
+                                            <span class="badge-clean <?php echo e((!$initialActualGuestConfirmed || $initialAnyOverCapacity) ? 'status-warning' : 'status-done'); ?>" id="actualGuestCapacityBadge">
+                                                <?php echo e(!$initialActualGuestConfirmed ? 'Chưa xác nhận' : ($initialAnyOverCapacity ? 'Vượt sức chứa' : 'Đã đối chiếu')); ?>
+
                                             </span>
                                         </summary>
                                         <div class="compact-panel-body">
                                             <div class="small text-muted mb-3">
-                                                Nhập đúng số người thực tế sẽ ở từng phòng. Đây là số dùng để kiểm tra sức chứa và phụ thu; không cần tạo hồ sơ cho từng khách.
+                                                Chỉ nhập <strong>tổng số khách thực tế đến</strong>. Hệ thống đối chiếu với tổng sức chứa của <?php echo e($workflowRoomCount); ?> phòng để xác định có cần phụ thu hay không; không cần phân từng khách vào từng phòng.
                                             </div>
-                                            <form method="POST" action="<?php echo e(route('admin.bookings.occupancy.update', $booking)); ?>">
-                                                <?php echo csrf_field(); ?>
-                                                <?php echo method_field('PATCH'); ?>
-                                                <div class="row g-2">
-                                                    <?php $__currentLoopData = $booking->bookingRooms; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $bookingRoom): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                        <?php
-                                                            $capacity = $bookingRoom->room?->category;
-                                                            $roomAdult = max(1, (int) $bookingRoom->adult_count);
-                                                            $roomChild = max(0, (int) $bookingRoom->child_count);
-                                                            $roomBaby = max(0, (int) ($bookingRoom->baby_count ?? 0));
-                                                        ?>
-                                                        <div class="col-12">
-                                                            <div class="border rounded p-3 bg-light">
-                                                                <div class="d-flex justify-content-between gap-2 flex-wrap mb-2">
-                                                                    <strong>Phòng <?php echo e($bookingRoom->room?->room_number ?? '---'); ?></strong>
-                                                                    <span class="small text-muted">Sức chứa: <?php echo e((int) ($capacity?->adult_capacity ?? 0)); ?> NL / <?php echo e((int) ($capacity?->child_capacity ?? 0)); ?> TE/EB</span>
-                                                                </div>
-                                                                <div class="row g-2">
-                                                                    <div class="col-md-4">
-                                                                        <label class="form-label small">Người lớn <span class="text-danger">*</span></label>
-                                                                        <input type="number" min="1" max="50" class="form-control form-control-sm"
-                                                                            name="rooms[<?php echo e($bookingRoom->id); ?>][adult_count]" value="<?php echo e(old('rooms.' . $bookingRoom->id . '.adult_count', $roomAdult)); ?>" required>
-                                                                    </div>
-                                                                    <div class="col-md-4">
-                                                                        <label class="form-label small">Trẻ em</label>
-                                                                        <input type="number" min="0" max="50" class="form-control form-control-sm"
-                                                                            name="rooms[<?php echo e($bookingRoom->id); ?>][child_count]" value="<?php echo e(old('rooms.' . $bookingRoom->id . '.child_count', $roomChild)); ?>" required>
-                                                                    </div>
-                                                                    <div class="col-md-4">
-                                                                        <label class="form-label small">Em bé</label>
-                                                                        <input type="number" min="0" max="50" class="form-control form-control-sm"
-                                                                            name="rooms[<?php echo e($bookingRoom->id); ?>][baby_count]" value="<?php echo e(old('rooms.' . $bookingRoom->id . '.baby_count', $roomBaby)); ?>" required>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                            <div class="row g-2">
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Người lớn <span class="text-danger">*</span></label>
+                                                    <input type="number" min="1" name="actual_adult_count" id="actualAdultCount"
+                                                        form="checkInForm" class="form-control <?php $__errorArgs = ['actual_adult_count'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>"
+                                                        value="<?php echo e($actualAdultsForCheckIn); ?>" required>
+                                                    <?php $__errorArgs = ['actual_adult_count'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?><div class="invalid-feedback"><?php echo e($message); ?></div><?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>
                                                 </div>
-                                                <button type="submit" class="btn btn-primary btn-sm mt-3">Lưu số khách thực tế</button>
-                                            </form>
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Trẻ em <span class="text-danger">*</span></label>
+                                                    <input type="number" min="0" name="actual_child_count" id="actualChildCount"
+                                                        form="checkInForm" class="form-control <?php $__errorArgs = ['actual_child_count'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>"
+                                                        value="<?php echo e($actualChildrenForCheckIn); ?>" required>
+                                                    <?php $__errorArgs = ['actual_child_count'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?><div class="invalid-feedback"><?php echo e($message); ?></div><?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>
+                                                </div>
+                                            </div>
+                                            <div class="action-summary mt-3">
+                                                <div class="action-summary-item"><span>Tổng sức chứa người lớn</span><strong><?php echo e($currentAdultCapacity); ?></strong></div>
+                                                <div class="action-summary-item"><span>Tổng sức chứa trẻ em</span><strong><?php echo e($currentChildCapacity); ?></strong></div>
+                                                <div class="action-summary-item"><span>Đối chiếu</span><strong id="actualGuestCapacityText"><?php echo e($initialAnyOverCapacity ? 'Cần xử lý phụ thu/sức chứa' : 'Đủ sức chứa'); ?></strong></div>
+                                            </div>
+                                            
+                                            <div id="overCapacityBox" class="<?php echo e($initialAnyOverCapacity ? '' : 'd-none'); ?> mt-3">
+                                                <div class="alert alert-danger small mb-3">
+                                                    <strong>Số khách thực tế vượt tổng sức chứa.</strong>
+                                                    <span id="aggregateCapacityIssueText">
+                                                        <?php if($adultOverForCheckIn > 0): ?> Vượt <?php echo e($adultOverForCheckIn); ?> người lớn. <?php endif; ?>
+                                                        <?php if($minorOverForCheckIn > 0): ?> Vượt <?php echo e($minorOverForCheckIn); ?> trẻ em. <?php endif; ?>
+                                                    </span>
+                                                </div>
+
+                                                <input type="hidden" name="over_capacity_action" id="overCapacityAction"
+                                                    form="checkInForm" value="<?php echo e($initialAnyOverCapacity ? 'extra_fee' : ''); ?>">
+
+                                                <div class="border rounded overflow-hidden bg-white">
+                                                    <div class="px-3 py-2 border-bottom fw-bold">Phụ thu vượt sức chứa</div>
+                                                    <div class="table-responsive">
+                                                        <table class="table table-sm align-middle mb-0" id="capacityFeeTable">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th style="min-width:120px">Khách</th>
+                                                                    <th style="width:115px">Số lượng</th>
+                                                                    <th style="min-width:260px">Loại phụ thu</th>
+                                                                    <th style="width:140px" class="text-end">Đơn giá</th>
+                                                                    <th style="width:150px" class="text-end">Thành tiền</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                <?php $__currentLoopData = [
+                                                                    'adult' => ['label' => 'Người lớn', 'value' => $actualAdultsForCheckIn],
+                                                                    'child' => ['label' => 'Trẻ em', 'value' => $actualChildrenForCheckIn],
+                                                                ]; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $feeGuestType => $feeGuestMeta): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                                                    <tr class="capacity-fee-row" data-guest-type="<?php echo e($feeGuestType); ?>">
+                                                                        <td class="fw-semibold"><?php echo e($feeGuestMeta['label']); ?></td>
+                                                                        <td>
+                                                                            <input type="number" min="<?php echo e($feeGuestType === 'adult' ? 1 : 0); ?>"
+                                                                                class="form-control form-control-sm capacity-fee-actual-count"
+                                                                                data-sync-target="<?php echo e($feeGuestType === 'adult' ? 'actualAdultCount' : 'actualChildCount'); ?>"
+                                                                                value="<?php echo e($feeGuestMeta['value']); ?>">
+                                                                            <div class="small text-muted mt-1 capacity-fee-billed-count"></div>
+                                                                        </td>
+                                                                        <td>
+                                                                            <select name="extra_service_ids[<?php echo e($feeGuestType); ?>]" form="checkInForm"
+                                                                                class="form-select form-select-sm capacity-fee-service">
+                                                                                <option value="">-- Không phụ thu --</option>
+                                                                                <?php $__currentLoopData = $extraGuestServices; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $service): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                                                                    <option value="<?php echo e($service->id); ?>"
+                                                                                        data-price="<?php echo e($service->price); ?>"
+                                                                                        data-unit="<?php echo e($service->unit); ?>"
+                                                                                        data-service-name="<?php echo e(\Illuminate\Support\Str::lower($service->name)); ?>">
+                                                                                        <?php echo e($service->name); ?>
+
+                                                                                    </option>
+                                                                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                                                            </select>
+                                                                        </td>
+                                                                        <td class="text-end">
+                                                                            <span class="capacity-fee-unit-price">0đ</span>
+                                                                        </td>
+                                                                        <td class="text-end fw-bold">
+                                                                            <span class="capacity-fee-total">0đ</span>
+                                                                        </td>
+                                                                    </tr>
+                                                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                                            </tbody>
+                                                            <tfoot>
+                                                                <tr>
+                                                                    <th colspan="4" class="text-end">Tổng phụ thu</th>
+                                                                    <th class="text-end"><span id="allExtraFeeTotalText">0đ</span></th>
+                                                                </tr>
+                                                            </tfoot>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                                <div class="small text-muted mt-2">
+                                                    Số lượng lấy từ khách thực tế ở trên. Sửa tại bảng sẽ tự cập nhật lại số khách thực tế; hệ thống chỉ tính phí cho phần vượt sức chứa.
+                                                </div>
+                                            </div>
+
+
+                                            <div class="form-check mt-3">
+                                                <input class="form-check-input <?php $__errorArgs = ['actual_guest_confirmed'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>" type="checkbox"
+                                                    value="1" name="actual_guest_confirmed" id="actualGuestConfirmed" form="checkInForm"
+                                                    <?php echo e(old('actual_guest_confirmed') ? 'checked' : ''); ?> required>
+                                                <label class="form-check-label" for="actualGuestConfirmed">Tôi đã đối chiếu đúng số khách thực tế đến nhận phòng.</label>
+                                                <?php $__errorArgs = ['actual_guest_confirmed'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?><div class="invalid-feedback"><?php echo e($message); ?></div><?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>
+                                            </div>
                                         </div>
                                     </details>
 
-                
                                     <?php echo $__env->make('admin.pages.bookings.partials.staying-guests', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
 
-                                    <div class="border rounded p-3 mb-3 bg-light" id="checkInReadinessFlow">
-                                        <div class="fw-bold mb-2">Bước 4 · Kiểm tra điều kiện trước khi nhận phòng</div>
-                                        <div class="row g-2 small">
-                                            <div class="col-md-6"><div class="d-flex justify-content-between border rounded p-2 bg-white"><span>Phân đủ phòng</span><strong class="<?php echo e($booking->bookingRooms->count() === max(1, (int) $booking->room_quantity) ? 'text-success' : 'text-danger'); ?>"><?php echo e($booking->bookingRooms->count()); ?>/<?php echo e(max(1, (int) $booking->room_quantity)); ?></strong></div></div>
-                                            <div class="col-md-6"><div class="d-flex justify-content-between border rounded p-2 bg-white"><span>Đại diện từng phòng</span><strong class="<?php echo e($workflowMissingRepresentativeRooms->isEmpty() && $workflowGroupRepresentativeReady ? 'text-success' : 'text-danger'); ?>"><?php echo e($workflowMissingRepresentativeRooms->isEmpty() && $workflowGroupRepresentativeReady ? 'Đủ' : 'Chưa đủ'); ?></strong></div></div>
-                                            <div class="col-md-6"><div class="d-flex justify-content-between border rounded p-2 bg-white"><span>Cọc tối thiểu</span><strong class="<?php echo e($adminPaymentPaidAmount + 0.01 >= $adminPaymentDepositTarget ? 'text-success' : 'text-danger'); ?>"><?php echo e(number_format($adminPaymentPaidAmount,0,',','.')); ?>đ / <?php echo e(number_format($adminPaymentDepositTarget,0,',','.')); ?>đ</strong></div></div>
-                                            <div class="col-md-6"><div class="d-flex justify-content-between border rounded p-2 bg-white"><span>Phòng sẵn sàng</span><strong class="<?php echo e($roomsNotReadyForCheckIn->isEmpty() ? 'text-success' : 'text-danger'); ?>"><?php echo e($roomsNotReadyForCheckIn->isEmpty() ? 'Sẵn sàng' : 'Còn ' . $roomsNotReadyForCheckIn->count() . ' phòng'); ?></strong></div></div>
-                                        </div>
-                                        <?php if($adminPaymentPaidAmount + 0.01 < $adminPaymentDepositTarget): ?>
-                                            <a href="#bookingPaymentPanel" class="btn btn-outline-primary btn-sm mt-3">Thu đủ cọc trước</a>
-                                        <?php endif; ?>
-                                    </div>
 
                                     <form action="<?php echo e(route('admin.bookings.check-in', $booking->id)); ?>" method="POST" enctype="multipart/form-data"
-                                        id="checkInForm">
+                                        id="checkInForm" class="mb-3">
                                         <?php echo csrf_field(); ?>
                                         <?php echo method_field('PATCH'); ?>
 
                                         <input type="hidden" id="adultCapacity" value="<?php echo e($currentAdultCapacity); ?>">
                                         <input type="hidden" id="childCapacity" value="<?php echo e($currentChildCapacity); ?>">
-                                        <input type="hidden" id="perRoomOverCapacity" value="<?php echo e($perRoomOverCapacityForCheckIn ? 1 : 0); ?>">
 
                                         <input type="hidden" name="early_check_in_action" id="earlyCheckInAction" value="">
                                         <input type="hidden" id="earlyCheckInIsActive" value="<?php echo e($isEarlyCheckInNow ? 1 : 0); ?>">
@@ -2389,9 +2590,7 @@ unset($__errorArgs, $__bag); ?>
                                         <input type="hidden" id="earlyCheckInFinalTotalPreview" value="<?php echo e($earlyCheckInFinalTotalPreview); ?>">
 
                                         <?php
-                                            $checkInDeclaredAdults = $booking->guests->where('guest_type', 'adult')->count();
-                                            $checkInDeclaredChildren = $booking->guests->where('guest_type', 'child')->count();
-                                            $checkInDeclaredInfants = $booking->guests->where('guest_type', 'infant')->count();
+                                            $checkInDeclaredRepresentatives = $booking->guests->where('guest_type', 'adult')->count();
                                             $checkInRequiredRoomCount = max(1, (int) ($booking->room_quantity ?? 1));
                                             $needsGroupRepresentativeForCheckIn = $checkInRequiredRoomCount > 1;
                                             $hasRepresentative = !$needsGroupRepresentativeForCheckIn || $booking->guests->where('is_booking_representative', true)->count() === 1;
@@ -2419,300 +2618,194 @@ unset($__errorArgs, $__bag); ?>
                                                 || !$checkInSelectionReady
                                                 || !$checkInRoomsReady
                                                 || !$checkInPaymentReady;
+                                            $checkInDisabledReason = collect([
+                                                $disableCheckInSubmitNow ? ($lateShowMessage ?: 'Chưa đến thời điểm nhận phòng hoặc booking chưa ở trạng thái cho phép.') : null,
+                                                !$checkInPaymentReady ? 'Chưa thu đủ cọc.' : null,
+                                                !$checkInProfileReady ? 'Chưa đủ người đại diện phòng/đại diện đoàn.' : null,
+                                                !$checkInHasExactRoomAssignments ? 'Chưa phân đủ số phòng.' : null,
+                                                !$checkInSelectionReady ? 'Yêu cầu chọn phòng của khách chưa được xử lý xong.' : null,
+                                                !$checkInRoomsReady ? 'Có phòng chưa sẵn sàng để khách vào ở.' : null,
+                                            ])->filter()->implode(' ');
                                         ?>
-                                        <?php if(!$checkInProfileReady): ?>
-                                            <div class="alert alert-warning small mb-3">
-                                                <strong>Chưa đủ hồ sơ người đại diện để check-in.</strong>
-                                                Hiện đã khai <?php echo e($checkInDeclaredAdults); ?> người lớn / <?php echo e($checkInDeclaredChildren); ?> trẻ em / <?php echo e($checkInDeclaredInfants); ?> em bé.
-                                                Mỗi phòng chỉ cần một người lớn đại diện. Booking nhiều phòng cần chọn thêm đúng một trong các đại diện phòng làm đại diện cả đoàn.
-                                                <?php if($missingAdultRepresentativeRooms->isNotEmpty()): ?>
-                                                    <div class="mt-1">
-                                                        Thiếu người lớn đại diện tại:
-                                                        <?php echo e($missingAdultRepresentativeRooms->map(fn ($bookingRoom) => $bookingRoom->room?->room_number ?: ('phòng #' . $bookingRoom->id))->implode(', ')); ?>.
-                                                    </div>
-                                                <?php endif; ?>
-                                                <a href="#stayingGuestsPanel" class="alert-link">Bổ sung hồ sơ</a>.
-                                            </div>
-                                        <?php else: ?>
-                                            <div class="small text-muted mb-3">
-                                                Đã đủ người đại diện cho từng phòng<?php echo e($needsGroupRepresentativeForCheckIn ? ' và đại diện cả đoàn' : ''); ?>. Số khách thực tế được quản lý riêng ở Bước 1.
-                                            </div>
-                                        <?php endif; ?>
+
+                                        <?php
+                                            $checkInConditionNumber = 4;
+                                            $showArrivalCondition = $lateShowCheckInAt
+                                                && !$booking->actual_check_in
+                                                && (
+                                                    $lateShowNowVn->greaterThan($lateShowCheckInAt)
+                                                    || $isBeforeBookingDateNow
+                                                    || $isBeforeHourlyCheckInNow
+                                                    || $isRescheduledAfterCutoff
+                                                );
+                                            $arrivalConditionBlocked = $disableCheckInSubmitNow;
+                                        ?>
 
                                         <?php if(!$checkInHasExactRoomAssignments): ?>
-                                            <div class="alert alert-danger small mb-3">
-                                                <strong>Chưa gán đủ phòng:</strong>
-                                                booking cần đúng <?php echo e($checkInRequiredRoomCount); ?> phòng khác nhau nhưng hiện chỉ có <?php echo e($checkInAssignedRoomIds->unique()->count()); ?> phòng hợp lệ.
-                                                Hãy hoàn tất phân phòng trước khi check-in.
-                                            </div>
+                                            <details class="compact-panel mb-3" open>
+                                                <summary>
+                                                    <span>Điều kiện <?php echo e($checkInConditionNumber); ?> · Phân đủ phòng</span>
+                                                    <span class="badge-clean status-warning">Chưa đủ phòng</span>
+                                                </summary>
+                                                <div class="compact-panel-body small">
+                                                    Booking cần <?php echo e($checkInRequiredRoomCount); ?> phòng khác nhau nhưng hiện chỉ có <?php echo e($checkInAssignedRoomIds->unique()->count()); ?> phòng hợp lệ.
+                                                    <a href="#manualRoomSelectionPanel" class="ms-1">Mở phần phân/chọn phòng</a>.
+                                                </div>
+                                            </details>
+                                            <?php $checkInConditionNumber++; ?>
                                         <?php endif; ?>
 
-                                        <?php if(!$checkInSelectionReady): ?>
-                                            <div class="alert alert-warning small mb-3">
-                                                <strong>Yêu cầu chọn phòng của khách chưa hoàn tất.</strong>
-                                                Cần xử lý xong yêu cầu/phương án dự phòng trước khi check-in.
-                                            </div>
-                                        <?php endif; ?>
+                                        <?php if(($booking->room_selection_mode ?? 'automatic') === 'manual'): ?>
+                                            <details class="compact-panel mb-3" <?php echo e(!$checkInSelectionReady ? 'open' : ''); ?>>
+                                                <summary>
+                                                    <span>Điều kiện <?php echo e($checkInConditionNumber); ?> · Phòng theo yêu cầu khách</span>
+                                                    <span class="badge-clean <?php echo e($checkInSelectionReady ? 'status-done' : 'status-warning'); ?>">
+                                                        <?php echo e($checkInSelectionReady ? 'Đã xử lý' : 'Chưa xử lý'); ?>
 
-                                        <?php if(!$checkInPaymentReady): ?>
-                                            <div class="alert alert-warning small mb-3">
-                                                <strong>Chưa đủ mức cọc:</strong>
-                                                đã thu <?php echo e(number_format($adminPaymentPaidAmount, 0, ',', '.')); ?>đ / cần tối thiểu <?php echo e(number_format($adminPaymentDepositTarget, 0, ',', '.')); ?>đ.
-                                            </div>
-                                        <?php endif; ?>
-
-                                        <input type="hidden" name="actual_adult_count" id="actualAdultCount" value="<?php echo e($initialActualAdults); ?>">
-                                        <input type="hidden" name="actual_child_count" id="actualChildCount" value="<?php echo e($initialActualChildren); ?>">
-                                        <input type="hidden" name="actual_baby_count" id="actualBabyCount" value="<?php echo e($initialActualBabies); ?>">
-
-                                        <div class="soft-note mb-3">
-                                            <strong>Bước 5 · Xác nhận nhận phòng.</strong>
-                                            Nút bên dưới chỉ mở khi đã đủ phòng, đủ cọc, đủ người đại diện và phòng sẵn sàng. Không cần quét lại CCCD ở bước này vì hồ sơ đại diện đã được lưu ở Bước 2.
-                                        </div>
-
-                                        <div id="normalCheckInBox" class="action-summary mb-3 <?php echo e($initialAnyOverCapacity ? 'd-none' : ''); ?>">
-                                            <div class="action-summary-item">
-                                                <span>Sức chứa tổng</span>
-                                                <strong><?php echo e($currentAdultCapacity); ?> NL / <?php echo e($currentChildCapacity); ?> TE/EB</strong>
-                                            </div>
-                                            <div class="action-summary-item">
-                                                <span>Phân bổ từng phòng</span>
-                                                <strong>
-                                                    <?php $__currentLoopData = $checkInRoomCapacityStates; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $state): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                        <span class="badge <?php echo e(($state['adult_over'] > 0 || $state['minor_over'] > 0) ? 'text-bg-danger' : 'text-bg-success'); ?> me-1 mb-1">
-                                                            P.<?php echo e($state['room_number']); ?>:
-                                                            <?php echo e($state['adult_count']); ?>/<?php echo e($state['adult_capacity']); ?> NL ·
-                                                            <?php echo e($state['minor_count']); ?>/<?php echo e($state['child_capacity']); ?> TE/EB
-                                                        </span>
-                                                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                                </strong>
-                                            </div>
-                                            <div class="action-summary-item">
-                                                <span>Khuyến nghị</span>
-                                                <strong>Phân bổ khách theo phòng hợp lệ, có thể nhận phòng.</strong>
-                                            </div>
-                                        </div>
-
-                                        <?php if($roomsNotReadyForCheckIn->isNotEmpty()): ?>
-                                            <div class="alert alert-warning small mb-3">
-                                                <strong>Phòng chưa sẵn sàng:</strong>
-                                                <?php $__currentLoopData = $roomsNotReadyForCheckIn; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $room): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                    Phòng <?php echo e($room->room_number); ?> đang <?php echo e(mb_strtolower($roomStatusLabels[$room->status] ?? $room->status)); ?><?php echo e(!$loop->last ? ', ' : '.'); ?>
-
-                                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                            </div>
-                                        <?php endif; ?>
-
-                                        <?php if($isEarlyCheckInNow): ?>
-                                            <div class="soft-note mb-3">
-                                                Khách đang đến sớm khoảng <strong><?php echo e($earlyCheckInDurationText); ?></strong>.
-                                            </div>
-                                        <?php endif; ?>
-
-                                        <div id="overCapacityBox" class="<?php echo e($initialAnyOverCapacity ? '' : 'd-none'); ?> mb-3">
-                                            <div class="alert alert-danger small mb-2">
-                                                <strong>Chưa thể nhận phòng theo phân bổ hiện tại.</strong>
-                                                Tổng sức chứa có thể vẫn đủ, nhưng ít nhất một phòng đang vượt sức chứa riêng.
-                                                <?php $__currentLoopData = $checkInRoomCapacityStates; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $state): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                    <?php if($state['adult_over'] > 0 || $state['minor_over'] > 0): ?>
-                                                        <div class="mt-1">
-                                                            Phòng <?php echo e($state['room_number']); ?>:
-                                                            <?php echo e($state['adult_count']); ?>/<?php echo e($state['adult_capacity']); ?> người lớn,
-                                                            <?php echo e($state['minor_count']); ?>/<?php echo e($state['child_capacity']); ?> trẻ em/em bé
-                                                            <?php if($state['adult_over'] > 0): ?> · vượt <?php echo e($state['adult_over']); ?> người lớn <?php endif; ?>
-                                                            <?php if($state['minor_over'] > 0): ?> · vượt <?php echo e($state['minor_over']); ?> trẻ em/em bé <?php endif; ?>
-                                                        </div>
+                                                    </span>
+                                                </summary>
+                                                <div class="compact-panel-body small">
+                                                    Yêu cầu: <strong><?php echo e($booking->room_selection_request ?: 'Khách yêu cầu lễ tân chọn phòng cụ thể'); ?></strong>.
+                                                    <?php if(!$checkInSelectionReady): ?>
+                                                        <div class="mt-2"><a href="#manualRoomSelectionPanel" class="btn btn-outline-primary btn-sm">Chọn phòng thủ công</a></div>
                                                     <?php endif; ?>
-                                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                            </div>
-
-                                            <div class="alert alert-warning small mb-2">
-                                                Phân bổ số người thực tế được lưu ở từng phòng, không suy ra từ số hồ sơ CCCD.
-                                                Nếu phân bổ vượt sức chứa, lễ tân cần dùng <strong>Quản lý phòng</strong> để thêm phòng/đổi hạng,
-                                                hoặc xác nhận <strong>thu phụ phí vượt sức chứa</strong> trước khi check-in.
-                                            </div>
-
-                                            <label class="form-label">Cách xử lý nếu vẫn giữ phân bổ hiện tại</label>
-                                            <select name="over_capacity_action" id="overCapacityAction"
-                                                class="form-select mb-3">
-                                                <option value="">-- Chọn cách xử lý --</option>
-                                                <option value="extra_fee">Khách ở phòng hiện tại và thu phụ phí</option>
-                                            </select>
-
-                                            <div id="extraFeeBox" class="d-none border rounded p-3 bg-light">
-                                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                                    <h6 class="fw-bold mb-0">Phụ thu khi nhận phòng</h6>
-                                                    <button type="button" class="btn btn-sm btn-outline-primary"
-                                                        id="addExtraFeeRow">
-                                                        + Thêm dòng
-                                                    </button>
                                                 </div>
+                                            </details>
+                                            <?php $checkInConditionNumber++; ?>
+                                        <?php endif; ?>
 
-                                                <div class="alert alert-info small mb-3">
-                                                    Mỗi khoản phụ thu phải gắn đúng <strong>phòng đang vượt</strong> và đúng loại khách.
+                                        <?php if(!$checkInRoomsReady): ?>
+                                            <details class="compact-panel mb-3" open>
+                                                <summary>
+                                                    <span>Điều kiện <?php echo e($checkInConditionNumber); ?> · Phòng sẵn sàng</span>
+                                                    <span class="badge-clean status-warning">Chưa sẵn sàng</span>
+                                                </summary>
+                                                <div class="compact-panel-body small">
+                                                    <?php echo e($notReadyRoomText ?: 'Có phòng chưa ở trạng thái sẵn sàng/đã giữ.'); ?>.
+                                                    <?php if($canRequestPriorityCleaning): ?>
+                                                        <div class="mt-2">Có thể gửi yêu cầu dọn ưu tiên ở phần phía trên.</div>
+                                                    <?php endif; ?>
                                                 </div>
+                                            </details>
+                                            <?php $checkInConditionNumber++; ?>
+                                        <?php endif; ?>
 
-                                                <div id="extraFeeRows">
-                                                    <div class="extra-fee-row border rounded p-3 mb-3 bg-white">
-                                                        <div class="row g-2 align-items-end">
-                                                            <div class="col-md-3">
-                                                                <label class="form-label small">Phòng bị vượt</label>
-                                                                <select name="extra_booking_room_ids[]"
-                                                                    class="form-select extra-room-select">
-                                                                    <option value="">-- Chọn phòng --</option>
-                                                                    <?php $__currentLoopData = $checkInRoomCapacityStates; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $capacityState): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                                        <?php if($capacityState['adult_over'] > 0 || $capacityState['minor_over'] > 0): ?>
-                                                                            <option value="<?php echo e($capacityState['booking_room_id']); ?>"
-                                                                                data-adult-over="<?php echo e($capacityState['adult_over']); ?>"
-                                                                                data-minor-over="<?php echo e($capacityState['minor_over']); ?>">
-                                                                                Phòng <?php echo e($capacityState['room_number']); ?>
+                                        <?php if($showArrivalCondition): ?>
+                                            <details class="compact-panel mb-3" id="checkInArrivalCondition" <?php echo e($arrivalConditionBlocked ? 'open' : ''); ?>>
+                                                <summary>
+                                                    <span>Điều kiện <?php echo e($checkInConditionNumber); ?> · Thời gian nhận phòng / đến muộn</span>
+                                                    <span class="badge-clean <?php echo e($arrivalConditionBlocked ? 'status-warning' : 'status-done'); ?>">
+                                                        <?php if($arrivalConditionBlocked): ?>
+                                                            Cần xử lý
+                                                        <?php else: ?>
+                                                            Vẫn được nhận phòng
+                                                        <?php endif; ?>
+                                                    </span>
+                                                </summary>
+                                                <div class="compact-panel-body small">
+                                                    <?php if($isRescheduledAfterCutoff): ?>
+                                                        Đơn vừa được lễ tân chuyển từ ngày tương lai về hôm nay.
+                                                        <strong>Giờ G/no-show không áp dụng cho lần check-in này.</strong>
+                                                        Khách vẫn được nhận phòng cho tới trước giờ trả phòng của lịch mới.
+                                                    <?php elseif($lateShowMessage): ?>
+                                                        <strong><?php echo e($lateShowTitle); ?></strong> — <?php echo e($lateShowMessage); ?>
 
-                                                                                · vượt <?php echo e($capacityState['adult_over']); ?> NL / <?php echo e($capacityState['minor_over']); ?> TE/EB
-                                                                            </option>
-                                                                        <?php endif; ?>
-                                                                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                                                </select>
-                                                            </div>
+                                                        <?php if($lateShowNoShowLimitAt): ?>
+                                                            Hạn giữ phòng: <strong><?php echo e($lateShowNoShowLimitAt->format('d/m/Y H:i')); ?></strong>.
+                                                        <?php endif; ?>
+                                                    <?php endif; ?>
 
-                                                            <div class="col-md-2">
-                                                                <label class="form-label small">Loại khách</label>
-                                                                <select name="extra_guest_types[]" class="form-select extra-guest-type-select">
-                                                                    <option value="">-- Chọn --</option>
-                                                                    <option value="adult">Người lớn</option>
-                                                                    <option value="minor">Trẻ em / em bé</option>
-                                                                </select>
-                                                            </div>
-
-                                                            <div class="col-md-3">
-                                                                <label class="form-label small">Loại phụ thu</label>
-                                                                <select name="extra_service_ids[]"
-                                                                    class="form-select extra-service-select">
-                                                                    <option value="">-- Chọn phụ thu --</option>
-                                                                    <?php $__currentLoopData = $extraGuestServices; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $service): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                                        <option value="<?php echo e($service->id); ?>"
-                                                                            data-price="<?php echo e($service->price); ?>"
-                                                                            data-unit="<?php echo e($service->unit); ?>">
-                                                                            <?php echo e($service->name); ?> -
-                                                                            <?php echo e(number_format($service->price, 0, ',', '.')); ?>đ /
-                                                                            <?php echo e($service->unit); ?>
-
-                                                                        </option>
-                                                                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                                                </select>
-                                                            </div>
-
-                                                            <div class="col-md-1">
-                                                                <label class="form-label small">SL vượt</label>
-                                                                <input type="number" name="extra_quantities[]"
-                                                                    class="form-control extra-quantity-input" value="1" min="1">
-                                                            </div>
-
-                                                            <div class="col-md-2">
-                                                                <label class="form-label small">Tạm tính</label>
-                                                                <input type="text" class="form-control extra-total-text"
-                                                                    value="0đ" readonly>
-                                                            </div>
-
-                                                            <div class="col-md-1">
-                                                                <button type="button"
-                                                                    class="btn btn-outline-danger w-100 remove-extra-fee-row">Xóa</button>
-                                                            </div>
-
-                                                            <div class="col-md-12">
-                                                                <label class="form-label small">Ghi chú</label>
-                                                                <input type="text" name="extra_fee_notes[]" class="form-control"
-                                                                    placeholder="Ví dụ: Phụ thu thêm người / vượt sức chứa">
-                                                            </div>
-                                                        </div>
-                                                    </div>
+                                                    <?php if($canConfirmLateArrivalNow): ?>
+                                                        <div class="mt-2"><a href="#lateArrivalHandlingPanel" class="btn btn-outline-warning btn-sm">Xác nhận giữ phòng đến muộn</a></div>
+                                                    <?php endif; ?>
+                                                    <?php if($canNoShowNow): ?>
+                                                        <form action="<?php echo e(route('admin.bookings.cancel-late-arrival', $booking->id)); ?>" method="POST" class="mt-2"
+                                                            onsubmit="return confirm('Xác nhận khách không đến? Booking sẽ bị hủy/no-show và phòng được giải phóng.')">
+                                                            <?php echo csrf_field(); ?>
+                                                            <?php echo method_field('PATCH'); ?>
+                                                            <button type="submit" class="btn btn-outline-danger btn-sm">Hủy no-show</button>
+                                                        </form>
+                                                    <?php endif; ?>
                                                 </div>
+                                            </details>
+                                            <?php $checkInConditionNumber++; ?>
+                                        <?php endif; ?>
 
-                                                <div class="soft-note d-flex justify-content-between align-items-center">
-                                                    <span>Tổng phụ thu</span>
-                                                    <strong id="allExtraFeeTotalText">0đ</strong>
-                                                </div>
-                                            </div>
+                                        <div id="checkInBlockingSummary"
+                                            class="alert alert-warning small py-2 <?php echo e(($checkInStaticDisabled || $initialAnyOverCapacity || !$initialActualGuestConfirmed) ? '' : 'd-none'); ?>"
+                                            data-static-reason="<?php echo e($checkInDisabledReason); ?>">
+                                            <strong>Chưa thể nhận phòng.</strong>
+                                            <span id="checkInBlockingSummaryText"><?php echo e($checkInDisabledReason ?: (!$initialActualGuestConfirmed ? 'Điều kiện 2 chưa xác nhận số khách thực tế.' : ($initialAnyOverCapacity ? 'Cần chọn đủ phụ thu cho phần vượt sức chứa.' : ''))); ?></span>
                                         </div>
 
-                                        <button type="submit" id="checkInSubmitButton" class="btn btn-success w-100"
+                                        <button type="submit" id="checkInSubmitButton" class="btn btn-success w-100 py-2 fw-semibold"
                                             <?php if($checkInStaticDisabled || $initialAnyOverCapacity): echo 'disabled'; endif; ?>
-                                            data-static-disabled="<?php echo e($checkInStaticDisabled ? 1 : 0); ?>"
-                                            data-ready-label="Xác nhận nhận phòng"
-                                            data-blocked-label="Chưa thể nhận phòng"
-                                            data-capacity-label="Chọn cách xử lý sức chứa">
+                                            title="<?php echo e($checkInStaticDisabled ? $checkInDisabledReason : ($initialAnyOverCapacity ? 'Cần xử lý vượt sức chứa trước khi nhận phòng.' : 'Nhận phòng')); ?>"
+                                            data-static-disabled="<?php echo e($checkInStaticDisabled ? 1 : 0); ?>">
                                             <i class="bx bx-log-in-circle me-1"></i>
-                                            <span class="check-in-submit-label"><?php echo e($checkInStaticDisabled ? 'Chưa thể nhận phòng' : ($initialAnyOverCapacity ? 'Chọn cách xử lý sức chứa' : 'Xác nhận nhận phòng')); ?></span>
+                                            <span class="check-in-submit-label">Nhận phòng</span>
                                         </button>
                                     </form>
 
                                     <?php if($isEarlyCheckInNow): ?>
-                                        <div class="modal fade" id="earlyCheckInConfirmModal" tabindex="-1"
-                                            aria-labelledby="earlyCheckInConfirmModalLabel" aria-hidden="true">
-                                            <div class="modal-dialog modal-dialog-centered">
-                                                <div class="modal-content border-0 rounded-4 shadow">
-                                                    <div class="modal-header">
-                                                        <div>
-                                                            <h5 class="modal-title fw-bold" id="earlyCheckInConfirmModalLabel">
-                                                                Báo giá check-in sớm
-                                                            </h5>
-                                                            <div class="text-muted small">Chỉ xác nhận khi khách đã đồng ý phụ thu.</div>
-                                                        </div>
-                                                        <button type="button" class="btn-close" data-bs-dismiss="modal"
-                                                            aria-label="Close"></button>
-                                                    </div>
+                                        <div id="earlyCheckInConfirmPanel" class="card border-warning shadow-sm mt-3 <?php echo e(session('early_checkin_confirmation_required') ? '' : 'd-none'); ?>">
+                                            <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-start gap-3">
+                                                <div>
+                                                    <div class="fw-bold">Báo giá check-in sớm</div>
+                                                    <div class="text-muted small">Chỉ tiếp tục khi khách đã đồng ý khoản phụ thu này.</div>
+                                                </div>
+                                                <button type="button" class="btn-close" id="dismissEarlyCheckInConfirm" aria-label="Đóng"></button>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="alert alert-warning small mb-3">
+                                                    <div class="fw-bold mb-1">Khách đến sớm <?php echo e($earlyCheckInDurationText); ?></div>
+                                                    Hiện tại: <strong><?php echo e($nowVnForCheckInFlow->format('d/m/Y H:i')); ?></strong><br>
+                                                    Giờ check-in chuẩn: <strong><?php echo e($standardCheckInAt?->format('d/m/Y H:i')); ?></strong>
+                                                </div>
 
-                                                    <div class="modal-body">
-                                                        <div class="alert alert-warning small mb-3">
-                                                            <div class="fw-bold mb-1">Khách đến sớm <?php echo e($earlyCheckInDurationText); ?></div>
-                                                            Hiện tại: <strong><?php echo e($nowVnForCheckInFlow->format('d/m/Y H:i')); ?></strong><br>
-                                                            Giờ check-in chuẩn: <strong><?php echo e($standardCheckInAt?->format('d/m/Y H:i')); ?></strong>
-                                                        </div>
-
-                                                        <div class="info-list">
-                                                            <div class="info-line">
-                                                                <span class="info-label">Chính sách áp dụng</span>
-                                                                <span class="info-value"><?php echo e($earlyCheckInPolicyText); ?></span>
-                                                            </div>
-                                                            <div class="info-line">
-                                                                <span class="info-label">Giá gốc tính phụ thu</span>
-                                                                <span class="info-value"><?php echo e(number_format($earlyCheckInBasePrice, 0, ',', '.')); ?>đ</span>
-                                                            </div>
-                                                            <div class="info-line">
-                                                                <span class="info-label">Tỷ lệ phụ thu</span>
-                                                                <span class="info-value"><?php echo e($earlyCheckInPercent); ?>%</span>
-                                                            </div>
-                                                            <div class="info-line">
-                                                                <span class="info-label">Phụ thu nhận phòng sớm</span>
-                                                                <span class="info-value text-danger fs-5">
-                                                                    <?php echo e(number_format($earlyCheckInFeePreview, 0, ',', '.')); ?>đ
-                                                                </span>
-                                                            </div>
-                                                            <div class="info-line">
-                                                                <span class="info-label">Tổng tiền sau khi cộng</span>
-                                                                <span class="info-value text-danger">
-                                                                    <?php echo e(number_format($earlyCheckInFinalTotalPreview, 0, ',', '.')); ?>đ
-                                                                </span>
-                                                            </div>
-                                                        </div>
+                                                <div class="info-list">
+                                                    <div class="info-line">
+                                                        <span class="info-label">Chính sách áp dụng</span>
+                                                        <span class="info-value"><?php echo e($earlyCheckInPolicyText); ?></span>
                                                     </div>
-
-                                                    <div class="modal-footer">
-                                                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
-                                                            Chưa đồng ý
-                                                        </button>
-                                                        <button type="button" class="btn btn-success" id="confirmEarlyCheckInSubmit">
-                                                            Khách đồng ý - Tiếp tục check-in
-                                                        </button>
+                                                    <div class="info-line">
+                                                        <span class="info-label">Giá gốc tính phụ thu</span>
+                                                        <span class="info-value"><?php echo e(number_format($earlyCheckInBasePrice, 0, ',', '.')); ?>đ</span>
                                                     </div>
+                                                    <div class="info-line">
+                                                        <span class="info-label">Tỷ lệ phụ thu</span>
+                                                        <span class="info-value"><?php echo e($earlyCheckInPercent); ?>%</span>
+                                                    </div>
+                                                    <div class="info-line">
+                                                        <span class="info-label">Phụ thu nhận phòng sớm</span>
+                                                        <span class="info-value text-danger fs-5 fw-bold">
+                                                            <?php echo e(number_format($earlyCheckInFeePreview, 0, ',', '.')); ?>đ
+                                                        </span>
+                                                    </div>
+                                                    <div class="info-line">
+                                                        <span class="info-label">Tổng tiền sau khi cộng</span>
+                                                        <span class="info-value text-danger fw-bold">
+                                                            <?php echo e(number_format($earlyCheckInFinalTotalPreview, 0, ',', '.')); ?>đ
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="d-flex justify-content-end gap-2 mt-3">
+                                                    <button type="button" class="btn btn-outline-secondary" id="cancelEarlyCheckInSubmit">
+                                                        Chưa đồng ý
+                                                    </button>
+                                                    <button type="submit" form="checkInForm" name="early_check_in_action" value="accept_fee" class="btn btn-success" id="confirmEarlyCheckInSubmit">
+                                                        Khách đồng ý - Tiếp tục check-in
+                                                    </button>
                                                 </div>
                                             </div>
                                         </div>
                                     <?php endif; ?>
 
                                     <?php if($canHandleNoShowNow): ?>
-                                        <details class="compact-panel mt-3" <?php echo e($autoOpenLateArrivalPanel ? 'open' : ''); ?>>
+                                        <details class="compact-panel mt-3" id="lateArrivalHandlingPanel" <?php echo e($autoOpenLateArrivalPanel ? 'open' : ''); ?>>
                                             <summary>
-                                                <span><?php echo e($isRescheduledAfterCutoff ? 'Đơn vừa đổi ngày nhận phòng' : 'Xử lý khách đến muộn'); ?></span>
+                                                <span>Xử lý khách đến muộn</span>
                                                 <span class="badge-clean <?php echo e($autoOpenLateArrivalPanel ? 'status-warning' : 'status-muted'); ?>">
                                                     <?php echo e($autoOpenLateArrivalPanel ? 'Cần chú ý' : 'Mở khi cần'); ?>
 
@@ -2720,12 +2813,7 @@ unset($__errorArgs, $__bag); ?>
                                             </summary>
                                             <div class="compact-panel-body bg-light">
                                             <div class="small text-muted mb-3">
-                                                <?php if($isRescheduledAfterCutoff): ?>
-                                                    Hạn check-in sau khi đổi lịch: <strong><?php echo e($lateShowNoShowLimitAt?->format('H:i d/m/Y')); ?></strong>.
-                                                    Đơn này được chuyển từ ngày tương lai về hôm nay nên không bị coi là đến muộn tại mốc giờ G cũ.
-                                                <?php else: ?>
-                                                    Giờ G: <strong><?php echo e($lateShowNoShowLimitAt?->format('H:i d/m/Y')); ?></strong>.
-                                                <?php endif; ?>
+                                                Giờ G: <strong><?php echo e($lateShowNoShowLimitAt?->format('H:i d/m/Y')); ?></strong>.
                                             </div>
 
                                             <?php if($booking->late_arrival_confirmed_at && (float) $booking->late_arrival_hours > 0): ?>
@@ -2773,7 +2861,7 @@ unset($__errorArgs, $__bag); ?>
                                                     </form>
                                                 <?php endif; ?>
 
-                                                <?php if($canNoShowNow && !$isRescheduledAfterCutoff): ?>
+                                                <?php if($canNoShowNow): ?>
                                                     <form action="<?php echo e(route('admin.bookings.cancel-late-arrival', $booking->id)); ?>" method="POST" class="flex-fill"
                                                         onsubmit="return confirm('Xác nhận khách không đến? Đơn sẽ bị hủy và phòng được mở bán lại.')">
                                                         <?php echo csrf_field(); ?>
@@ -2884,20 +2972,29 @@ unset($__errorArgs, $__bag); ?>
                                     </div>
 
                                     <form action="<?php echo e(route('admin.bookings.extend-stay.preview', $booking->id)); ?>"
-                                        method="POST">
+                                        method="POST" id="extendStayPreviewForm"
+                                        data-current-checkout-date="<?php echo e($lateShowCheckOutAt ? $lateShowCheckOutAt->format('Y-m-d') : ''); ?>"
+                                        data-current-checkout-time="<?php echo e($lateShowCheckOutAt ? $lateShowCheckOutAt->format('H:i') : ''); ?>"
+                                        data-current-checkout-text="<?php echo e($lateShowCheckOutAt ? $lateShowCheckOutAt->format('d/m/Y H:i') : ''); ?>">
                                         <?php echo csrf_field(); ?>
 
-                                        <div class="row g-2 mb-3">
+                                        <div class="row g-2 mb-2">
                                             <div class="col-md-6">
                                                 <label class="form-label">Ngày trả phòng mới</label>
                                                 <input type="date" id="extendCheckOutDateVn" name="new_check_out_date" class="form-control"
                                                     min="<?php echo e($lateShowCheckOutAt ? $lateShowCheckOutAt->format('Y-m-d') : date('Y-m-d')); ?>"
                                                     data-extension-min-date="<?php echo e($lateShowCheckOutAt ? $lateShowCheckOutAt->format('Y-m-d') : date('Y-m-d')); ?>"
                                                     value="<?php echo e($previewDateValue); ?>" required>
-                                                <div class="form-text">
-                                                    Gia hạn chỉ được giữ nguyên ngày hiện tại với giờ trả muộn hơn,
-                                                    hoặc chọn một ngày sau ngày trả hiện tại.
-                                                </div>
+                                                <?php $__errorArgs = ['new_check_out_date'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?>
+                                                    <div class="text-danger small mt-1"><?php echo e($message); ?></div>
+                                                <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>
                                             </div>
 
                                             <div class="col-md-6">
@@ -2905,10 +3002,24 @@ unset($__errorArgs, $__bag); ?>
                                                 <input type="text" name="new_check_out_time" id="extendCheckOutTime"
                                                     class="form-control" value="<?php echo e($previewTimeValue); ?>"
                                                     placeholder="Ví dụ: <?php echo e($standardCheckInTimePolicy); ?>" required>
+                                                <?php $__errorArgs = ['new_check_out_time'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?>
+                                                    <div class="text-danger small mt-1"><?php echo e($message); ?></div>
+                                                <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>
                                             </div>
                                         </div>
+                                        <div id="extendStayTimeRule" class="small mb-3 text-muted">
+                                            Thời gian trả mới phải sau check-out hiện tại
+                                            <strong><?php echo e($lateShowCheckOutAt ? $lateShowCheckOutAt->format('d/m/Y H:i') : '---'); ?></strong>.
+                                        </div>
 
-                                        <button type="submit" class="btn btn-outline-primary w-100">
+                                        <button type="submit" class="btn btn-outline-primary w-100" id="extendStayPreviewSubmit">
                                             <i class="bx bx-search-alt me-1"></i>
                                             Kiểm tra khả năng gia hạn
                                         </button>
@@ -2926,18 +3037,23 @@ unset($__errorArgs, $__bag); ?>
                                         ?>
 
                                         <div class="alert <?php echo e($previewAlertClass); ?> mt-3 mb-0" id="extend-stay-preview">
-                                            <h6 class="fw-bold mb-2"><?php echo e($extendPreview['title'] ?? 'Kết quả kiểm tra gia hạn'); ?>
+                                            <h6 class="fw-bold mb-2"><?php echo e($extendPreview['title'] ?? 'Kết quả kiểm tra gia hạn'); ?></h6>
 
-                                            </h6>
-                                            <div class="small mb-2">
-                                                <strong>Khung giờ:</strong> <?php echo e($extendPreview['period_text'] ?? '---'); ?><br>
-                                                <strong>Phí dự kiến:</strong>
-                                                <span
-                                                    class="fw-bold text-danger"><?php echo e($extendPreview['fee_text'] ?? '0đ'); ?></span><br>
-                                                <strong>Cách tính:</strong> <?php echo e($extendPreview['policy_text'] ?? '---'); ?>
+                                            <?php if(($extendPreview['status'] ?? '') === 'blocked'): ?>
+                                                <div class="small">
+                                                    <div class="mb-2"><strong>Thời gian muốn gia hạn:</strong> <?php echo e($extendPreview['period_text'] ?? '---'); ?></div>
+                                                    <div class="fw-semibold text-danger mb-1">Lý do không thể gia hạn:</div>
+                                                    <div><?php echo e($extendPreview['message'] ?? 'Khoảng thời gian này không thể gia hạn.'); ?></div>
+                                                </div>
+                                            <?php else: ?>
+                                                <div class="small mb-2">
+                                                    <strong>Khung giờ:</strong> <?php echo e($extendPreview['period_text'] ?? '---'); ?><br>
+                                                    <strong>Phí dự kiến:</strong>
+                                                    <span class="fw-bold text-danger"><?php echo e($extendPreview['fee_text'] ?? '0đ'); ?></span><br>
+                                                    <strong>Cách tính:</strong> <?php echo e($extendPreview['policy_text'] ?? '---'); ?>
 
-                                            </div>
-                                            <div class="small"><?php echo e($extendPreview['message'] ?? ''); ?></div>
+                                                </div>
+                                                <div class="small"><?php echo e($extendPreview['message'] ?? ''); ?></div>
 
                                             <?php if(empty($extendPreview['repricing'])): ?>
                                                 <?php
@@ -3091,9 +3207,11 @@ unset($__errorArgs, $__bag); ?>
                                                 </div>
                                             <?php endif; ?>
 
+                                            <?php endif; ?>
+
                                             <?php if(!empty($extendPreview['conflicts'])): ?>
                                                 <div class="border rounded bg-white p-2 mt-2 small">
-                                                    <strong>Booking bị giao thời gian:</strong>
+                                                    <strong><?php echo e(($extendPreview['status'] ?? '') === 'blocked' ? 'Xung đột khiến không thể gia hạn:' : 'Booking bị giao thời gian:'); ?></strong>
                                                     <ul class="mb-0 mt-1">
                                                         <?php $__currentLoopData = $extendPreview['conflicts']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $conflict): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                                                             <li>
@@ -4158,17 +4276,21 @@ unset($__errorArgs, $__bag); ?>
 
                                         <div class="mb-3 d-none js-add-room-manual-wrap">
                                             <label class="form-label small">Chọn phòng cụ thể</label>
-                                            <select name="target_room_ids[]" class="form-select js-add-room-manual-select" multiple size="6">
+                                            <div class="border rounded-3 bg-white p-2 js-add-room-manual-list" style="max-height:260px;overflow:auto">
                                                 <?php $__currentLoopData = $roomCandidatesForBookingManage; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $candidateRoom): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                    <option value="<?php echo e($candidateRoom->id); ?>"
-                                                        data-category-id="<?php echo e($candidateRoom->room_category_id); ?>"
-                                                        data-status="<?php echo e($candidateRoom->status); ?>">
-                                                        Phòng <?php echo e($candidateRoom->room_number); ?> · Tầng <?php echo e($candidateRoom->floor_number); ?> ·
-                                                        <?php echo e($candidateRoom->status === 'available' ? 'Sẵn sàng' : 'Đang dọn - sẽ yêu cầu dọn nhanh'); ?>
-
-                                                    </option>
+                                                    <label class="d-flex align-items-center gap-2 border rounded-3 px-3 py-2 mb-2 js-add-room-option"
+                                                        data-category-id="<?php echo e($candidateRoom->room_category_id); ?>">
+                                                        <input type="checkbox" name="target_room_ids[]" value="<?php echo e($candidateRoom->id); ?>"
+                                                            class="form-check-input mt-0 js-add-room-manual-check"
+                                                            data-category-id="<?php echo e($candidateRoom->room_category_id); ?>"
+                                                            data-status="<?php echo e($candidateRoom->status); ?>">
+                                                        <span>
+                                                            <strong>Phòng <?php echo e($candidateRoom->room_number); ?></strong>
+                                                            <span class="text-muted">· Tầng <?php echo e($candidateRoom->floor_number); ?> · <?php echo e($candidateRoom->status === 'available' ? 'Sẵn sàng' : 'Đang dọn - sẽ yêu cầu dọn nhanh'); ?></span>
+                                                        </span>
+                                                    </label>
                                                 <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                            </select>
+                                            </div>
                                             <div class="form-text js-add-room-manual-help">Chọn đúng số phòng cần thêm.</div>
                                         </div>
 
@@ -4232,16 +4354,18 @@ unset($__errorArgs, $__bag); ?>
                                         </div>
 
                                         <div class="mb-3 d-none" data-manual-room-picker>
-                                            <label class="form-label small">Phòng cụ thể</label>
-                                            <select name="target_room_ids[]" class="form-select js-manual-room-select" disabled>
-                                                <option value="">-- Chọn phòng --</option>
+                                            <label class="form-label small">Chọn đúng 1 phòng</label>
+                                            <div class="border rounded-3 bg-white p-2 js-manual-room-checklist" style="max-height:260px;overflow:auto">
                                                 <?php $__currentLoopData = $categoryChangeAvailableRooms; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $room): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                    <option value="<?php echo e($room->id); ?>" data-category-id="<?php echo e($room->room_category_id); ?>">
-                                                        Phòng <?php echo e($room->room_number); ?> · Tầng <?php echo e($room->floor_number ?? '---'); ?>
-
-                                                    </option>
+                                                    <label class="d-flex align-items-center gap-2 border rounded-3 px-3 py-2 mb-2 js-manual-room-option"
+                                                        data-category-id="<?php echo e($room->room_category_id); ?>">
+                                                        <input type="checkbox" name="target_room_ids[]" value="<?php echo e($room->id); ?>"
+                                                            class="form-check-input mt-0 js-manual-room-check" data-category-id="<?php echo e($room->room_category_id); ?>" disabled>
+                                                        <span><strong>Phòng <?php echo e($room->room_number); ?></strong> <span class="text-muted">· Tầng <?php echo e($room->floor_number ?? '---'); ?></span></span>
+                                                    </label>
                                                 <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                            </select>
+                                            </div>
+                                            <div class="form-text js-manual-room-selection-status">Đã chọn 0/1 phòng.</div>
                                         </div>
 
                                         <div class="mb-3">
@@ -4284,14 +4408,17 @@ unset($__errorArgs, $__bag); ?>
 
                                         <div class="mb-3 d-none" data-manual-room-picker>
                                             <label class="form-label small">Chọn đúng <?php echo e($assignedRooms->count()); ?> phòng</label>
-                                            <select name="target_room_ids[]" class="form-select js-manual-room-select" multiple size="6" disabled>
+                                            <div class="border rounded-3 bg-white p-2 js-manual-room-checklist" style="max-height:260px;overflow:auto">
                                                 <?php $__currentLoopData = $categoryChangeAvailableRooms; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $room): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                    <option value="<?php echo e($room->id); ?>" data-category-id="<?php echo e($room->room_category_id); ?>">
-                                                        Phòng <?php echo e($room->room_number); ?> · Tầng <?php echo e($room->floor_number ?? '---'); ?>
-
-                                                    </option>
+                                                    <label class="d-flex align-items-center gap-2 border rounded-3 px-3 py-2 mb-2 js-manual-room-option"
+                                                        data-category-id="<?php echo e($room->room_category_id); ?>">
+                                                        <input type="checkbox" name="target_room_ids[]" value="<?php echo e($room->id); ?>"
+                                                            class="form-check-input mt-0 js-manual-room-check" data-category-id="<?php echo e($room->room_category_id); ?>" disabled>
+                                                        <span><strong>Phòng <?php echo e($room->room_number); ?></strong> <span class="text-muted">· Tầng <?php echo e($room->floor_number ?? '---'); ?></span></span>
+                                                    </label>
                                                 <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                            </select>
+                                            </div>
+                                            <div class="form-text js-manual-room-selection-status">Đã chọn 0/<?php echo e($assignedRooms->count()); ?> phòng.</div>
                                         </div>
 
                                         <div class="mb-3">
@@ -4325,7 +4452,7 @@ unset($__errorArgs, $__bag); ?>
                             ];
                             $manualSelectionFinal = in_array($booking->room_selection_status, ['fulfilled', 'fallback_accepted', 'fallback_declined', 'unfulfilled'], true);
                         ?>
-                        <details class="card-clean border border-warning-subtle" <?php echo e($manualSelectionFinal ? '' : 'open'); ?>>
+                        <details class="card-clean border border-warning-subtle" id="manualRoomSelectionPanel" <?php echo e($manualSelectionFinal ? '' : 'open'); ?>>
                             <summary class="card-title-clean mb-0" style="cursor:pointer;list-style:none">
                                 <div>
                                     <h5>Yêu cầu chọn phòng của khách</h5>
@@ -4352,17 +4479,20 @@ unset($__errorArgs, $__bag); ?>
                                         <input type="hidden" name="decision" value="fulfilled">
 
                                         <label class="form-label fw-semibold">Chọn đúng <?php echo e($booking->room_quantity); ?> phòng đáp ứng yêu cầu</label>
-                                        <select name="selected_room_ids[]" class="form-select" multiple size="<?php echo e(min(8, max(4, $manualSelectionRooms->count()))); ?>" required>
+                                        <div class="border rounded-3 bg-white p-2 js-fixed-room-checklist" data-required-count="<?php echo e($booking->room_quantity); ?>" style="max-height:300px;overflow:auto">
                                             <?php $__currentLoopData = $manualSelectionRooms; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $room): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                <option value="<?php echo e($room->id); ?>" <?php if($assignedRooms->contains('id', $room->id)): echo 'selected'; endif; ?>>
-                                                    Phòng <?php echo e($room->room_number); ?> · Tầng <?php echo e($room->floor_number ?? '---'); ?>
-
-                                                    <?php echo e($assignedRooms->contains('id', $room->id) ? '· đang giữ dự phòng' : ''); ?>
-
-                                                </option>
+                                                <label class="d-flex align-items-center gap-2 border rounded-3 px-3 py-2 mb-2">
+                                                    <input type="checkbox" name="selected_room_ids[]" value="<?php echo e($room->id); ?>"
+                                                        class="form-check-input mt-0 js-fixed-room-check"
+                                                        <?php if($assignedRooms->contains('id', $room->id)): echo 'checked'; endif; ?>>
+                                                    <span>
+                                                        <strong>Phòng <?php echo e($room->room_number); ?></strong>
+                                                        <span class="text-muted">· Tầng <?php echo e($room->floor_number ?? '---'); ?><?php echo e($assignedRooms->contains('id', $room->id) ? ' · đang giữ dự phòng' : ''); ?></span>
+                                                    </span>
+                                                </label>
                                             <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                        </select>
-                                        <div class="form-text">Có thể dùng chính phòng dự phòng nếu phòng đó thực sự đáp ứng yêu cầu khách đã ghi.</div>
+                                        </div>
+                                        <div class="form-text js-fixed-room-status">Đã chọn <?php echo e($assignedRooms->count()); ?>/<?php echo e($booking->room_quantity); ?> phòng. Có thể dùng chính phòng dự phòng nếu phòng đó thực sự đáp ứng yêu cầu khách đã ghi.</div>
 
                                         <label class="form-label mt-2">Ghi chú gửi khách (không bắt buộc)</label>
                                         <textarea name="handling_note" class="form-control" rows="2" placeholder="Ví dụ: Đã bố trí phòng tầng 6, khu vực yên tĩnh."></textarea>
@@ -4503,16 +4633,18 @@ unset($__errorArgs, $__bag); ?>
                                             </div>
 
                                             <div class="col-md-6 d-none" data-manual-room-picker>
-                                                <label class="form-label">Phòng thay thế cùng hạng</label>
-                                                <select name="new_room_id" class="form-select js-manual-room-select" disabled>
-                                                    <option value="">-- Chọn phòng --</option>
+                                                <label class="form-label">Chọn đúng 1 phòng thay thế</label>
+                                                <div class="border rounded-3 bg-white p-2 js-same-rank-room-checklist" style="max-height:260px;overflow:auto">
                                                     <?php $__currentLoopData = $timeAvailableRooms; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $room): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                                        <option value="<?php echo e($room->id); ?>" data-category-id="<?php echo e($room->room_category_id); ?>">
-                                                            Phòng <?php echo e($room->room_number); ?> · Tầng <?php echo e($room->floor_number ?? '---'); ?>
-
-                                                        </option>
+                                                        <label class="d-flex align-items-center gap-2 border rounded-3 px-3 py-2 mb-2 js-same-rank-room-option"
+                                                            data-category-id="<?php echo e($room->room_category_id); ?>">
+                                                            <input type="checkbox" name="new_room_id" value="<?php echo e($room->id); ?>"
+                                                                class="form-check-input mt-0 js-same-rank-room-check" data-category-id="<?php echo e($room->room_category_id); ?>" disabled>
+                                                            <span><strong>Phòng <?php echo e($room->room_number); ?></strong> <span class="text-muted">· Tầng <?php echo e($room->floor_number ?? '---'); ?></span></span>
+                                                        </label>
                                                     <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                                                </select>
+                                                </div>
+                                                <div class="form-text js-same-rank-room-status">Đã chọn 0/1 phòng.</div>
                                             </div>
 
                                             <?php if($booking->status === 'checked_in'): ?>
@@ -4705,10 +4837,10 @@ unset($__errorArgs, $__bag); ?>
                                                         <label class="form-label small">Áp dụng cho</label>
                                                         <input type="hidden" name="services[0][scope]" class="service-scope-input" value="booking">
                                                         <select name="services[0][booking_room_id]" class="form-select service-room-select">
-                                                            <option value="" data-room-count="<?php echo e(max(1, $booking->bookingRooms->count())); ?>" data-guest-count="<?php echo e(max(1, (int) $booking->adult_count + (int) $booking->child_count + (int) ($booking->baby_count ?? 0))); ?>">Toàn bộ đơn</option>
+                                                            <option value="" data-room-count="<?php echo e(max(1, $booking->bookingRooms->count())); ?>" data-guest-count="<?php echo e(max(1, (int) $booking->adult_count + (int) $booking->child_count)); ?>">Toàn bộ đơn</option>
                                                             <?php $__currentLoopData = $booking->bookingRooms; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $serviceBookingRoom): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                                                                 <?php
-                                                                    $serviceRoomGuestCount = max(1, (int) $serviceBookingRoom->adult_count + (int) $serviceBookingRoom->child_count + (int) ($serviceBookingRoom->baby_count ?? 0));
+                                                                    $serviceRoomGuestCount = max(1, (int) $serviceBookingRoom->adult_count + (int) $serviceBookingRoom->child_count);
                                                                 ?>
                                                                 <option value="<?php echo e($serviceBookingRoom->id); ?>" data-room-count="1" data-guest-count="<?php echo e($serviceRoomGuestCount); ?>">
                                                                     Phòng <?php echo e($serviceBookingRoom->room?->room_number ?? '---'); ?> · <?php echo e($serviceBookingRoom->room?->category?->name ?? '---'); ?>
@@ -4998,7 +5130,7 @@ unset($__errorArgs, $__bag); ?>
                                                 Số tiền khách đưa/chuyển
                                             </label>
                                             <input type="number" name="amount" id="adminDirectCustomAmount"
-                                                class="form-control form-control-sm" min="1000" step="1000"
+                                                class="form-control form-control-sm" min="1000" step="1"
                                                 placeholder="Ví dụ: 2000000">
 
                                             <div class="d-flex justify-content-between align-items-center rounded border px-3 py-2 mt-2 bg-light"
@@ -5165,95 +5297,6 @@ unset($__errorArgs, $__bag); ?>
                         </div>
                     </section>
 
-                    <section class="card-clean">
-                        <div class="card-title-clean">
-                            <h5>Lưu trú</h5>
-                        </div>
-
-                        <div class="info-list">
-                            <div class="info-line">
-                                <span class="info-label">Hạng phòng</span>
-                                <span class="info-value"><?php echo e($booking->roomCategory->name ?? 'Không xác định'); ?></span>
-                            </div>
-                            <div class="info-line">
-                                <span class="info-label">Loại đặt</span>
-                                <span
-                                    class="info-value"><?php echo e($booking->booking_type == 'hourly' ? 'Theo giờ' : 'Qua đêm'); ?></span>
-                            </div>
-                            <div class="info-line">
-                                <span class="info-label">Nhận phòng</span>
-                                <span
-                                    class="info-value"><?php echo e($lateShowCheckInAt ? $lateShowCheckInAt->format('d/m/Y H:i') : '---'); ?></span>
-                            </div>
-                            <div class="info-line">
-                                <span class="info-label">Trả phòng</span>
-                                <span
-                                    class="info-value"><?php echo e($lateShowCheckOutAt ? $lateShowCheckOutAt->format('d/m/Y H:i') : '---'); ?></span>
-                            </div>
-                            <?php if($booking->booking_type == 'hourly'): ?>
-                                <div class="info-line">
-                                    <span class="info-label">Dọn phòng đến</span>
-                                    <span
-                                        class="info-value"><?php echo e($hourlyCleaningUntil ? $hourlyCleaningUntil->format('d/m/Y H:i') : '---'); ?></span>
-                                </div>
-                            <?php endif; ?>
-                            <div class="info-line">
-                                <span
-                                    class="info-label"><?php echo e($booking->booking_type == 'hourly' ? 'Thời lượng' : 'Số đêm'); ?></span>
-                                <span class="info-value">
-                                    <?php if($booking->booking_type == 'hourly'): ?>
-                                        <?php echo e($booking->check_in_at && $booking->check_out_at ? $booking->check_in_at->diffInHours($booking->check_out_at) . ' giờ' : '---'); ?>
-
-                                    <?php else: ?>
-                                        <?php echo e($nightCount); ?> đêm
-                                    <?php endif; ?>
-                                </span>
-                            </div>
-                            <div class="info-line">
-                                <span class="info-label">Số khách</span>
-                                <span class="info-value"><?php echo e($booking->adult_count); ?> NL / <?php echo e($booking->child_count); ?> TE / <?php echo e($booking->baby_count ?? 0); ?> EB
-                                    TE</span>
-                            </div>
-                            <div class="info-line">
-                                <span class="info-label">Số phòng</span>
-                                <span class="info-value"><?php echo e($booking->room_quantity); ?> phòng</span>
-                            </div>
-                            <div class="info-line">
-                                <span class="info-label">Tạo lúc</span>
-                                <span
-                                    class="info-value"><?php echo e($booking->created_at ? $booking->created_at->format('d/m/Y H:i') : '---'); ?></span>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="card-clean">
-                        <div class="card-title-clean">
-                            <h5>Ghi chú nội bộ</h5>
-                        </div>
-
-                        <form action="<?php echo e(route('admin.bookings.update-note', $booking->id)); ?>" method="POST">
-                            <?php echo csrf_field(); ?>
-                            <?php echo method_field('PATCH'); ?>
-
-                            <textarea name="note" rows="5" class="form-control"
-                                placeholder="Nhập ghi chú nội bộ cho đơn nếu có"><?php echo e(old('note', $booking->note)); ?></textarea>
-
-                            <?php $__errorArgs = ['note'];
-$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
-if ($__bag->has($__errorArgs[0])) :
-if (isset($message)) { $__messageOriginal = $message; }
-$message = $__bag->first($__errorArgs[0]); ?>
-                                <div class="text-danger small mt-1"><?php echo e($message); ?></div>
-                            <?php unset($message);
-if (isset($__messageOriginal)) { $message = $__messageOriginal; }
-endif;
-unset($__errorArgs, $__bag); ?>
-
-                            <button type="submit" class="btn btn-primary w-100 mt-3">
-                                Lưu ghi chú
-                            </button>
-                        </form>
-                    </section>
                 </aside>
             </div>
         </main>
@@ -5490,16 +5533,19 @@ unset($__errorArgs, $__bag); ?>
                 });
             });
 
-            const adultCapacityInput = document.getElementById('adultCapacity');
-            const childCapacityInput = document.getElementById('childCapacity');
-            const perRoomOverCapacityInput = document.getElementById('perRoomOverCapacity');
+            const checkInActualGuestsStep = document.getElementById('checkInActualGuestsStep');
             const actualAdultInput = document.getElementById('actualAdultCount');
             const actualChildInput = document.getElementById('actualChildCount');
-            const actualBabyInput = document.getElementById('actualBabyCount');
+            const actualGuestConfirmed = document.getElementById('actualGuestConfirmed');
+            const actualGuestCapacityBadge = document.getElementById('actualGuestCapacityBadge');
+            const actualGuestCapacityText = document.getElementById('actualGuestCapacityText');
+            const readinessActualGuestStatus = document.getElementById('readinessActualGuestStatus');
+            const checkInReadinessBadge = document.getElementById('checkInReadinessBadge');
+            const aggregateCapacityIssueText = document.getElementById('aggregateCapacityIssueText');
             const normalCheckInBox = document.getElementById('normalCheckInBox');
             const overCapacityBox = document.getElementById('overCapacityBox');
             const overCapacityAction = document.getElementById('overCapacityAction');
-            const extraFeeBox = document.getElementById('extraFeeBox');
+            const stayingGuestsPanel = document.getElementById('stayingGuestsPanel');
 
             const checkInForm = document.getElementById('checkInForm');
             const checkInSubmitButton = document.getElementById('checkInSubmitButton');
@@ -5519,8 +5565,10 @@ unset($__errorArgs, $__bag); ?>
             const earlyCheckInStandardText = document.getElementById('earlyCheckInStandardText');
             const earlyCheckInDurationText = document.getElementById('earlyCheckInDurationText');
             const earlyCheckInFinalTotalPreview = document.getElementById('earlyCheckInFinalTotalPreview');
-            const earlyCheckInConfirmModal = document.getElementById('earlyCheckInConfirmModal');
+            const earlyCheckInConfirmPanel = document.getElementById('earlyCheckInConfirmPanel');
             const confirmEarlyCheckInSubmit = document.getElementById('confirmEarlyCheckInSubmit');
+            const cancelEarlyCheckInSubmit = document.getElementById('cancelEarlyCheckInSubmit');
+            const dismissEarlyCheckInConfirm = document.getElementById('dismissEarlyCheckInConfirm');
             const checkOutForm = document.getElementById('checkOutForm');
             const checkoutLateFeeConfirm = document.getElementById('checkoutLateFeeConfirm');
             const checkoutLateFeeAmount = document.getElementById('checkoutLateFeeAmount');
@@ -5537,243 +5585,249 @@ unset($__errorArgs, $__bag); ?>
             const lateArrivalModalFormula = document.getElementById('lateArrivalModalFormula');
             const lateArrivalModalAmount = document.getElementById('lateArrivalModalAmount');
 
-            function hideAllActionBoxes() {
-                if (extraFeeBox) {
-                    extraFeeBox.classList.add('d-none');
-                }
+            const capacityFeeRows = Array.from(document.querySelectorAll('.capacity-fee-row'));
+            const allExtraFeeTotalText = document.getElementById('allExtraFeeTotalText');
+
+            function currentActualGuestState() {
+                // Dùng đúng tổng sức chứa đang hiển thị của TOÀN BỘ booking.
+                // Không đọc hidden input riêng để tránh giữ capacity cũ sau khi thêm/đổi phòng.
+                const adultCapacity = Math.max(0, parseInt(checkInActualGuestsStep?.dataset.adultCapacity || 0, 10));
+                const childCapacity = Math.max(0, parseInt(checkInActualGuestsStep?.dataset.childCapacity || 0, 10));
+                const adults = Math.max(0, parseInt(actualAdultInput?.value || 0));
+                const children = Math.max(0, parseInt(actualChildInput?.value || 0));
+                const adultOver = Math.max(0, adults - adultCapacity);
+
+                const childOver = Math.max(0, children - childCapacity);
+                const minorOver = childOver;
+
+                return {
+                    adults, children,
+                    adultCapacity, childCapacity,
+                    adultOver, childOver, minorOver,
+                    isOver: adultOver > 0 || minorOver > 0
+                };
+            }
+
+            function overCountForType(type, state = currentActualGuestState()) {
+                if (type === 'adult') return state.adultOver;
+                if (type === 'child') return state.childOver;
+                return 0;
             }
 
             function currentCheckInCapacityIsOver() {
-                if (!adultCapacityInput || !childCapacityInput || !actualAdultInput || !actualChildInput || !actualBabyInput) {
-                    return false;
+                return currentActualGuestState().isOver;
+            }
+
+            function syncFeeTableCountsFromActual() {
+                const values = {
+                    adult: Math.max(0, parseInt(actualAdultInput?.value || 0)),
+                    child: Math.max(0, parseInt(actualChildInput?.value || 0)),
+                };
+                capacityFeeRows.forEach(function (row) {
+                    const type = row.dataset.guestType;
+                    const input = row.querySelector('.capacity-fee-actual-count');
+                    if (input && Object.prototype.hasOwnProperty.call(values, type)) {
+                        input.value = values[type];
+                    }
+                });
+            }
+
+            function syncActualFromFeeTable(row) {
+                const countInput = row.querySelector('.capacity-fee-actual-count');
+                const targetId = countInput?.dataset.syncTarget;
+                const target = targetId ? document.getElementById(targetId) : null;
+                if (!countInput || !target) return;
+                const minimum = row.dataset.guestType === 'adult' ? 1 : 0;
+                const value = Math.max(minimum, parseInt(countInput.value || minimum));
+                countInput.value = value;
+                target.value = value;
+                target.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+
+            function autoSelectFeeService(row) {
+                const type = row.dataset.guestType;
+                const select = row.querySelector('.capacity-fee-service');
+                if (!select || select.value) return;
+
+                const keywords = type === 'adult'
+                    ? ['người lớn', 'nguoi lon']
+                    : ['trẻ em', 'tre em', 'trẻ'];
+                const matched = Array.from(select.options).find(function (option) {
+                    const name = (option.dataset.serviceName || option.textContent || '').toLowerCase();
+                    return keywords.some(keyword => name.includes(keyword));
+                });
+                if (matched) select.value = matched.value;
+            }
+
+            function updateCapacityFeeTable() {
+                const state = currentActualGuestState();
+                let grandTotal = 0;
+
+                capacityFeeRows.forEach(function (row) {
+                    const type = row.dataset.guestType;
+                    const serviceSelect = row.querySelector('.capacity-fee-service');
+                    const unitPriceText = row.querySelector('.capacity-fee-unit-price');
+                    const totalText = row.querySelector('.capacity-fee-total');
+                    const billedCountText = row.querySelector('.capacity-fee-billed-count');
+                    const overCount = overCountForType(type, state);
+
+                    row.classList.toggle('table-warning', overCount > 0);
+                    if (billedCountText) billedCountText.textContent = overCount > 0 ? ('Tính phí: ' + overCount) : 'Không vượt';
+                    if (serviceSelect) {
+                        serviceSelect.required = overCount > 0;
+                        if (overCount > 0) {
+                            autoSelectFeeService(row);
+                        } else {
+                            serviceSelect.value = '';
+                        }
+                    }
+
+                    const option = serviceSelect?.options[serviceSelect.selectedIndex];
+                    const price = option ? parseFloat(option.dataset.price || 0) : 0;
+                    const total = overCount * price;
+                    if (unitPriceText) unitPriceText.textContent = price > 0 ? numberFormat(price) : '0đ';
+                    if (totalText) totalText.textContent = total > 0 ? numberFormat(total) : '0đ';
+                    grandTotal += total;
+                });
+
+                if (allExtraFeeTotalText) allExtraFeeTotalText.textContent = numberFormat(grandTotal);
+            }
+
+            function capacityFeeSelectionsReady() {
+                const state = currentActualGuestState();
+                return capacityFeeRows.every(function (row) {
+                    const overCount = overCountForType(row.dataset.guestType, state);
+                    if (overCount <= 0) return true;
+                    return !!row.querySelector('.capacity-fee-service')?.value;
+                });
+            }
+
+            function updateActualGuestCapacityUi() {
+                const state = currentActualGuestState();
+                const parts = [];
+                if (state.adultOver > 0) parts.push('Vượt ' + state.adultOver + ' người lớn');
+                if (state.childOver > 0) parts.push('vượt ' + state.childOver + ' trẻ em');
+                const text = state.isOver ? parts.join(' · ') : 'Đủ sức chứa';
+
+                if (actualGuestCapacityBadge) {
+                    const confirmed = !!actualGuestConfirmed?.checked;
+                    actualGuestCapacityBadge.textContent = !confirmed ? 'Chưa xác nhận' : (state.isOver ? 'Vượt sức chứa' : 'Đã đối chiếu');
+                    actualGuestCapacityBadge.classList.toggle('status-warning', !confirmed || state.isOver);
+                    actualGuestCapacityBadge.classList.toggle('status-done', confirmed && !state.isOver);
                 }
-
-                const adultCapacity = parseInt(adultCapacityInput.value || 0);
-                const childCapacity = parseInt(childCapacityInput.value || 0);
-                const actualAdult = parseInt(actualAdultInput.value || 0);
-                const actualChild = parseInt(actualChildInput.value || 0);
-                const actualBaby = parseInt(actualBabyInput.value || 0);
-                const hasPerRoomOverCapacity = perRoomOverCapacityInput
-                    && perRoomOverCapacityInput.value === '1';
-
-                return actualAdult > adultCapacity
-                    || (actualChild + actualBaby) > childCapacity
-                    || hasPerRoomOverCapacity;
+                if (actualGuestCapacityText) actualGuestCapacityText.textContent = text;
+                if (readinessActualGuestStatus) {
+                    readinessActualGuestStatus.textContent = (actualGuestConfirmed?.checked ? 'Đã đối chiếu · ' : 'Chưa xác nhận · ') + text;
+                    readinessActualGuestStatus.classList.toggle('text-success', !!actualGuestConfirmed?.checked && !state.isOver);
+                    readinessActualGuestStatus.classList.toggle('text-warning', !actualGuestConfirmed?.checked || state.isOver);
+                }
+                if (aggregateCapacityIssueText) aggregateCapacityIssueText.textContent = state.isOver ? text + '.' : '';
             }
 
             function updateCheckInSubmitState() {
-                if (!checkInSubmitButton) {
-                    return;
-                }
-
+                if (!checkInSubmitButton) return;
                 const staticDisabled = checkInSubmitButton.dataset.staticDisabled === '1';
-                const isOver = currentCheckInCapacityIsOver();
-                const capacityResolved = !isOver || (overCapacityAction && overCapacityAction.value === 'extra_fee');
-                const disabled = staticDisabled || !capacityResolved;
-                checkInSubmitButton.disabled = disabled;
+                const state = currentActualGuestState();
+                const actualConfirmed = !!actualGuestConfirmed?.checked;
+                const enoughAdultsForRooms = state.adults >= <?php echo e(max(1, $booking->bookingRooms->count())); ?>;
+                const capacityResolved = !state.isOver || capacityFeeSelectionsReady();
+                const blocked = staticDisabled || !actualConfirmed || !enoughAdultsForRooms || !capacityResolved;
+                checkInSubmitButton.disabled = blocked;
 
-                const label = checkInSubmitButton.querySelector('.check-in-submit-label');
-                if (label) {
-                    label.textContent = staticDisabled
-                        ? (checkInSubmitButton.dataset.blockedLabel || 'Chưa thể nhận phòng')
-                        : (!capacityResolved
-                            ? (checkInSubmitButton.dataset.capacityLabel || 'Chọn cách xử lý sức chứa')
-                            : (checkInSubmitButton.dataset.readyLabel || 'Xác nhận nhận phòng'));
+                const summary = document.getElementById('checkInBlockingSummary');
+                const summaryText = document.getElementById('checkInBlockingSummaryText');
+                if (summary && summaryText) {
+                    const reasons = [];
+                    const staticReason = (summary.dataset.staticReason || '').trim();
+                    if (staticReason) reasons.push(staticReason);
+                    if (!actualConfirmed) reasons.push('Điều kiện 2 chưa xác nhận số khách thực tế.');
+                    if (!enoughAdultsForRooms) reasons.push('Số người lớn thực tế phải đủ để mỗi phòng có một người đại diện.');
+                    if (state.isOver && !capacityResolved) reasons.push('Chưa chọn đủ loại phụ thu cho phần khách vượt sức chứa.');
+                    summary.classList.toggle('d-none', !blocked);
+                    summaryText.textContent = reasons.join(' ');
                 }
             }
 
             function checkCapacity() {
-                if (!normalCheckInBox || !overCapacityBox || !overCapacityAction) {
-                    updateCheckInSubmitState();
-                    return;
+                const state = currentActualGuestState();
+                if (overCapacityBox) {
+                    overCapacityBox.classList.toggle('d-none', !state.isOver);
                 }
-
-                const isOver = currentCheckInCapacityIsOver();
-
-                if (isOver) {
-                    normalCheckInBox.classList.add('d-none');
-                    overCapacityBox.classList.remove('d-none');
-                } else {
-                    normalCheckInBox.classList.remove('d-none');
-                    overCapacityBox.classList.add('d-none');
-                    overCapacityAction.value = '';
-                    hideAllActionBoxes();
+                if (overCapacityAction) {
+                    overCapacityAction.value = state.isOver ? 'extra_fee' : '';
                 }
-
+                if (state.isOver) {
+                    const actualGuestsStep = document.getElementById('checkInActualGuestsStep');
+                    if (actualGuestsStep) actualGuestsStep.open = true;
+                }
+                updateCapacityFeeTable();
                 updateCheckInSubmitState();
             }
 
-            function toggleActionBox() {
-                if (!overCapacityAction) {
-                    updateCheckInSubmitState();
-                    return;
+            capacityFeeRows.forEach(function (row) {
+                const countInput = row.querySelector('.capacity-fee-actual-count');
+                const serviceSelect = row.querySelector('.capacity-fee-service');
+                if (countInput) {
+                    countInput.addEventListener('input', function () {
+                        syncActualFromFeeTable(row);
+                    });
                 }
-
-                hideAllActionBoxes();
-
-                if (overCapacityAction.value === 'extra_fee' && extraFeeBox) {
-                    extraFeeBox.classList.remove('d-none');
-                }
-
-                updateCheckInSubmitState();
-            }
-
-            const extraFeeRows = document.getElementById('extraFeeRows');
-            const addExtraFeeRowButton = document.getElementById('addExtraFeeRow');
-            const allExtraFeeTotalText = document.getElementById('allExtraFeeTotalText');
-
-            function updateAllExtraFeeTotals() {
-                if (!extraFeeRows || !allExtraFeeTotalText) {
-                    return;
-                }
-
-                let grandTotal = 0;
-
-                extraFeeRows.querySelectorAll('.extra-fee-row').forEach(function (row) {
-                    const serviceSelect = row.querySelector('.extra-service-select');
-                    const quantityInput = row.querySelector('.extra-quantity-input');
-                    const totalText = row.querySelector('.extra-total-text');
-
-                    if (!serviceSelect || !quantityInput || !totalText) {
-                        return;
-                    }
-
-                    const selectedOption = serviceSelect.options[serviceSelect.selectedIndex];
-                    const price = selectedOption ? parseFloat(selectedOption.dataset.price || 0) : 0;
-                    const quantity = parseInt(quantityInput.value || 1);
-                    const total = price * quantity;
-
-                    totalText.value = numberFormat(total);
-                    grandTotal += total;
-                });
-
-                allExtraFeeTotalText.textContent = numberFormat(grandTotal);
-            }
-
-            function bindExtraFeeRow(row) {
-                const roomSelect = row.querySelector('.extra-room-select');
-                const guestTypeSelect = row.querySelector('.extra-guest-type-select');
-                const serviceSelect = row.querySelector('.extra-service-select');
-                const quantityInput = row.querySelector('.extra-quantity-input');
-                const removeButton = row.querySelector('.remove-extra-fee-row');
-
-                function syncExtraFeeQuantityLimit() {
-                    if (!roomSelect || !guestTypeSelect || !quantityInput) {
-                        return;
-                    }
-
-                    const roomOption = roomSelect.options[roomSelect.selectedIndex];
-                    const guestType = guestTypeSelect.value;
-                    const maximum = guestType === 'adult'
-                        ? parseInt(roomOption?.dataset.adultOver || 0)
-                        : (guestType === 'minor' ? parseInt(roomOption?.dataset.minorOver || 0) : 0);
-
-                    if (maximum > 0) {
-                        quantityInput.max = maximum;
-                        quantityInput.value = Math.min(Math.max(1, parseInt(quantityInput.value || 1)), maximum);
-                    } else {
-                        quantityInput.removeAttribute('max');
-                    }
-
-                    updateAllExtraFeeTotals();
-                }
-
-                if (roomSelect) {
-                    roomSelect.addEventListener('change', syncExtraFeeQuantityLimit);
-                }
-
-                if (guestTypeSelect) {
-                    guestTypeSelect.addEventListener('change', syncExtraFeeQuantityLimit);
-                }
-
                 if (serviceSelect) {
-                    serviceSelect.addEventListener('change', updateAllExtraFeeTotals);
-                }
-
-                if (quantityInput) {
-                    quantityInput.addEventListener('input', updateAllExtraFeeTotals);
-                }
-
-                if (removeButton) {
-                    removeButton.addEventListener('click', function () {
-                        const rowCount = extraFeeRows.querySelectorAll('.extra-fee-row').length;
-
-                        if (rowCount <= 1) {
-                            row.querySelectorAll('select, input').forEach(function (input) {
-                                if (input.tagName === 'SELECT') {
-                                    input.value = '';
-                                } else if (input.type === 'number') {
-                                    input.value = 1;
-                                } else {
-                                    input.value = '';
-                                }
-                            });
-
-                            updateAllExtraFeeTotals();
-                            return;
-                        }
-
-                        row.remove();
-                        updateAllExtraFeeTotals();
+                    serviceSelect.addEventListener('change', function () {
+                        updateCapacityFeeTable();
+                        updateCheckInSubmitState();
                     });
                 }
-            }
+            });
 
-            if (extraFeeRows) {
-                extraFeeRows.querySelectorAll('.extra-fee-row').forEach(bindExtraFeeRow);
-            }
+            [actualAdultInput, actualChildInput].forEach(function (input) {
+                if (!input) return;
+                input.addEventListener('input', function () {
+                    syncFeeTableCountsFromActual();
+                    updateActualGuestCapacityUi();
+                    checkCapacity();
+                });
+            });
 
-            if (addExtraFeeRowButton && extraFeeRows) {
-                addExtraFeeRowButton.addEventListener('click', function () {
-                    const firstRow = extraFeeRows.querySelector('.extra-fee-row');
-
-                    if (!firstRow) {
-                        return;
-                    }
-
-                    const newRow = firstRow.cloneNode(true);
-
-                    newRow.querySelectorAll('select, input').forEach(function (input) {
-                        if (input.tagName === 'SELECT') {
-                            input.value = '';
-                        } else if (input.type === 'number') {
-                            input.value = 1;
-                        } else {
-                            input.value = '';
-                        }
-                    });
-
-                    const totalInput = newRow.querySelector('.extra-total-text');
-                    if (totalInput) {
-                        totalInput.value = '0đ';
-                    }
-
-                    extraFeeRows.appendChild(newRow);
-                    bindExtraFeeRow(newRow);
-                    updateAllExtraFeeTotals();
+            if (actualGuestConfirmed) {
+                actualGuestConfirmed.addEventListener('change', function () {
+                    updateActualGuestCapacityUi();
+                    updateCheckInSubmitState();
                 });
             }
 
-            if (actualAdultInput) {
-                actualAdultInput.addEventListener('input', checkCapacity);
-            }
-
-            if (actualChildInput) {
-                actualChildInput.addEventListener('input', checkCapacity);
-            }
-
-            if (overCapacityAction) {
-                overCapacityAction.addEventListener('change', toggleActionBox);
-            }
-
+            syncFeeTableCountsFromActual();
+            updateActualGuestCapacityUi();
             checkCapacity();
-            updateAllExtraFeeTotals();
 
             let checkInSubmitConfirmed = false;
-            let earlyCheckInModalInstance = null;
 
-            if (earlyCheckInConfirmModal && window.bootstrap && bootstrap.Modal) {
-                earlyCheckInModalInstance = new bootstrap.Modal(earlyCheckInConfirmModal);
+            function showEarlyCheckInConfirmPanel() {
+                if (!earlyCheckInConfirmPanel) return false;
+                earlyCheckInConfirmPanel.classList.remove('d-none');
+                setTimeout(function () {
+                    try {
+                        earlyCheckInConfirmPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    } catch (_) {}
+                }, 20);
+                return true;
+            }
+
+            if (earlyCheckInConfirmPanel && !earlyCheckInConfirmPanel.classList.contains('d-none')) {
+                setTimeout(function () {
+                    try {
+                        earlyCheckInConfirmPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    } catch (_) {}
+                }, 80);
+            }
+
+            function hideEarlyCheckInConfirmPanel() {
+                if (earlyCheckInConfirmPanel) {
+                    earlyCheckInConfirmPanel.classList.add('d-none');
+                }
+                if (earlyCheckInAction) {
+                    earlyCheckInAction.value = '';
+                }
             }
 
             function getEarlyCheckInConfirmMessage() {
@@ -5798,17 +5852,97 @@ unset($__errorArgs, $__bag); ?>
                     + 'Bấm Cancel nếu khách chưa đồng ý.';
             }
 
-            function submitCheckInWithEarlyFeeAccepted() {
+            function submitCheckInWithEarlyFeeAccepted(event) {
+                if (event) {
+                    event.preventDefault();
+                }
                 if (earlyCheckInAction) {
                     earlyCheckInAction.value = 'accept_fee';
                 }
 
                 checkInSubmitConfirmed = true;
-                checkInForm.submit();
+
+                // requestSubmit giữ lại submitter nên name/value=early_check_in_action=accept_fee
+                // vẫn được gửi. Fallback dùng hidden field đã set ở trên.
+                if (checkInForm.requestSubmit && confirmEarlyCheckInSubmit) {
+                    checkInForm.requestSubmit(confirmEarlyCheckInSubmit);
+                } else {
+                    checkInForm.submit();
+                }
             }
 
             if (confirmEarlyCheckInSubmit) {
                 confirmEarlyCheckInSubmit.addEventListener('click', submitCheckInWithEarlyFeeAccepted);
+            }
+            if (cancelEarlyCheckInSubmit) {
+                cancelEarlyCheckInSubmit.addEventListener('click', hideEarlyCheckInConfirmPanel);
+            }
+            if (dismissEarlyCheckInConfirm) {
+                dismissEarlyCheckInConfirm.addEventListener('click', hideEarlyCheckInConfirmPanel);
+            }
+
+            function revealInvalidCheckInControl(control) {
+                if (!control) return;
+
+                const details = control.closest('details');
+                if (details) details.open = true;
+
+                // Nếu field nằm trong bước khách thực tế đang đóng thì mở đúng bước đó,
+                // tránh cảm giác nút Nhận phòng không phản hồi vì browser chặn submit ngầm.
+                const actualGuestsStep = document.getElementById('checkInActualGuestsStep');
+                if (actualGuestsStep && (
+                    control === actualAdultInput
+                    || control === actualChildInput
+                    || control === actualGuestConfirmed
+                    || control.classList?.contains('capacity-fee-service')
+                )) {
+                    actualGuestsStep.open = true;
+                }
+
+                setTimeout(function () {
+                    try {
+                        control.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        control.focus({ preventScroll: true });
+                    } catch (_) {}
+                }, 50);
+            }
+
+            if (checkInSubmitButton && checkInForm) {
+                checkInSubmitButton.addEventListener('click', function (event) {
+                    if (checkInSubmitConfirmed || checkInSubmitButton.disabled) {
+                        return;
+                    }
+
+                    // Bắt validation ngay từ click. Submit event của browser không chạy khi
+                    // có field required không hợp lệ, trước đây tạo cảm giác bấm nút không có gì xảy ra.
+                    if (!checkInForm.checkValidity()) {
+                        event.preventDefault();
+                        const invalidControl = checkInForm.querySelector(':invalid');
+                        revealInvalidCheckInControl(invalidControl);
+                        checkInForm.reportValidity();
+                        return false;
+                    }
+
+                    const isEarly = earlyCheckInIsActive && earlyCheckInIsActive.value === '1';
+                    if (!isEarly) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    if (earlyCheckInAction) {
+                        earlyCheckInAction.value = '';
+                    }
+
+                    if (showEarlyCheckInConfirmPanel()) {
+                        return false;
+                    }
+
+                    // Fallback cực hiếm khi panel không tồn tại trong DOM.
+                    if (confirm(getEarlyCheckInConfirmMessage())) {
+                        submitCheckInWithEarlyFeeAccepted();
+                    }
+                    return false;
+                });
             }
 
             if (checkInForm) {
@@ -5819,6 +5953,8 @@ unset($__errorArgs, $__bag); ?>
 
                     const isEarly = earlyCheckInIsActive && earlyCheckInIsActive.value === '1';
 
+                    // Luồng early đã được xử lý ở click để không bị native validation nuốt mất.
+                    // Giữ fallback này cho trường hợp submit bằng Enter/requestSubmit từ script khác.
                     if (isEarly) {
                         event.preventDefault();
 
@@ -5826,8 +5962,7 @@ unset($__errorArgs, $__bag); ?>
                             earlyCheckInAction.value = '';
                         }
 
-                        if (earlyCheckInModalInstance) {
-                            earlyCheckInModalInstance.show();
+                        if (showEarlyCheckInConfirmPanel()) {
                             return false;
                         }
 
@@ -6442,49 +6577,122 @@ unset($__errorArgs, $__bag); ?>
                 });
             }
 
-            if (document.getElementById('extendCheckOutTime') && typeof flatpickr !== 'undefined') {
+            const extendStayForm = document.getElementById('extendStayPreviewForm');
+            const extendStayDate = document.getElementById('extendCheckOutDateVn');
+            const extendStayTime = document.getElementById('extendCheckOutTime');
+            const extendStayRule = document.getElementById('extendStayTimeRule');
+            const extendStaySubmit = document.getElementById('extendStayPreviewSubmit');
+
+            const validateExtendStayTime = function () {
+                if (!extendStayForm || !extendStayDate || !extendStayTime || !extendStayRule) return true;
+
+                const currentDate = extendStayForm.dataset.currentCheckoutDate || '';
+                const currentTime = extendStayForm.dataset.currentCheckoutTime || '';
+                const currentText = extendStayForm.dataset.currentCheckoutText || '';
+                const newDate = extendStayDate.value || '';
+                const newTime = extendStayTime.value || '';
+
+                let valid = true;
+                let message = 'Thời gian trả mới phải sau check-out hiện tại ' + currentText + '.';
+
+                if (newDate && currentDate && newDate < currentDate) {
+                    valid = false;
+                    message = 'Không thể gia hạn: ngày trả mới không được trước ' + currentText + '.';
+                } else if (newDate && newTime && currentDate && currentTime
+                    && newDate === currentDate && newTime <= currentTime) {
+                    valid = false;
+                    message = 'Không thể gia hạn: nếu giữ ngày ' + currentDate.split('-').reverse().join('/')
+                        + ', giờ trả mới phải sau ' + currentTime + '.';
+                }
+
+                extendStayRule.textContent = message;
+                extendStayRule.classList.toggle('text-danger', !valid);
+                extendStayRule.classList.toggle('text-muted', valid);
+                extendStayDate.classList.toggle('is-invalid', !valid && newDate !== '');
+                extendStayTime.classList.toggle('is-invalid', !valid && newTime !== '');
+                if (extendStaySubmit) extendStaySubmit.disabled = !valid;
+                return valid;
+            };
+
+            if (extendStayTime && typeof flatpickr !== 'undefined') {
                 flatpickr('#extendCheckOutTime', {
                     enableTime: true,
                     noCalendar: true,
                     dateFormat: 'H:i',
                     time_24hr: true,
                     minuteIncrement: 30,
-                    locale: 'vn'
+                    locale: 'vn',
+                    onChange: validateExtendStayTime
                 });
             }
+
+            [extendStayDate, extendStayTime].forEach(function (field) {
+                field?.addEventListener('change', validateExtendStayTime);
+                field?.addEventListener('input', validateExtendStayTime);
+            });
+            extendStayForm?.addEventListener('submit', function (event) {
+                if (!validateExtendStayTime()) event.preventDefault();
+            });
+            validateExtendStayTime();
 
             document.querySelectorAll('.js-category-room-form').forEach(function (form) {
                 const mode = form.querySelector('.js-room-assignment-mode');
                 const category = form.querySelector('.js-room-category-target');
                 const picker = form.querySelector('[data-manual-room-picker]');
-                const roomSelect = form.querySelector('.js-manual-room-select');
+                const checks = Array.from(form.querySelectorAll('.js-manual-room-check'));
+                const options = Array.from(form.querySelectorAll('.js-manual-room-option'));
+                const selectionStatus = form.querySelector('.js-manual-room-selection-status');
+                const expected = Number(form.dataset.roomCount || 1);
+
+                const chosenChecks = () => checks.filter(check => check.checked && !check.disabled);
+
+                const updateSelectionStatus = function () {
+                    if (!selectionStatus) return;
+                    const chosen = chosenChecks().length;
+                    selectionStatus.textContent = 'Đã chọn ' + chosen + '/' + expected + ' phòng.';
+                    selectionStatus.classList.toggle('text-danger', chosen > expected);
+                    selectionStatus.classList.toggle('text-success', chosen === expected);
+                };
+
+                const enforceLimit = function (changedCheck) {
+                    const chosen = chosenChecks();
+                    if (chosen.length > expected && changedCheck) {
+                        changedCheck.checked = false;
+                    }
+                    updateSelectionStatus();
+                };
 
                 const sync = function () {
                     const isManual = mode?.value === 'manual';
                     picker?.classList.toggle('d-none', !isManual);
-                    if (roomSelect) {
-                        roomSelect.disabled = !isManual;
-                        roomSelect.required = isManual;
-                        const categoryId = category?.value || '';
-                        Array.from(roomSelect.options).forEach(function (option) {
-                            if (!option.value) return;
-                            const visible = categoryId !== '' && option.dataset.categoryId === categoryId;
-                            option.hidden = !visible;
-                            option.disabled = !visible;
-                            if (!visible) option.selected = false;
-                        });
-                    }
+                    const categoryId = String(category?.value || '');
+
+                    checks.forEach(function (check) {
+                        const visible = isManual && categoryId !== '' && String(check.dataset.categoryId || '') === categoryId;
+                        check.disabled = !visible;
+                        if (!visible) check.checked = false;
+                    });
+                    options.forEach(function (option) {
+                        option.classList.toggle('d-none', categoryId === '' || String(option.dataset.categoryId || '') !== categoryId);
+                    });
+                    updateSelectionStatus();
                 };
+
+                checks.forEach(function (check) {
+                    check.addEventListener('change', function () {
+                        enforceLimit(check);
+                    });
+                });
 
                 mode?.addEventListener('change', sync);
                 category?.addEventListener('change', sync);
                 form.addEventListener('submit', function (event) {
-                    if (mode?.value !== 'manual' || !roomSelect) return;
-                    const expected = Number(form.dataset.roomCount || 1);
-                    const chosen = Array.from(roomSelect.selectedOptions).filter(option => option.value).length;
+                    if (mode?.value !== 'manual') return;
+                    const chosen = chosenChecks().length;
                     if (chosen !== expected) {
                         event.preventDefault();
-                        alert('Vui lòng chọn đúng ' + expected + ' phòng.');
+                        alert('Vui lòng tích đúng ' + expected + ' phòng.');
+                        picker?.scrollIntoView({ block: 'center', behavior: 'smooth' });
                     }
                 });
                 sync();
@@ -6494,34 +6702,97 @@ unset($__errorArgs, $__bag); ?>
                 const mode = form.querySelector('.js-room-assignment-mode');
                 const oldRoom = form.querySelector('.js-old-room-select');
                 const picker = form.querySelector('[data-manual-room-picker]');
-                const roomSelect = form.querySelector('.js-manual-room-select');
+                const checks = Array.from(form.querySelectorAll('.js-same-rank-room-check'));
+                const options = Array.from(form.querySelectorAll('.js-same-rank-room-option'));
+                const status = form.querySelector('.js-same-rank-room-status');
+
+                const updateStatus = function () {
+                    const chosen = checks.filter(check => check.checked && !check.disabled).length;
+                    if (status) {
+                        status.textContent = 'Đã chọn ' + chosen + '/1 phòng.';
+                        status.classList.toggle('text-success', chosen === 1);
+                    }
+                };
+
+                checks.forEach(function (check) {
+                    check.addEventListener('change', function () {
+                        if (check.checked) {
+                            checks.forEach(other => {
+                                if (other !== check) other.checked = false;
+                            });
+                        }
+                        updateStatus();
+                    });
+                });
 
                 const sync = function () {
                     const isManual = mode?.value === 'manual';
                     picker?.classList.toggle('d-none', !isManual);
-                    if (!roomSelect) return;
-                    roomSelect.disabled = !isManual;
-                    roomSelect.required = isManual;
-                    const categoryId = oldRoom?.selectedOptions?.[0]?.dataset?.categoryId || '';
-                    Array.from(roomSelect.options).forEach(function (option) {
-                        if (!option.value) return;
-                        const visible = categoryId !== '' && option.dataset.categoryId === categoryId;
-                        option.hidden = !visible;
-                        option.disabled = !visible;
-                        if (!visible) option.selected = false;
+                    const categoryId = String(oldRoom?.selectedOptions?.[0]?.dataset?.categoryId || '');
+                    checks.forEach(function (check) {
+                        const visible = isManual && categoryId !== '' && String(check.dataset.categoryId || '') === categoryId;
+                        check.disabled = !visible;
+                        if (!visible) check.checked = false;
                     });
+                    options.forEach(function (option) {
+                        option.classList.toggle('d-none', categoryId === '' || String(option.dataset.categoryId || '') !== categoryId);
+                    });
+                    updateStatus();
                 };
 
                 mode?.addEventListener('change', sync);
                 oldRoom?.addEventListener('change', sync);
+                form.addEventListener('submit', function (event) {
+                    if (mode?.value !== 'manual') return;
+                    const chosen = checks.filter(check => check.checked && !check.disabled).length;
+                    if (chosen !== 1) {
+                        event.preventDefault();
+                        alert('Vui lòng tích đúng 1 phòng thay thế.');
+                        picker?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    }
+                });
                 sync();
+            });
+
+            document.querySelectorAll('.js-fixed-room-checklist').forEach(function (list) {
+                const form = list.closest('form');
+                const checks = Array.from(list.querySelectorAll('.js-fixed-room-check'));
+                const expected = Math.max(1, Number(list.dataset.requiredCount || 1));
+                const status = form?.querySelector('.js-fixed-room-status');
+
+                const update = function (changedCheck = null) {
+                    let chosen = checks.filter(check => check.checked);
+                    if (chosen.length > expected && changedCheck) {
+                        changedCheck.checked = false;
+                        chosen = checks.filter(check => check.checked);
+                    }
+                    if (status) {
+                        const suffix = status.textContent.includes('Có thể dùng chính phòng dự phòng')
+                            ? ' Có thể dùng chính phòng dự phòng nếu phòng đó thực sự đáp ứng yêu cầu khách đã ghi.'
+                            : '';
+                        status.textContent = 'Đã chọn ' + chosen.length + '/' + expected + ' phòng.' + suffix;
+                        status.classList.toggle('text-success', chosen.length === expected);
+                        status.classList.toggle('text-danger', chosen.length !== expected);
+                    }
+                };
+
+                checks.forEach(check => check.addEventListener('change', () => update(check)));
+                form?.addEventListener('submit', function (event) {
+                    const chosen = checks.filter(check => check.checked).length;
+                    if (chosen !== expected) {
+                        event.preventDefault();
+                        alert('Vui lòng tích đúng ' + expected + ' phòng.');
+                        list.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    }
+                });
+                update();
             });
 
             const bookingDetailRoot = document.getElementById('bookingDetailRoot');
             const toggleSecondaryBookingInfo = document.getElementById('toggleSecondaryBookingInfo');
 
             if (bookingDetailRoot && bookingDetailRoot.classList.contains('reception-compact')) {
-                const secondaryHeadings = ['Lịch sử thao tác', 'Khách hàng', 'Lưu trú', 'Ghi chú nội bộ'];
+                const secondaryHeadings = ['Lịch sử thao tác', 'Khách hàng'];
                 bookingDetailRoot.querySelectorAll('.card-clean').forEach(function (card) {
                     const heading = card.querySelector('.card-title-clean h5');
                     if (heading && secondaryHeadings.includes(heading.textContent.trim())) {
@@ -6657,64 +6928,221 @@ document.addEventListener('DOMContentLoaded', function () {
     const quantityInput = addRoomForm.querySelector('input[name="additional_room_quantity"]');
     const modeInputs = addRoomForm.querySelectorAll('.js-add-room-assignment-mode');
     const manualWrap = addRoomForm.querySelector('.js-add-room-manual-wrap');
-    const manualSelect = addRoomForm.querySelector('.js-add-room-manual-select');
+    const checks = Array.from(addRoomForm.querySelectorAll('.js-add-room-manual-check'));
+    const options = Array.from(addRoomForm.querySelectorAll('.js-add-room-option'));
     const manualHelp = addRoomForm.querySelector('.js-add-room-manual-help');
 
-    if (!categorySelect || !quantityInput || !manualWrap || !manualSelect) return;
+    if (!categorySelect || !quantityInput || !manualWrap || checks.length === 0) return;
+
+    const selectedChecks = () => checks.filter(check => check.checked && !check.disabled);
 
     const refreshManualRooms = function () {
         const categoryId = String(categorySelect.value || '');
         let visibleCount = 0;
+        const mode = addRoomForm.querySelector('.js-add-room-assignment-mode:checked')?.value || 'auto';
+        const isManual = mode === 'manual';
 
-        Array.from(manualSelect.options).forEach(function (option) {
-            const matches = categoryId !== '' && option.dataset.categoryId === categoryId;
-            option.hidden = !matches;
-            option.disabled = !matches;
-            if (!matches) option.selected = false;
+        checks.forEach(function (check) {
+            const matches = isManual && categoryId !== '' && String(check.dataset.categoryId || '') === categoryId;
+            check.disabled = !matches;
+            if (!matches) check.checked = false;
             if (matches) visibleCount++;
+        });
+        options.forEach(function (option) {
+            option.classList.toggle('d-none', categoryId === '' || String(option.dataset.categoryId || '') !== categoryId);
         });
 
         const quantity = Math.max(1, parseInt(quantityInput.value || '1', 10));
+        const selectedCount = selectedChecks().length;
         if (manualHelp) {
             manualHelp.textContent = categoryId === ''
                 ? 'Chọn hạng phòng trước.'
-                : `Có ${visibleCount} phòng hợp lệ (chỉ Sẵn sàng/Đang dọn). Chọn đúng ${quantity} phòng.`;
+                : `Có ${visibleCount} phòng hợp lệ. Đã chọn ${selectedCount}/${quantity} phòng.`;
+            manualHelp.classList.toggle('text-success', selectedCount === quantity);
+            manualHelp.classList.toggle('text-danger', selectedCount > quantity);
         }
+    };
+
+    const enforceLimit = function (changedCheck) {
+        const quantity = Math.max(1, parseInt(quantityInput.value || '1', 10));
+        if (selectedChecks().length > quantity) changedCheck.checked = false;
+        refreshManualRooms();
     };
 
     const refreshMode = function () {
         const mode = addRoomForm.querySelector('.js-add-room-assignment-mode:checked')?.value || 'auto';
         manualWrap.classList.toggle('d-none', mode !== 'manual');
-        manualSelect.required = mode === 'manual';
-        if (mode !== 'manual') {
-            Array.from(manualSelect.options).forEach(option => option.selected = false);
-        }
+        if (mode !== 'manual') checks.forEach(check => check.checked = false);
         refreshManualRooms();
     };
 
+    checks.forEach(check => check.addEventListener('change', () => enforceLimit(check)));
     modeInputs.forEach(input => input.addEventListener('change', refreshMode));
     categorySelect.addEventListener('change', refreshManualRooms);
-    quantityInput.addEventListener('input', refreshManualRooms);
+    quantityInput.addEventListener('input', function () {
+        const quantity = Math.max(1, parseInt(quantityInput.value || '1', 10));
+        const chosen = selectedChecks();
+        chosen.slice(quantity).forEach(check => check.checked = false);
+        refreshManualRooms();
+    });
 
     addRoomForm.addEventListener('submit', function (event) {
         const mode = addRoomForm.querySelector('.js-add-room-assignment-mode:checked')?.value || 'auto';
         if (mode !== 'manual') return;
 
         const quantity = Math.max(1, parseInt(quantityInput.value || '1', 10));
-        const selected = Array.from(manualSelect.selectedOptions).filter(option => !option.disabled);
+        const selected = selectedChecks();
         if (selected.length !== quantity) {
             event.preventDefault();
             if (manualHelp) {
-                manualHelp.textContent = `Bạn đang chọn ${selected.length}/${quantity} phòng. Hãy chọn đúng số phòng cần thêm.`;
+                manualHelp.textContent = `Bạn đang chọn ${selected.length}/${quantity} phòng. Hãy tích đúng số phòng cần thêm.`;
                 manualHelp.classList.add('text-danger');
             }
-            manualSelect.focus();
+            manualWrap.scrollIntoView({ block: 'center', behavior: 'smooth' });
         } else if (manualHelp) {
             manualHelp.classList.remove('text-danger');
         }
     });
 
     refreshMode();
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const draftKey = 'booking-checkin-workflow-draft-<?php echo e($booking->id); ?>';
+    const draftMaxAgeMs = 6 * 60 * 60 * 1000;
+
+    const workflowSelectors = [
+        '#checkInForm input',
+        '#checkInForm select',
+        '#checkInForm textarea',
+        '[form="checkInForm"]',
+        '#stayingGuestsPanel form[data-staying-guest-submit] input',
+        '#stayingGuestsPanel form[data-staying-guest-submit] select',
+        '#stayingGuestsPanel form[data-staying-guest-submit] textarea',
+        '#stayingGuestsPanel [form="batchRoomRepresentativesForm"]',
+        '#stayingGuestsPanel .js-use-booker-as-role',
+        '#stayingGuestsPanel .js-booker-group-representative'
+    ];
+
+    const allDraftFields = () => Array.from(document.querySelectorAll(workflowSelectors.join(',')))
+        .filter((field, index, fields) => fields.indexOf(field) === index)
+        .filter(field => {
+            if (!field || field.disabled) return false;
+            const type = String(field.type || '').toLowerCase();
+            if (['submit', 'button', 'reset', 'file', 'password'].includes(type)) return false;
+            if (field.name === '_token' || field.name === '_method') return false;
+            return true;
+        });
+
+    const fieldKey = (field) => {
+        const roomScope = field.closest('[data-booking-room-representative]')?.getAttribute('data-booking-room-representative') || '';
+        const form = field.form || field.closest('form');
+        const action = form?.getAttribute('action') || field.getAttribute('form') || '';
+        const identity = field.name || field.id || field.getAttribute('data-booking-room-id') || field.className || '';
+        const optionValue = ['radio', 'checkbox'].includes(String(field.type || '').toLowerCase()) ? String(field.value || '1') : '';
+        return [roomScope, action, identity, optionValue].join('::');
+    };
+
+    const captureField = (field) => {
+        const type = String(field.type || '').toLowerCase();
+        if (type === 'checkbox' || type === 'radio') {
+            return { checked: !!field.checked };
+        }
+        if (field.tagName === 'SELECT' && field.multiple) {
+            return { values: Array.from(field.selectedOptions).map(option => option.value) };
+        }
+        return { value: field.value };
+    };
+
+    const saveDraft = () => {
+        try {
+            const fields = {};
+            allDraftFields().forEach(field => {
+                fields[fieldKey(field)] = captureField(field);
+            });
+            sessionStorage.setItem(draftKey, JSON.stringify({
+                savedAt: Date.now(),
+                scrollY: window.scrollY,
+                fields
+            }));
+        } catch (error) {}
+    };
+
+    const restoreField = (field, state) => {
+        if (!state) return;
+        const type = String(field.type || '').toLowerCase();
+
+        if (type === 'checkbox' || type === 'radio') {
+            field.checked = !!state.checked;
+            return;
+        }
+
+        if (field.tagName === 'SELECT' && field.multiple && Array.isArray(state.values)) {
+            Array.from(field.options).forEach(option => {
+                option.selected = state.values.includes(option.value);
+            });
+            return;
+        }
+
+        if (!Object.prototype.hasOwnProperty.call(state, 'value')) return;
+        const value = state.value ?? '';
+
+        if (field._flatpickr && value) {
+            try {
+                field._flatpickr.setDate(value, false, 'Y-m-d');
+            } catch (error) {
+                field.value = value;
+            }
+        } else {
+            field.value = value;
+        }
+    };
+
+    const restoreDraft = () => {
+        try {
+            const raw = sessionStorage.getItem(draftKey);
+            if (!raw) return;
+
+            const draft = JSON.parse(raw);
+            if (!draft || Date.now() - Number(draft.savedAt || 0) > draftMaxAgeMs) {
+                sessionStorage.removeItem(draftKey);
+                return;
+            }
+
+            const fields = draft.fields || {};
+            allDraftFields().forEach(field => restoreField(field, fields[fieldKey(field)]));
+
+            // Đồng bộ lại các phần tính toán/validation sau khi khôi phục mà không submit form.
+            allDraftFields().forEach(field => {
+                if (['hidden', 'checkbox', 'radio'].includes(String(field.type || '').toLowerCase())) return;
+                field.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+
+            if (Number.isFinite(Number(draft.scrollY))) {
+                window.setTimeout(() => window.scrollTo({ top: Number(draft.scrollY), behavior: 'auto' }), 30);
+            }
+        } catch (error) {
+            try { sessionStorage.removeItem(draftKey); } catch (ignored) {}
+        }
+    };
+
+    document.addEventListener('input', event => {
+        if (allDraftFields().includes(event.target)) saveDraft();
+    });
+    document.addEventListener('change', event => {
+        if (allDraftFields().includes(event.target)) saveDraft();
+    });
+
+    document.querySelectorAll('#checkInForm, #stayingGuestsPanel form, .js-group-representative-form').forEach(form => {
+        form.addEventListener('submit', saveDraft);
+    });
+
+    window.addEventListener('beforeunload', saveDraft);
+
+    // Chờ các date picker/script của trang khởi tạo xong rồi mới phục hồi bản nháp.
+    window.setTimeout(restoreDraft, 0);
 });
 </script>
 <?php /**PATH C:\xampp\htdocs\booking-web\resources\views/admin/pages/bookings/_workspace.blade.php ENDPATH**/ ?>

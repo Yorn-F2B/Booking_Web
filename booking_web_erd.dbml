@@ -122,7 +122,6 @@ Table bookings {
   actual_check_out timestamp
   adult_count int
   child_count int
-  baby_count int
   room_quantity int
   prefer_adjacent_rooms bool
   subtotal_amount decimal(12,2)

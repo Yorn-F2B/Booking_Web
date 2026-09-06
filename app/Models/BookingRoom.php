@@ -13,7 +13,6 @@ class BookingRoom extends Model
         'room_id',
         'adult_count',
         'child_count',
-        'baby_count',
         'price_at_booking',
         'surcharge',
         'surcharge_reason',
